@@ -82,16 +82,18 @@ MENU_ICONS = {
     BTN_SHOP: emoji.SHOP,
 }
 
+# Only the two money-making buttons are coloured; the rest stay plain, so the
+# green ones read as the actions.
 MENU_STYLES = {
-    BTN_WATCH: SUCCESS,  # the thing people came for
-    BTN_ANKETAS: SUCCESS,
-    BTN_MY_ANKETA: PRIMARY,
-    BTN_SHOP: SUCCESS,  # and the thing that pays for it
-    BTN_UPLOAD: PRIMARY,
-    BTN_PROFILE: PRIMARY,
-    BTN_FEED: PRIMARY,
-    BTN_REF: PRIMARY,
-    BTN_RULES: None,  # one plain button keeps the rest readable
+    BTN_WATCH: SUCCESS,
+    BTN_SHOP: SUCCESS,
+    BTN_ANKETAS: None,
+    BTN_MY_ANKETA: None,
+    BTN_UPLOAD: None,
+    BTN_PROFILE: None,
+    BTN_FEED: None,
+    BTN_REF: None,
+    BTN_RULES: None,
 }
 
 
