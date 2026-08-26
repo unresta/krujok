@@ -58,13 +58,43 @@ def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardBut
 
 # --- main menu: a reply keyboard that never scrolls away -----------------
 
-BTN_WATCH = "▶️ Смотреть кружки"
-BTN_UPLOAD = "🎥 Загрузить кружок"
-BTN_PROFILE = "👤 Профиль"
-BTN_FEED = "🎛 Лента"
-BTN_REF = "👥 Рефералы"
-BTN_RULES = "ℹ️ Правила и FAQ"
-BTN_SHOP = "⭐ Магазин"
+# Labels carry no emoji of their own: the icon is a separate field, and the
+# text has to stay byte-identical to what the filters match on.
+BTN_WATCH = "Смотреть кружки"
+BTN_UPLOAD = "Загрузить кружок"
+BTN_PROFILE = "Профиль"
+BTN_FEED = "Лента"
+BTN_REF = "Рефералы"
+BTN_RULES = "Правила и FAQ"
+BTN_SHOP = "Магазин"
+
+MENU_ICONS = {
+    BTN_WATCH: emoji.WATCH,
+    BTN_UPLOAD: emoji.UPLOAD,
+    BTN_PROFILE: emoji.PROFILE,
+    BTN_FEED: emoji.FEED,
+    BTN_REF: emoji.REF,
+    BTN_RULES: emoji.RULES,
+    BTN_SHOP: emoji.SHOP,
+}
+
+MENU_STYLES = {
+    BTN_WATCH: SUCCESS,  # the thing people came for
+    BTN_SHOP: SUCCESS,  # and the thing that pays for it
+    BTN_UPLOAD: PRIMARY,
+    BTN_PROFILE: PRIMARY,
+    BTN_FEED: PRIMARY,
+    BTN_REF: PRIMARY,
+    BTN_RULES: None,  # one plain button keeps the rest readable
+}
+
+
+def _menu_button(label: str) -> KeyboardButton:
+    return KeyboardButton(
+        text=label,
+        icon_custom_emoji_id=emoji.icon(MENU_ICONS[label]),
+        style=MENU_STYLES[label],
+    )
 
 
 # Menu presses must never be mistaken for an answer to a prompt.
@@ -76,10 +106,10 @@ MENU_BUTTONS = frozenset(
 def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BTN_WATCH)],
-            [KeyboardButton(text=BTN_UPLOAD), KeyboardButton(text=BTN_PROFILE)],
-            [KeyboardButton(text=BTN_FEED), KeyboardButton(text=BTN_REF)],
-            [KeyboardButton(text=BTN_RULES), KeyboardButton(text=BTN_SHOP)],
+            [_menu_button(BTN_WATCH)],
+            [_menu_button(BTN_UPLOAD), _menu_button(BTN_PROFILE)],
+            [_menu_button(BTN_FEED), _menu_button(BTN_REF)],
+            [_menu_button(BTN_RULES), _menu_button(BTN_SHOP)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -91,13 +121,15 @@ def circle(circle_id: int, likes: int, dislikes: int, vote: int) -> InlineKeyboa
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text=f"👍 {likes}",
+            text=emoji.label(emoji.LIKE) + str(likes),
             callback_data=f"lk:{circle_id}:1",
+            icon_custom_emoji_id=emoji.icon(emoji.LIKE),
             style=SUCCESS if vote == 1 else None,
         ),
         InlineKeyboardButton(
-            text=f"👎 {dislikes}",
+            text=emoji.label(emoji.DISLIKE) + str(dislikes),
             callback_data=f"lk:{circle_id}:-1",
+            icon_custom_emoji_id=emoji.icon(emoji.DISLIKE),
             style=DANGER if vote == -1 else None,
         ),
     )
@@ -150,13 +182,19 @@ def referrals(link: str) -> InlineKeyboardMarkup:
 
 def rules() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="FAQ", callback_data="faq", style=PRIMARY))
+    b.row(
+        InlineKeyboardButton(text="Прочитать FAQ", callback_data="faq", style=PRIMARY)
+    )
     return b.as_markup()
 
 
 def faq() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="Правила", callback_data="rules", style=PRIMARY))
+    b.row(
+        InlineKeyboardButton(
+            text="Прочитать Правила", callback_data="rules", style=PRIMARY
+        )
+    )
     return b.as_markup()
 
 

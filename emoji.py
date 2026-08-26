@@ -28,6 +28,17 @@ MALE = "5834583952014184479"
 ANY = "5280816565657300091"
 FILM = "5341715473882955310"
 
+# Main menu and circle reactions.
+UPLOAD = "6028115612163641653"
+WATCH = "5886583490434044162"
+PROFILE = "6035084557378654059"
+REF = "6033108709213736873"
+SHOP = "5886685105065300941"
+RULES = "5334544901428229844"
+FEED = "5463289097336405244"
+LIKE = "5307804022726467465"
+DISLIKE = "5346076867143147808"
+
 # Used until resolve() replaces them, and forever when custom emoji are off.
 FALLBACK = {
     COIN: "🪙",
@@ -35,6 +46,15 @@ FALLBACK = {
     MALE: "♂️",
     ANY: "🎲",
     FILM: "🎞️",
+    UPLOAD: "🎥",
+    WATCH: "▶️",
+    PROFILE: "👤",
+    REF: "👥",
+    SHOP: "⭐",
+    RULES: "ℹ️",
+    FEED: "🎛️",
+    LIKE: "👍",
+    DISLIKE: "👎",
 }
 
 # Ids Telegram confirmed — only these are allowed to render as custom emoji.
