@@ -38,6 +38,7 @@ router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
 
 BROADCAST_PAUSE = 0.05  # ~20 messages per second, below Telegram's limit
 BROADCAST_PROGRESS_EVERY = 25
+BULK_EDIT_EVERY = 2.0  # seconds; Telegram rate-limits edits of one message
 
 
 class Admin(StatesGroup):
@@ -235,16 +236,42 @@ async def cb_bulk(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
+class BulkSession:
+    """Counters for one bulk run.
+
+    They cannot live in FSM state: aiogram handles updates concurrently, so a
+    read-modify-write of state data loses increments under a flood of circles.
+    One lock per session serialises both the counting and the inserts, and the
+    added count is taken from the table rather than from arithmetic.
+    """
+
+    def __init__(self, gender: str, panel_chat: int, panel_id: int, start: int):
+        self.gender = gender
+        self.panel_chat = panel_chat
+        self.panel_id = panel_id
+        self.start_total = start
+        self.received = 0
+        self.added = 0
+        self.lock = asyncio.Lock()
+        self.last_edit = 0.0
+
+
+_sessions: dict[int, BulkSession] = {}
+
+
 @router.callback_query(F.data.startswith("a:bulk:"))
 async def cb_bulk_gender(call: CallbackQuery, state: FSMContext) -> None:
     gender = call.data.split(":")[2]
+    if gender == "done":
+        await cb_bulk_done(call, state)
+        return
+
     await state.set_state(Admin.bulk)
-    await state.update_data(
+    _sessions[call.from_user.id] = BulkSession(
         gender=gender,
-        added=0,
-        dupes=0,
         panel_chat=call.message.chat.id,
         panel_id=call.message.message_id,
+        start=await db.total_circles(),
     )
     await _edit(call, _bulk_text(gender, 0, 0), _bulk_done_kb())
     await call.answer()
@@ -253,7 +280,9 @@ async def cb_bulk_gender(call: CallbackQuery, state: FSMContext) -> None:
 def _bulk_done_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="Готово", callback_data="a:home", style=kb.DANGER)
+        InlineKeyboardButton(
+            text="Готово", callback_data="a:bulk:done", style=kb.DANGER
+        )
     )
     return b.as_markup()
 
@@ -269,30 +298,72 @@ def _bulk_text(gender: str, added: int, dupes: int) -> str:
 
 @router.message(Admin.bulk, F.video_note)
 async def bulk_receive(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
+    session = _sessions.get(message.from_user.id)
+    if session is None:  # bot restarted mid-run
+        await state.clear()
+        await message.answer("Сессия загрузки потерялась, открой /admin заново.")
+        return
+
     note = message.video_note
-
-    circle_id = await db.add_circle(
-        file_id=note.file_id,
-        file_unique_id=note.file_unique_id,
-        uploader_id=0,  # house-owned
-        gender=data["gender"],
-        duration=note.duration,
-        status="approved",
-    )
-    added = data["added"] + (1 if circle_id else 0)
-    dupes = data["dupes"] + (0 if circle_id else 1)
-    await state.update_data(added=added, dupes=dupes)
-
-    with suppress(TelegramAPIError):  # panel edits are best-effort under a flood
-        await message.bot.edit_message_text(
-            chat_id=data["panel_chat"],
-            message_id=data["panel_id"],
-            text=_bulk_text(data["gender"], added, dupes),
-            reply_markup=_bulk_done_kb(),
+    async with session.lock:
+        circle_id = await db.add_circle(
+            file_id=note.file_id,
+            file_unique_id=note.file_unique_id,
+            uploader_id=0,  # house-owned
+            gender=session.gender,
+            duration=note.duration,
+            status="approved",
         )
+        session.received += 1
+        session.added = await db.total_circles() - session.start_total
+        if circle_id is None:
+            logger.info("bulk: duplicate %s skipped", note.file_unique_id)
+
+        now = asyncio.get_running_loop().time()
+        stale = now - session.last_edit > BULK_EDIT_EVERY
+        if stale:  # Telegram rate-limits edits, so the panel refreshes on a timer
+            session.last_edit = now
+
+    if stale:
+        await _bulk_refresh(message.bot, session)
     with suppress(TelegramAPIError):  # a tick per circle, so the flood stays readable
         await message.react([ReactionTypeEmoji(emoji="👍" if circle_id else "🤔")])
+
+
+async def _bulk_refresh(bot: Bot, session: BulkSession) -> None:
+    with suppress(TelegramAPIError):
+        await bot.edit_message_text(
+            chat_id=session.panel_chat,
+            message_id=session.panel_id,
+            text=_bulk_text(
+                session.gender, session.added, session.received - session.added
+            ),
+            reply_markup=_bulk_done_kb(),
+        )
+
+
+@router.callback_query(F.data == "a:bulk:done")
+async def cb_bulk_done(call: CallbackQuery, state: FSMContext) -> None:
+    session = _sessions.pop(call.from_user.id, None)
+    await state.clear()
+    if session is None:
+        await show_home(call, state)
+        await call.answer()
+        return
+
+    async with session.lock:  # let the last circles land before counting
+        session.added = await db.total_circles() - session.start_total
+    total = await db.total_circles()
+    await _edit(
+        call,
+        f"<b>Загрузка закончена</b>\n\n"
+        f"Прислано: {session.received}\n"
+        f"Добавлено: <b>{session.added}</b>\n"
+        f"Дублей пропущено: {session.received - session.added}\n\n"
+        f"Всего в базе: {total}",
+        back_kb(),
+    )
+    await call.answer()
 
 
 @router.message(Admin.bulk)
