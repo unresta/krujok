@@ -459,6 +459,37 @@ async def got_circle_id(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.message(Command("wipe_circles"))
+async def wipe_cmd(message: Message) -> None:
+    """Nukes the circle base. Two steps on purpose — there is no undo."""
+    d = await db.dashboard()
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Да, удалить всё", callback_data="a:wipe:go", style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="Отмена", callback_data="a:home", style=kb.PRIMARY)
+    )
+    await message.answer(
+        "<b>Удалить все кружочки?</b>\n\n"
+        f"Под нож пойдут {d['circles']} кружков и {d['views']} просмотров, "
+        "нумерация начнётся с #1.\n"
+        "Балансы, платежи и пользователи останутся.\n\n"
+        "Отменить будет нельзя.",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:wipe:go")
+async def cb_wipe(call: CallbackQuery) -> None:
+    total = await db.wipe_circles()
+    logger.warning("circle base wiped by %s (%s circles)", call.from_user.id, total)
+    await call.answer("Готово", show_alert=True)
+    await _edit(call, f"Удалено кружков: <b>{total}</b>. База пуста.", back_kb())
+
+
 @router.callback_query(F.data.startswith("a:c:del:"))
 async def cb_circle_delete(call: CallbackQuery) -> None:
     circle_id = int(call.data.split(":")[3])

@@ -263,6 +263,19 @@ async def delete_circle(circle_id: int) -> bool:
     return cur.rowcount > 0
 
 
+async def wipe_circles() -> int:
+    """Drop every circle and every view. Balances and payments stay untouched.
+
+    The AUTOINCREMENT counter is reset too, so numbering starts from #1 again.
+    """
+    total = await total_circles()
+    await conn().execute("DELETE FROM circles")
+    await conn().execute("DELETE FROM views")
+    await conn().execute("DELETE FROM sqlite_sequence WHERE name = 'circles'")
+    await conn().commit()
+    return total
+
+
 async def total_circles() -> int:
     """Every circle ever uploaded — that is the number shown to uploaders."""
     async with conn().execute("SELECT COUNT(*) FROM circles") as cur:
