@@ -43,7 +43,9 @@ def gate_on() -> bool:
 
 async def is_subscribed(bot: Bot, user_id: int) -> bool:
     channel = settings.get_text("channel").strip()
-    if not channel or user_id in ADMIN_IDS:
+    if not channel:
+        return True
+    if user_id in ADMIN_IDS:  # an admin locked out of the panel cannot fix the gate
         return True
     if _confirmed.get(user_id, 0.0) > time.monotonic():
         return True
@@ -51,12 +53,16 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(channel, user_id)
     except TelegramAPIError as error:
-        logger.warning("subscription check failed for %s: %s", channel, error)
+        logger.warning(
+            "gate: cannot check %s in %s (%s) — letting the user in",
+            user_id, channel, error,
+        )
         return True  # never lock the bot on a broken setting
 
     if member.status in MEMBER_STATUSES:
         _confirmed[user_id] = time.monotonic() + SUB_CACHE
         return True
+    logger.info("gate: %s is %s in %s, blocked", user_id, member.status, channel)
     _confirmed.pop(user_id, None)
     return False
 

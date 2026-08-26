@@ -245,6 +245,30 @@ async def _channel_status(bot: Bot, channel: str) -> str:
     return "🟢 Бот админ канала, подписка проверяется."
 
 
+@router.message(Command("gate"))
+async def gate_cmd(message: Message) -> None:
+    """Why the gate is or is not stopping anyone, without any of the shortcuts."""
+    channel = settings.get_text("channel").strip()
+    if not channel:
+        await message.answer(
+            "Канал не задан — подписка выключена, бот пускает всех.\n"
+            "Задать: /admin → «Подписка на канал»."
+        )
+        return
+
+    lines = [f"Канал: <code>{channel}</code>", await _channel_status(message.bot, channel)]
+    try:
+        member = await message.bot.get_chat_member(channel, message.from_user.id)
+        lines.append(f"Твой статус в канале: <code>{member.status}</code>")
+    except TelegramAPIError as error:
+        lines.append(f"🔴 Проверить тебя не вышло: {error}")
+    lines.append(
+        "⚠️ Ты в ADMIN_IDS — тебя гейт пропускает всегда, "
+        "проверяй на обычном аккаунте."
+    )
+    await message.answer("\n".join(lines))
+
+
 @router.callback_query(F.data == "a:chan:set")
 async def cb_channel_set(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.channel)
