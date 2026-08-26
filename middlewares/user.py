@@ -82,9 +82,9 @@ class UserMiddleware(BaseMiddleware):
         markup = await access.gate_keyboard(bot)
         if isinstance(event, CallbackQuery):
             await event.answer()
-            await event.message.answer(texts.SUBSCRIBE, reply_markup=markup)
+            await event.message.answer(texts.subscribe(), reply_markup=markup)
         elif isinstance(event, Message):
-            await event.answer(texts.SUBSCRIBE, reply_markup=markup)
+            await event.answer(texts.subscribe(), reply_markup=markup)
 
     @staticmethod
     async def _welcome(event: TelegramObject) -> None:

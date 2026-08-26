@@ -12,6 +12,7 @@ fails, and the gate opens rather than locking every user out of the bot.
 import logging
 import string
 import time
+from contextlib import suppress
 
 from aiogram import Bot
 from aiogram.enums import ChatMemberStatus
@@ -22,6 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import db
 import keyboards as kb
 import settings
+import texts
 from config import ADMIN_IDS, SUB_CACHE
 
 logger = logging.getLogger(__name__)
@@ -62,11 +64,21 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
 
     if member.status in MEMBER_STATUSES:
         _confirmed[user_id] = time.monotonic() + SUB_CACHE
-        await db.mark_subscribed(user_id)  # at most once per cache period
+        if await db.mark_subscribed(user_id):  # first confirmation ever
+            await _pay_subscription(bot, user_id)
         return True
     logger.info("gate: %s is %s in %s, blocked", user_id, member.status, channel)
     _confirmed.pop(user_id, None)
     return False
+
+
+async def _pay_subscription(bot: Bot, user_id: int) -> None:
+    bonus = settings.get("sub_bonus")
+    if not bonus:
+        return
+    await db.add_coins(user_id, bonus)
+    with suppress(TelegramAPIError):  # the toast is nice to have, not required
+        await bot.send_message(user_id, texts.sub_bonus(bonus))
 
 
 def forget(user_id: int) -> None:

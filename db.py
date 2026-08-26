@@ -416,11 +416,14 @@ async def set_campaign_spend(code: str, spend: int) -> None:
     await conn().commit()
 
 
-async def mark_subscribed(user_id: int) -> None:
-    await conn().execute(
+async def mark_subscribed(user_id: int) -> bool:
+    """True the first time only — the subscription bonus rides on this."""
+    await ensure_user(user_id)  # the row may not exist yet on a first touch
+    cur = await conn().execute(
         "UPDATE users SET subscribed = 1 WHERE id = ? AND subscribed = 0", (user_id,)
     )
     await conn().commit()
+    return cur.rowcount > 0
 
 
 async def delete_campaign(code: str) -> bool:
