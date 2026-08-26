@@ -51,7 +51,7 @@ async def got_video(message: Message, state: FSMContext) -> None:
     if await db.pending_count(message.from_user.id) >= settings.get("max_pending"):
         await message.answer(texts.TOO_MANY_PENDING, reply_markup=kb.back())
         return
-    if note.duration < settings.get("min_duration"):
+    if note.duration < settings.get("min_duration_short"):
         await message.answer(texts.too_short(note.duration), reply_markup=kb.back())
         return
 
@@ -90,15 +90,17 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
     if circle_id is None:
         return texts.DUPLICATE
 
+    reward = settings.reward(gender, data["duration"])
+    short = data["duration"] < settings.get("min_duration")
     await bot.send_video_note(ADMIN_CHAT_ID, data["file_id"])
     who = author.username and f"@{author.username}" or "—"
     admin_msg = await bot.send_message(
         ADMIN_CHAT_ID,
         f"#на_проверку <b>#{circle_id}</b>\n"
-        f"Тип: {kb.PREF_TITLE(gender)} (+{settings.reward(gender)} {texts.coin()})\n"
-        f"Длина: {data['duration']} сек\n"
+        f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
+        f"Длина: {data['duration']} сек{' · короткий' if short else ''}\n"
         f"Автор: <code>{author.id}</code> {who}",
         reply_markup=kb.moderation(circle_id),
     )
     await db.set_admin_msg(circle_id, admin_msg.message_id)
-    return texts.upload_sent(circle_id)
+    return texts.upload_sent(circle_id, reward, short)

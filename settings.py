@@ -15,6 +15,9 @@ DEFAULTS: dict[str, int] = {
     "stars_rate": config.STARS_RATE,
     "min_stars": config.MIN_STARS,
     "min_duration": config.MIN_DURATION,
+    "min_duration_short": config.MIN_DURATION_SHORT,
+    "reward_f_short": config.REWARD_SHORT["f"],
+    "reward_m_short": config.REWARD_SHORT["m"],
     "max_pending": config.MAX_PENDING,
     "ref_reward": config.REF_REWARD,
     "maintenance": 0,
@@ -31,7 +34,10 @@ TITLES: dict[str, str] = {
     "reward_m": "Награда за мужской",
     "stars_rate": "Монеток за 1 ⭐",
     "min_stars": "Минимум ⭐ за раз",
-    "min_duration": "Мин. длина, сек",
+    "min_duration": "Полная награда от, сек",
+    "min_duration_short": "Принимаем от, сек",
+    "reward_f_short": "Короткий женский",
+    "reward_m_short": "Короткий мужской",
     "max_pending": "Кружков на проверке",
     "ref_reward": "За реферала",
 }
@@ -43,6 +49,9 @@ LIMITS: dict[str, tuple[int, int]] = {
     "stars_rate": (1, 1000),
     "min_stars": (1, 10_000),
     "min_duration": (1, 60),
+    "min_duration_short": (1, 60),
+    "reward_f_short": (0, 1000),
+    "reward_m_short": (0, 1000),
     "max_pending": (1, 100),
     "ref_reward": (0, 1000),
 }
@@ -62,8 +71,10 @@ def get(key: str) -> int:
     return _values[key]
 
 
-def reward(gender: str) -> int:
-    return _values["reward_f" if gender == "f" else "reward_m"]
+def reward(gender: str, duration: int | None = None) -> int:
+    """Full price by default; a circle under min_duration is worth less."""
+    short = duration is not None and duration < _values["min_duration"]
+    return _values[f"reward_{gender}{'_short' if short else ''}"]
 
 
 def maintenance() -> bool:

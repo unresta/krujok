@@ -38,10 +38,11 @@ async def review(call: CallbackQuery) -> None:
 
     uploader = circle["uploader_id"]
     if status == "approved":
-        reward = settings.reward(circle["gender"])
+        reward = settings.reward(circle["gender"], circle["duration"])
+        short = circle["duration"] < settings.get("min_duration")
         await db.add_coins(uploader, reward)
         balance = (await db.get_user(uploader))["coins"]
-        note = texts.approved(reward, balance)
+        note = texts.approved(reward, balance, short)
     else:
         note = texts.REJECTED
 

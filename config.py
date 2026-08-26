@@ -19,7 +19,9 @@ PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "Fal
 # --- economy ---
 WATCH_COST = 2
 REWARD = {"f": 5, "m": 3}
-MIN_DURATION = 8  # seconds
+MIN_DURATION = 8  # seconds; from here up a circle earns the full reward
+MIN_DURATION_SHORT = 3  # shorter than this is not accepted at all
+REWARD_SHORT = {"f": 3, "m": 2}  # paid for a circle under MIN_DURATION
 STARS_RATE = 3  # coins per star
 MIN_STARS = 20
 MAX_STARS = 100_000

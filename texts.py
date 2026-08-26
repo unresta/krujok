@@ -42,10 +42,14 @@ UPLOAD_PICK_GENDER = "Какой кружок будешь загружать?"
 
 def upload_ask(gender: str) -> str:
     kind = "женский" if gender == "f" else "мужской"
+    full = settings.get("min_duration")
+    floor = settings.get("min_duration_short")
     return (
         f"🎥 Пришли {kind} кружок одним сообщением.\n\n"
-        f'• минимум {settings.get("min_duration")} сек\n'
-        f"• +{settings.reward(gender)} {coin()} после проверки модератором"
+        f"• от {full} сек — <b>+{settings.reward(gender)}</b> {coin()}\n"
+        f"• {floor}–{full - 1} сек — <b>+{settings.reward(gender, floor)}</b> {coin()}\n"
+        f"• короче {floor} сек не принимаем\n\n"
+        "Монетки придут после проверки модератором."
     )
 
 
@@ -54,8 +58,8 @@ NOT_A_CIRCLE = "Это не кружок. Зажми 🎥 в поле ввода
 
 def too_short(duration: int) -> str:
     return (
-        f"Кружок {duration} сек — коротко. "
-        f'Нужно от {settings.get("min_duration")} сек.'
+        f"Кружок {duration} сек — совсем коротко. "
+        f'Принимаем от {settings.get("min_duration_short")} сек.'
     )
 
 
@@ -64,16 +68,18 @@ TOO_MANY_PENDING = "У тебя уже несколько кружков на п
 UPLOAD_ASK_GENDER = "Какой это кружок?"
 
 
-def upload_sent(circle_id: int) -> str:
+def upload_sent(circle_id: int, reward: int, short: bool) -> str:
+    note = " как короткий" if short else ""
     return (
-        f"✅ Кружок <b>#{circle_id}</b> отправлен на проверку.\n"
-        "Монетки придут после одобрения."
+        f"✅ Кружок <b>#{circle_id}</b> отправлен на проверку{note}.\n"
+        f"После одобрения: <b>+{reward}</b> {coin()}"
     )
 
 
-def approved(reward: int, coins: int) -> str:
+def approved(reward: int, coins: int, short: bool) -> str:
+    note = " (короткий, поэтому меньше)" if short else ""
     return (
-        f"🟢 Твой кружок одобрен: <b>+{reward}</b> {coin()}\n"
+        f"🟢 Твой кружок одобрен: <b>+{reward}</b> {coin()}{note}\n"
         f"Баланс: <b>{coins}</b>"
     )
 

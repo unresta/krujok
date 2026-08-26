@@ -124,7 +124,8 @@ def upload_gender() -> InlineKeyboardMarkup:
         *[
             InlineKeyboardButton(
                 text=emoji.label(GENDER_EMOJI[g])
-                + f"{'Женский' if g == 'f' else 'Мужской'} · +{settings.reward(g)}",
+                + f"{'Женский' if g == 'f' else 'Мужской'} · "
+                + f"+{settings.reward(g)}",
                 callback_data=f"ug:{g}",
                 icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
                 style=SUCCESS,
