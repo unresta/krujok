@@ -23,8 +23,8 @@ from config import PREMIUM_EMOJI
 logger = logging.getLogger(__name__)
 
 COIN = "5471952986970267163"
-FEMALE = "5834583952014184479"
-MALE = "5834515786588229330"
+FEMALE = "5834515786588229330"
+MALE = "5834583952014184479"
 ANY = "5280816565657300091"
 FILM = "5341715473882955310"
 
@@ -78,6 +78,11 @@ def text(emoji_id: str) -> str:
 def icon(emoji_id: str) -> str | None:
     """Value for InlineKeyboardButton.icon_custom_emoji_id."""
     return emoji_id if emoji_id in _resolved else None
+
+
+def plain(emoji_id: str) -> str:
+    """Bare emoji, for button labels where the icon slot cannot be used."""
+    return FALLBACK[emoji_id]
 
 
 def label(emoji_id: str) -> str:

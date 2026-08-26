@@ -51,15 +51,15 @@ def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardBut
 
 def menu(pref: str, has_coins: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(_coin_button(f"Смотреть · {WATCH_COST}", "watch", PRIMARY))
+    kb.row(
+        InlineKeyboardButton(text="Профиль", callback_data="profile", style=PRIMARY)
+    )
     kb.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
     kb.row(
         _coin_button("Заработать", "upload", SUCCESS),
         _coin_button("Купить", "buy", SUCCESS),
     )
-    kb.row(
-        InlineKeyboardButton(text="Профиль", callback_data="profile", style=PRIMARY)
-    )
+    kb.row(_coin_button(f"Смотреть · {WATCH_COST}", "watch", PRIMARY))
     return kb.as_markup()
 
 
@@ -114,8 +114,14 @@ def upload_gender() -> InlineKeyboardMarkup:
 
 def buy() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    # The coin goes last here, so it cannot be the button icon (that slot always
+    # renders first) — a plain emoji in the label is the only way round it.
     packs = [
-        _coin_button(f"{stars} ⭐ = {stars * STARS_RATE}", f"pay:{stars}", SUCCESS)
+        InlineKeyboardButton(
+            text=f"{stars} ⭐ = {stars * STARS_RATE} {emoji.plain(emoji.COIN)}",
+            callback_data=f"pay:{stars}",
+            style=SUCCESS,
+        )
         for stars in STAR_PACKS
     ]
     kb.row(*packs[:2])
