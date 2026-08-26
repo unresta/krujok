@@ -67,9 +67,13 @@ BTN_FEED = "Лента"
 BTN_REF = "Рефералы"
 BTN_RULES = "Правила и FAQ"
 BTN_SHOP = "Магазин"
+BTN_ANKETAS = "Смотреть анкеты"
+BTN_MY_ANKETA = "Моя анкета"
 
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
+    BTN_ANKETAS: emoji.PROFILE,
+    BTN_MY_ANKETA: emoji.UPLOAD,
     BTN_UPLOAD: emoji.UPLOAD,
     BTN_PROFILE: emoji.PROFILE,
     BTN_FEED: emoji.FEED,
@@ -80,6 +84,8 @@ MENU_ICONS = {
 
 MENU_STYLES = {
     BTN_WATCH: SUCCESS,  # the thing people came for
+    BTN_ANKETAS: SUCCESS,
+    BTN_MY_ANKETA: PRIMARY,
     BTN_SHOP: SUCCESS,  # and the thing that pays for it
     BTN_UPLOAD: PRIMARY,
     BTN_PROFILE: PRIMARY,
@@ -99,7 +105,17 @@ def _menu_button(label: str) -> KeyboardButton:
 
 # Menu presses must never be mistaken for an answer to a prompt.
 MENU_BUTTONS = frozenset(
-    {BTN_WATCH, BTN_UPLOAD, BTN_PROFILE, BTN_FEED, BTN_REF, BTN_RULES, BTN_SHOP}
+    {
+        BTN_WATCH,
+        BTN_ANKETAS,
+        BTN_UPLOAD,
+        BTN_MY_ANKETA,
+        BTN_PROFILE,
+        BTN_FEED,
+        BTN_REF,
+        BTN_RULES,
+        BTN_SHOP,
+    }
 )
 
 
@@ -107,9 +123,11 @@ def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [_menu_button(BTN_WATCH)],
-            [_menu_button(BTN_UPLOAD), _menu_button(BTN_PROFILE)],
-            [_menu_button(BTN_FEED), _menu_button(BTN_REF)],
-            [_menu_button(BTN_RULES), _menu_button(BTN_SHOP)],
+            [_menu_button(BTN_ANKETAS)],
+            [_menu_button(BTN_UPLOAD), _menu_button(BTN_MY_ANKETA)],
+            [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
+            [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
+            [_menu_button(BTN_SHOP)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -151,6 +169,9 @@ def feed(pref: str) -> InlineKeyboardMarkup:
 def profile(link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
+    b.row(
+        InlineKeyboardButton(text="Вывести заработок", callback_data="po:open", style=PRIMARY)
+    )
     b.row(
         InlineKeyboardButton(
             text="Позвать друга",
@@ -194,6 +215,143 @@ def faq() -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="Прочитать Правила", callback_data="rules", style=PRIMARY
         )
+    )
+    return b.as_markup()
+
+
+# --- author profiles -----------------------------------------------------
+
+
+def profile_card(profile, bought_content: bool, bought_contact: bool) -> InlineKeyboardMarkup:
+    """The buy buttons disappear once the thing is already owned."""
+    author = profile["user_id"]
+    b = InlineKeyboardBuilder()
+    if bought_content:
+        b.row(
+            InlineKeyboardButton(
+                text="Кружочки автора", callback_data=f"pf:show:{author}", style=SUCCESS
+            )
+        )
+    else:
+        b.row(
+            _coin_button(
+                f"Купить за {profile['price_content']}", f"pf:buy:{author}", SUCCESS
+            )
+        )
+    if profile["contact_ok"] and profile["price_contact"]:
+        b.row(
+            _coin_button(
+                "Личка автора" if bought_contact
+                else f"Написать в ЛС · {profile['price_contact']}",
+                f"pf:contact:{author}",
+                PRIMARY,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="Следующая анкета", callback_data="pf:next", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Пожаловаться", callback_data=f"pf:rep:{author}", style=DANGER
+        )
+    )
+    return b.as_markup()
+
+
+def profile_gender() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        *[
+            InlineKeyboardButton(
+                text=emoji.label(GENDER_EMOJI[g]) + ("Женские" if g == "f" else "Мужские"),
+                callback_data=f"pg:{g}",
+                icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
+                style=SUCCESS,
+            )
+            for g in ("f", "m")
+        ]
+    )
+    return b.as_markup()
+
+
+def profile_contact_ask(has_username: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if has_username:
+        b.row(
+            InlineKeyboardButton(text="Продавать", callback_data="pc:yes", style=SUCCESS),
+            InlineKeyboardButton(text="Не продавать", callback_data="pc:no", style=DANGER),
+        )
+    else:
+        b.row(
+            InlineKeyboardButton(text="Понятно", callback_data="pc:no", style=PRIMARY)
+        )
+    return b.as_markup()
+
+
+def my_profile(exists: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Изменить анкету" if exists else "Заполнить анкету",
+            callback_data="pf:edit",
+            style=SUCCESS,
+        )
+    )
+    return b.as_markup()
+
+
+def profile_review(user_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Одобрить", callback_data=f"pm:ok:{user_id}", style=SUCCESS
+        ),
+        InlineKeyboardButton(
+            text="Отклонить", callback_data=f"pm:no:{user_id}", style=DANGER
+        ),
+    )
+    return b.as_markup()
+
+
+def profile_report_review(user_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Скрыть анкету", callback_data=f"pm:hide:{user_id}", style=DANGER
+        ),
+        InlineKeyboardButton(
+            text="Оставить", callback_data=f"pm:keep:{user_id}", style=SUCCESS
+        ),
+    )
+    return b.as_markup()
+
+
+# --- payouts -------------------------------------------------------------
+
+
+def payout(can_request: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if can_request:
+        b.row(
+            InlineKeyboardButton(
+                text="Оформить вывод", callback_data="po:new", style=SUCCESS
+            )
+        )
+    b.row(InlineKeyboardButton(text="Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def payout_review(payout_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Выплачено", callback_data=f"pw:paid:{payout_id}", style=SUCCESS
+        ),
+        InlineKeyboardButton(
+            text="Отклонить", callback_data=f"pw:no:{payout_id}", style=DANGER
+        ),
     )
     return b.as_markup()
 

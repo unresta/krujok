@@ -6,6 +6,7 @@ known after emoji.resolve() has run against Telegram.
 
 import emoji
 import settings
+from config import ABOUT_MAX
 from keyboards import PREF_TITLE
 
 
@@ -32,14 +33,11 @@ def feed(pref: str) -> str:
 
 def rules() -> str:
     full = settings.get("min_duration")
-    floor = settings.get("min_duration_short")
     return (
         "ℹ️ <b>Правила сервиса</b>\n\n"
         "• Запрещены материалы: ЛГБТ, обнажённые видео пользователей до 18 лет, "
         "реклама, спам, оскорбления и незаконный контент\n"
-        f"• Полная награда — за кружок от {full} секунд; "
-        f"от {floor} до {full - 1} секунд принимаем за меньшую цену, "
-        f"короче {floor} секунд — нет\n"
+        f"• Минимальная длина кружка = {full} секунд\n"
         "• Уважай других пользователей и не злоупотребляй жалобами\n\n"
         "За нарушение правил доступ к боту может быть ограничен без предупреждения."
     )
@@ -55,10 +53,19 @@ def faq() -> str:
         f"<b>Сколько стоит просмотр?</b>\n"
         f"{settings.get('watch_cost')} монетки за кружок. "
         "Один и тот же кружок дважды не попадётся, свои — не показываются.\n\n"
-        "<b>Как заработать на своих кружочках?</b>\n"
-        f"Каждый платный просмотр твоего кружка приносит "
-        f"{settings.get('view_payout')} монетку, каждый лайк — "
-        f"{settings.get('like_bonus')}. Смотри «Профиль».\n\n"
+        "<b>Как заработать?</b>\n"
+        f"Платный просмотр твоего кружка приносит {settings.get('view_payout')} "
+        f"монетку, лайк — {settings.get('like_bonus')}. А главное — анкета: "
+        f"другие покупают доступ ко всем твоим кружочкам или твою личку, и тебе "
+        f"достаётся {settings.get('author_share')}% от цены.\n\n"
+        "<b>Что такое анкета?</b>\n"
+        "Витрина: фото, описание и твои цены. Заполняется в «Моя анкета», "
+        "проходит проверку, потом её показывают в «Смотреть анкеты».\n\n"
+        "<b>Как вывести заработанное?</b>\n"
+        f"В «Профиле» кнопка «Вывести заработок»: от {settings.get('payout_min')} "
+        f"монеток, курс {settings.get('payout_rate')} монетки = 1 ⭐. Выводятся "
+        "только заработанные монетки, купленные за ⭐ — нет. Заявку закрывает "
+        "админ вручную.\n\n"
         "<b>Почему кружок не приняли?</b>\n"
         "Либо он короче минимума, либо такой уже есть в базе, либо модератор "
         "счёл его нарушающим правила.\n\n"
@@ -106,14 +113,10 @@ UPLOAD_PICK_GENDER = "Какой кружок будешь загружать?"
 
 def upload_ask(gender: str) -> str:
     kind = "женский" if gender == "f" else "мужской"
-    full = settings.get("min_duration")
-    floor = settings.get("min_duration_short")
     return (
         f"🎥 Пришли {kind} кружок одним сообщением.\n\n"
-        f"• от {full} сек — <b>+{settings.reward(gender)}</b> {coin()}\n"
-        f"• {floor}–{full - 1} сек — <b>+{settings.reward(gender, floor)}</b> {coin()}\n"
-        f"• короче {floor} сек не принимаем\n\n"
-        "Монетки придут после проверки модератором."
+        f'• минимум {settings.get("min_duration")} секунд\n'
+        f"• <b>+{settings.reward(gender)}</b> {coin()} после проверки модератором"
     )
 
 
@@ -122,8 +125,8 @@ NOT_A_CIRCLE = "Это не кружок. Зажми 🎥 в поле ввода
 
 def too_short(duration: int) -> str:
     return (
-        f"Кружок {duration} сек — совсем коротко. "
-        f'Принимаем от {settings.get("min_duration_short")} сек.'
+        f"Кружок {duration} сек — коротко. "
+        f'Минимальная длина: {settings.get("min_duration")} секунд.'
     )
 
 
@@ -132,18 +135,16 @@ TOO_MANY_PENDING = "У тебя уже несколько кружков на п
 UPLOAD_ASK_GENDER = "Какой это кружок?"
 
 
-def upload_sent(circle_id: int, reward: int, short: bool) -> str:
-    note = " как короткий" if short else ""
+def upload_sent(circle_id: int, reward: int) -> str:
     return (
-        f"✅ Кружок <b>#{circle_id}</b> отправлен на проверку{note}.\n"
+        f"✅ Кружок <b>#{circle_id}</b> отправлен на проверку.\n"
         f"После одобрения: <b>+{reward}</b> {coin()}"
     )
 
 
-def approved(reward: int, coins: int, short: bool) -> str:
-    note = " (короткий, поэтому меньше)" if short else ""
+def approved(reward: int, coins: int) -> str:
     return (
-        f"🟢 Твой кружок одобрен: <b>+{reward}</b> {coin()}{note}\n"
+        f"🟢 Твой кружок одобрен: <b>+{reward}</b> {coin()}\n"
         f"Баланс: <b>{coins}</b>"
     )
 
@@ -189,7 +190,10 @@ def profile(
     likes: int,
     views: int,
     ref_done: int,
+    sales: dict | None = None,
+    withdrawable: int = 0,
 ) -> str:
+    sales = sales or {"content": 0, "contact": 0, "income": 0}
     return (
         "👤 <b>Профиль</b>\n\n"
         f"ID: <code>{user_id}</code>\n"
@@ -198,9 +202,185 @@ def profile(
         f"{s['rejected']} отклонено\n"
         f"👀 Их посмотрели: {views}\n"
         f"👍 Лайков: {likes}\n"
-        f"{coin()} Заработано на кружочках: <b>{earned}</b>\n\n"
+        f"{coin()} Заработано на кружочках: <b>{earned}</b>\n"
+        f"🛒 Продано: {sales['content']} доступов · {sales['contact']} контактов "
+        f"(+{sales['income']} {coin()})\n"
+        f"💸 К выводу: <b>{withdrawable}</b> {coin()} "
+        f"(~{settings.stars_for(withdrawable)} ⭐)\n\n"
         f"👀 Сам посмотрел: {s['watched']}\n"
         f"👥 Приглашено: {ref_done}"
+    )
+
+
+# --- author profiles -----------------------------------------------------
+
+PROFILE_PHOTO = (
+    "🖼 <b>Анкета автора</b>\n\n"
+    "Пришли фото для анкеты — его увидят все, кто листает анкеты.\n"
+    "Лицо показывать необязательно."
+)
+
+
+def profile_about() -> str:
+    return (
+        "✍️ Теперь описание — пара строк о себе.\n"
+        f"До {ABOUT_MAX} символов. «-» — оставить пустым."
+    )
+
+
+PROFILE_GENDER = "Чьи кружочки ты выкладываешь?"
+
+
+def profile_price_content() -> str:
+    return (
+        "💰 Цена доступа ко <b>всем твоим кружочкам</b> в монетках.\n"
+        f"От {settings.get('price_min')} до {settings.get('price_max')}.\n\n"
+        f"Тебе достаётся {settings.get('author_share')}% с каждой покупки."
+    )
+
+
+PROFILE_CONTACT_ASK = (
+    "Продавать доступ к личке? Покупатель получит твой @username и сможет "
+    "написать напрямую.\n\nЭто снимает анонимность — решай сам."
+)
+PROFILE_NO_USERNAME = (
+    "Для продажи лички нужен @username в настройках Telegram. "
+    "Пока продаём только кружочки."
+)
+
+
+def profile_price_contact() -> str:
+    return (
+        "💬 Цена за доступ к личке в монетках.\n"
+        f"От {settings.get('price_min')} до {settings.get('price_max')}."
+    )
+
+
+def profile_bad_price() -> str:
+    return (
+        f"Нужно число от {settings.get('price_min')} "
+        f"до {settings.get('price_max')}."
+    )
+
+
+PROFILE_SENT = (
+    "✅ Анкета отправлена на проверку. Как только модератор её одобрит, "
+    "её начнут показывать другим."
+)
+PROFILE_NOT_PHOTO = "Нужно именно фото."
+PROFILE_APPROVED = "🟢 Твоя анкета одобрена — её уже показывают."
+PROFILE_REJECTED = "🔴 Анкета отклонена модератором. Можно переделать и отправить снова."
+PROFILE_EMPTY = "Анкет пока нет. Загляни позже."
+PROFILE_NONE_YET = "У тебя ещё нет анкеты."
+
+
+def profile_status(profile) -> str:
+    label = {
+        "pending": "🕒 на проверке",
+        "approved": "🟢 показывается",
+        "rejected": "🔴 отклонена",
+    }[profile["status"]]
+    contact = (
+        f"{profile['price_contact']} {coin()}"
+        if profile["contact_ok"] and profile["price_contact"]
+        else "не продаётся"
+    )
+    return (
+        f"<b>Моя анкета</b> · {label}\n\n"
+        f"{profile['about'] or 'Без описания'}\n\n"
+        f"Кружочки: {profile['price_content']} {coin()}\n"
+        f"Личка: {contact}\n"
+        f"Показов: {profile['views']} · покупок: {profile['sold']}"
+    )
+
+
+def profile_card(profile, circles: int) -> str:
+    contact = (
+        f"{profile['price_contact']} {coin()}"
+        if profile["contact_ok"] and profile["price_contact"]
+        else "не продаётся"
+    )
+    return (
+        f"{emoji.text(emoji.FILM)} <b>{PREF_TITLE(profile['gender'])}</b>\n\n"
+        f"{profile['about'] or 'Без описания'}\n\n"
+        f"Кружочков у автора: <b>{circles}</b>\n"
+        f"Доступ ко всем: <b>{profile['price_content']}</b> {coin()}\n"
+        f"Личка: {contact}\n"
+        f"Купили: {profile['sold']} раз\n\n"
+        "<i>Покупка открывает кружочки, которые есть у автора прямо сейчас.</i>"
+    )
+
+
+def bought_content(count: int, share: int) -> str:
+    return (
+        f"🟢 Доступ открыт: {count} кружочков этого автора теперь бесплатны.\n"
+        "Жми «Кружочки автора», чтобы посмотреть."
+    )
+
+
+def bought_contact(username: str) -> str:
+    return f"🟢 Личка автора: @{username}\n\nНапиши ему сам."
+
+
+def sale_note(kind: str, share: int) -> str:
+    what = "доступ к твоим кружочкам" if kind == "content" else "твою личку"
+    return f"💰 Купили {what}: <b>+{share}</b> {coin()}"
+
+
+CONTACT_NOT_FOR_SALE = "Автор не продаёт личку."
+ALREADY_BOUGHT = "Уже куплено."
+
+
+# --- payouts -------------------------------------------------------------
+
+
+def payout_screen(available: int, pending: int) -> str:
+    rate = settings.get("payout_rate")
+    low = settings.get("payout_min")
+    body = (
+        f"💸 <b>Вывод</b>\n\n"
+        f"Доступно к выводу: <b>{available}</b> {coin()} "
+        f"(~{settings.stars_for(available)} ⭐)\n"
+        f"Курс: {rate} монетки = 1 ⭐, минимум {low} монеток\n\n"
+        "Выводятся только заработанные монетки — купленные за ⭐ нельзя."
+    )
+    if pending:
+        body += f"\n\n🕒 Заявок в работе: {pending}"
+    return body
+
+
+def payout_ask_amount(available: int) -> str:
+    return (
+        f"Сколько монеток вывести? Доступно {available}, "
+        f"минимум {settings.get('payout_min')}."
+    )
+
+
+PAYOUT_ASK_DETAILS = (
+    "Куда отправить? Пришли адрес кошелька (USDT/TON) или свой @username — "
+    "админ свяжется и выплатит."
+)
+
+
+def payout_created(payout_id: int, coins: int, stars: int) -> str:
+    return (
+        f"✅ Заявка <b>#{payout_id}</b> создана: {coins} {coin()} → {stars} ⭐.\n"
+        "Монетки заморожены. Админ выплатит вручную и отметит заявку."
+    )
+
+
+def payout_paid(payout_id: int, stars: int) -> str:
+    return f"🟢 Заявка #{payout_id} выплачена: {stars} ⭐."
+
+
+def payout_rejected(payout_id: int, coins: int) -> str:
+    return f"🔴 Заявка #{payout_id} отклонена, {coins} монеток вернулись на баланс."
+
+
+def payout_too_small(available: int) -> str:
+    return (
+        f"Минимум для вывода — {settings.get('payout_min')} монеток. "
+        f"Доступно: {available}."
     )
 
 

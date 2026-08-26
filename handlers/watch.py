@@ -47,15 +47,15 @@ async def serve(bot, user_id: int, origin: Message) -> None:
     user = await db.get_user(user_id)
     cost = settings.get("watch_cost")
 
-    if user["coins"] < cost:
-        await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
-        return
 
     circle = await db.pick_circle(user_id, user["pref"])
     if circle is None:
         await origin.answer(texts.EMPTY, reply_markup=kb.no_coins())
         return
-    if not await db.try_spend(user_id, cost):  # raced with another tap
+
+    # Buying an author's profile makes their circles free for that viewer.
+    free = await db.has_content_access(user_id, circle["uploader_id"], circle["id"])
+    if not free and not await db.try_spend(user_id, cost):  # raced with another tap
         await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
         return
 
@@ -67,12 +67,14 @@ async def serve(bot, user_id: int, origin: Message) -> None:
             reply_markup=kb.circle(circle["id"], circle["likes"], circle["dislikes"], 0),
         )
     except TelegramAPIError:
-        await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
+        if not free:
+            await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
         await origin.answer("Не удалось отправить кружок, монетки вернул.")
         return
 
     await db.mark_viewed(user_id, circle["id"])
-    await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
+    if not free:  # a free view was already paid for when the profile was bought
+        await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
 
 
 async def _pay_author(bot, circle, amount: int, note) -> None:

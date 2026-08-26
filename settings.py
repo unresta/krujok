@@ -15,14 +15,16 @@ DEFAULTS: dict[str, int] = {
     "stars_rate": config.STARS_RATE,
     "min_stars": config.MIN_STARS,
     "min_duration": config.MIN_DURATION,
-    "min_duration_short": config.MIN_DURATION_SHORT,
-    "reward_f_short": config.REWARD_SHORT["f"],
-    "reward_m_short": config.REWARD_SHORT["m"],
     "max_pending": config.MAX_PENDING,
     "ref_reward": config.REF_REWARD,
     "view_payout": config.VIEW_PAYOUT,
     "like_bonus": config.LIKE_BONUS,
     "reports_to_hide": config.REPORTS_TO_HIDE,
+    "author_share": config.AUTHOR_SHARE,
+    "price_min": config.PRICE_MIN,
+    "price_max": config.PRICE_MAX,
+    "payout_min": config.PAYOUT_MIN,
+    "payout_rate": config.PAYOUT_RATE,
     "maintenance": 0,
 }
 
@@ -38,15 +40,17 @@ TITLES: dict[str, str] = {
     "reward_m": "Награда за мужской",
     "stars_rate": "Монеток за 1 ⭐",
     "min_stars": "Минимум ⭐ за раз",
-    "min_duration": "Полная награда от, сек",
-    "min_duration_short": "Принимаем от, сек",
-    "reward_f_short": "Короткий женский",
-    "reward_m_short": "Короткий мужской",
+    "min_duration": "Минимум, сек",
     "max_pending": "Кружков на проверке",
     "ref_reward": "За реферала",
     "view_payout": "Автору за просмотр",
     "like_bonus": "Автору за лайк",
     "reports_to_hide": "Жалоб до скрытия",
+    "author_share": "Автору с продажи, %",
+    "price_min": "Мин. цена анкеты",
+    "price_max": "Макс. цена анкеты",
+    "payout_min": "Минимум вывода",
+    "payout_rate": "Монеток за 1 ⭐ (вывод)",
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -56,14 +60,16 @@ LIMITS: dict[str, tuple[int, int]] = {
     "stars_rate": (1, 1000),
     "min_stars": (1, 10_000),
     "min_duration": (1, 60),
-    "min_duration_short": (1, 60),
-    "reward_f_short": (0, 1000),
-    "reward_m_short": (0, 1000),
     "max_pending": (1, 100),
     "ref_reward": (0, 1000),
     "view_payout": (0, 1000),
     "like_bonus": (0, 1000),
     "reports_to_hide": (1, 1000),
+    "author_share": (0, 100),
+    "price_min": (1, 10_000),
+    "price_max": (1, 100_000),
+    "payout_min": (1, 1_000_000),
+    "payout_rate": (1, 1000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)
@@ -81,10 +87,17 @@ def get(key: str) -> int:
     return _values[key]
 
 
-def reward(gender: str, duration: int | None = None) -> int:
-    """Full price by default; a circle under min_duration is worth less."""
-    short = duration is not None and duration < _values["min_duration"]
-    return _values[f"reward_{gender}{'_short' if short else ''}"]
+def reward(gender: str) -> int:
+    return _values["reward_f" if gender == "f" else "reward_m"]
+
+
+def author_share(price: int) -> int:
+    """What the author keeps from a sale; the rest is the service's cut."""
+    return price * _values["author_share"] // 100
+
+
+def stars_for(coins: int) -> int:
+    return coins // _values["payout_rate"]
 
 
 def reports_chat() -> int | str:

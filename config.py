@@ -21,9 +21,7 @@ PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "Fal
 # --- economy ---
 WATCH_COST = 2
 REWARD = {"f": 5, "m": 3}
-MIN_DURATION = 8  # seconds; from here up a circle earns the full reward
-MIN_DURATION_SHORT = 3  # shorter than this is not accepted at all
-REWARD_SHORT = {"f": 3, "m": 2}  # paid for a circle under MIN_DURATION
+MIN_DURATION = 8  # seconds; anything shorter is refused
 STARS_RATE = 3  # coins per star
 MIN_STARS = 20
 MAX_STARS = 100_000
@@ -37,6 +35,14 @@ REF_REWARD = 3  # coins for a referral that made it through the subscription gat
 VIEW_PAYOUT = 1
 LIKE_BONUS = 1
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
+
+# --- author profiles and payouts ---
+AUTHOR_SHARE = 50  # percent of a sale that reaches the author
+PRICE_MIN = 1
+PRICE_MAX = 10_000
+PAYOUT_MIN = 1000  # coins
+PAYOUT_RATE = 3  # coins per star when cashing out
+ABOUT_MAX = 300  # characters in a profile description
 
 # Channel users must join before they can use the bot; empty turns the gate off.
 # The bot has to be an administrator there to see who is a member.

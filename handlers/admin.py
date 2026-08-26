@@ -57,7 +57,9 @@ class Admin(StatesGroup):
 # --- home ----------------------------------------------------------------
 
 
-def home_kb(maintenance: bool, pending: int, reports: int) -> InlineKeyboardMarkup:
+def home_kb(
+    maintenance: bool, pending: int, reports: int, anketas: int, payouts: int
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(text="Статистика", callback_data="a:stats", style=kb.PRIMARY),
@@ -89,6 +91,18 @@ def home_kb(maintenance: bool, pending: int, reports: int) -> InlineKeyboardMark
             text=f"Жалобы · {reports}",
             callback_data="a:reports",
             style=kb.DANGER if reports else None,
+        ),
+        InlineKeyboardButton(
+            text=f"Анкеты · {anketas}",
+            callback_data="a:anketas",
+            style=kb.SUCCESS if anketas else None,
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"Выплаты · {payouts}",
+            callback_data="a:payouts",
+            style=kb.SUCCESS if payouts else None,
         )
     )
     b.row(
@@ -131,7 +145,13 @@ async def home_text() -> str:
 async def show_home(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     d = await db.dashboard()
-    await _edit(call, await home_text(), home_kb(settings.maintenance(), d["pending"], await db.open_reports()))
+    await _edit(call, await home_text(), home_kb(
+            settings.maintenance(),
+            d["pending"],
+            await db.open_reports(),
+            await db.pending_profiles(),
+            (await db.payout_totals())["open"],
+        ))
 
 
 @router.message(Command("admin"))
@@ -139,7 +159,13 @@ async def open_panel(message: Message, state: FSMContext) -> None:
     await state.clear()
     d = await db.dashboard()
     await message.answer(
-        await home_text(), reply_markup=home_kb(settings.maintenance(), d["pending"], await db.open_reports())
+        await home_text(), reply_markup=home_kb(
+            settings.maintenance(),
+            d["pending"],
+            await db.open_reports(),
+            await db.pending_profiles(),
+            (await db.payout_totals())["open"],
+        )
     )
 
 
@@ -408,6 +434,64 @@ async def cb_reports_show(call: CallbackQuery) -> None:
     await call.answer()
 
 
+@router.callback_query(F.data == "a:anketas")
+async def cb_anketas(call: CallbackQuery) -> None:
+    profile = await db.next_pending_profile()
+    if profile is None:
+        await call.answer("Анкет на проверке нет 🟢", show_alert=True)
+        return
+
+    await call.bot.send_photo(
+        call.from_user.id,
+        profile["photo_id"],
+        caption=(
+            f"#анкета от <code>{profile['user_id']}</code>"
+            f"{' @' + profile['username'] if profile['username'] else ''}\n"
+            f"Тип: {kb.PREF_TITLE(profile['gender'])}\n"
+            f"Кружочки: {profile['price_content']} · "
+            f"личка: {profile['price_contact'] or 'нет'}\n\n"
+            f"{profile['about'] or 'Без описания'}"
+        ),
+        reply_markup=kb.profile_review(profile["user_id"]),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:payouts")
+async def cb_payouts(call: CallbackQuery) -> None:
+    totals = await db.payout_totals()
+    rows = await db.open_payouts()
+    if not rows:
+        await _edit(
+            call,
+            "<b>Выплаты</b>\n\nОткрытых заявок нет.\n"
+            f"Выплачено за всё время: {totals['paid_stars']} ⭐",
+            back_kb(),
+        )
+        await call.answer()
+        return
+
+    await _edit(
+        call,
+        f"<b>Выплаты</b>\n\nОткрыто: {totals['open']} заявок на "
+        f"{totals['open_coins']} монеток\n"
+        f"Выплачено за всё время: {totals['paid_stars']} ⭐\n\n"
+        "Карточки ниже.",
+        back_kb(),
+    )
+    for payout in rows:
+        with suppress(TelegramAPIError):
+            await call.bot.send_message(
+                call.from_user.id,
+                f"#выплата <b>#{payout['id']}</b>\n"
+                f"{payout['coins']} монеток → <b>{payout['stars']} ⭐</b>\n"
+                f"Кому: <code>{payout['user_id']}</code>\n"
+                f"Реквизиты: <code>{payout['details']}</code>",
+                reply_markup=kb.payout_review(payout["id"]),
+            )
+    await call.answer()
+
+
 # --- moderation queue ----------------------------------------------------
 
 
@@ -672,6 +756,8 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     user = await db.get_user(user_id)
     stats = await db.user_stats(user_id)
     ref_done, ref_wait = await db.referral_counts(user_id)
+    sales = await db.sales_stats(user_id)
+    available = await db.withdrawable(user_id)
     text = (
         f"<b>Пользователь</b> <code>{user_id}</code>\n\n"
         f"🪙 Баланс: <b>{user['coins']}</b>\n"
@@ -683,6 +769,9 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         f"👥 Пригласил: {ref_done}"
         + (f" (ждут подписки: {ref_wait})" if ref_wait else "")
         + (f"\nПришёл от: <code>{user['ref_by']}</code>" if user["ref_by"] else "")
+        + f"\n💰 Продажи: {sales['content']} контент · {sales['contact']} личка "
+        f"(+{sales['income']} 🪙)"
+        + f"\n💸 Заработано {user['earned']}, к выводу {available}"
     )
     b = InlineKeyboardBuilder()
     b.row(
