@@ -371,6 +371,17 @@ def profile_review(user_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def refill_profile() -> InlineKeyboardMarkup:
+    """Goes with a rejection — the fix is one tap away, not a menu hunt."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Заполнить заново", callback_data="pf:edit", style=SUCCESS
+        )
+    )
+    return b.as_markup()
+
+
 def profile_reasons(user_id: int) -> InlineKeyboardMarkup:
     """Why the profile is being turned down — the author gets told."""
     from texts import REJECT_REASONS

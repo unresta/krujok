@@ -282,12 +282,12 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _tell_author(bot, user_id: int, status: str, reason: str = "") -> None:
+    approved = status == "approved"
     with suppress(TelegramAPIError):
         await bot.send_message(
             user_id,
-            texts.PROFILE_APPROVED
-            if status == "approved"
-            else texts.profile_rejected(reason),
+            texts.PROFILE_APPROVED if approved else texts.profile_rejected(reason),
+            reply_markup=None if approved else kb.refill_profile(),
         )
 
 
