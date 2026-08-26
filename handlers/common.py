@@ -45,7 +45,7 @@ async def pref(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.edit_reply_markup(reply_markup=kb.after_watch(pref_value))
     else:
         await ui.render_menu(call, call.from_user.id)
-    await call.answer(kb.PREF_TITLE[pref_value])
+    await call.answer(kb.PREF_LABEL[pref_value])  # toast is plain text, no HTML
 
 
 @router.callback_query(F.data == "profile")

@@ -73,8 +73,7 @@ async def pick_gender(call: CallbackQuery, state: FSMContext) -> None:
     admin_msg = await call.bot.send_message(
         ADMIN_CHAT_ID,
         f"#на_проверку <b>#{circle_id}</b>\n"
-        f"Тип: {'♀ женский' if gender == 'f' else '♂ мужской'} "
-        f"(+{REWARD[gender]} 🪙)\n"
+        f"Тип: {kb.PREF_TITLE(gender)} (+{REWARD[gender]} {texts.COIN})\n"
         f"Длина: {data['duration']} сек\n"
         f"Автор: <code>{call.from_user.id}</code> {who}",
         reply_markup=kb.moderation(circle_id),

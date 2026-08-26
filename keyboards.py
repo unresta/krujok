@@ -1,63 +1,78 @@
 """Inline keyboards.
 
 Colours come from the Bot API `style` field (9.4+): 'primary' blue, 'success'
-green, 'danger' red. Convention kept across the whole bot:
-  primary = the main action of the screen
-  success = anything that adds coins / approves
+green, 'danger' red. Convention across the bot:
+  primary = main action of the screen / current selection
+  success = anything that brings coins in, and "approve"
   danger  = cancel, back, reject
-Neutral buttons stay unstyled so the coloured one always reads as the default.
+Unselected type buttons stay unstyled on purpose — that is what makes the
+selected one readable.
+
+Icons are premium custom emoji (`icon_custom_emoji_id`), one per button, always
+rendered before the label. See emoji.py for the Fragment/Premium requirement.
 """
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import emoji
 from config import MIN_STARS, REWARD, STAR_PACKS, STARS_RATE, WATCH_COST
-
-PREF_TITLE = {"f": "♀ женские", "m": "♂ мужские", "any": "🎲 любые"}
 
 PRIMARY = "primary"
 SUCCESS = "success"
 DANGER = "danger"
 
+GENDER_EMOJI = {"f": emoji.FEMALE, "m": emoji.MALE, "any": emoji.ANY}
+PREF_LABEL = {"f": "женские", "m": "мужские", "any": "любые"}
+
+
+def PREF_TITLE(pref: str) -> str:
+    """Human name of a preference for message text and toasts."""
+    return f"{emoji.text(GENDER_EMOJI[pref])} {PREF_LABEL[pref]}"
+
+
+def _pref_button(pref: str, styled: bool) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=emoji.label(GENDER_EMOJI[pref]) + PREF_LABEL[pref],
+        callback_data=f"pref:{pref}",
+        icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[pref]),
+        style=PRIMARY if styled else None,
+    )
+
+
+def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=emoji.label(emoji.COIN) + text,
+        callback_data=callback_data,
+        icon_custom_emoji_id=emoji.icon(emoji.COIN),
+        style=style,
+    )
+
 
 def menu(pref: str, has_coins: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.row(_coin_button(f"Смотреть · {WATCH_COST}", "watch", PRIMARY))
+    kb.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
     kb.row(
-        InlineKeyboardButton(
-            text=f"Смотреть · {WATCH_COST} 🪙",
-            callback_data="watch",
-            style=PRIMARY if has_coins else None,
-        )
+        _coin_button("Заработать", "upload", SUCCESS),
+        _coin_button("Купить", "buy", SUCCESS),
     )
     kb.row(
-        *[
-            InlineKeyboardButton(
-                text=PREF_TITLE[p],
-                callback_data=f"pref:{p}",
-                style=PRIMARY if p == pref else None,
-            )
-            for p in ("f", "m", "any")
-        ]
+        InlineKeyboardButton(text="Профиль", callback_data="profile", style=PRIMARY)
     )
-    kb.row(
-        InlineKeyboardButton(
-            text="Заработать 🪙", callback_data="upload", style=SUCCESS
-        ),
-        InlineKeyboardButton(text="Купить 🪙", callback_data="buy"),
-    )
-    kb.row(InlineKeyboardButton(text="Профиль", callback_data="profile"))
     return kb.as_markup()
 
 
 def after_watch(pref: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.row(_coin_button(f"Ещё · {WATCH_COST}", "watch", PRIMARY))
     kb.row(
         InlineKeyboardButton(
-            text=f"Ещё · {WATCH_COST} 🪙", callback_data="watch", style=PRIMARY
-        )
-    )
-    kb.row(
-        InlineKeyboardButton(text=PREF_TITLE[pref], callback_data="pref:cycle"),
+            text=emoji.label(GENDER_EMOJI[pref]) + PREF_LABEL[pref],
+            callback_data="pref:cycle",
+            icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[pref]),
+            style=PRIMARY,
+        ),
         InlineKeyboardButton(text="Хватит", callback_data="menu", style=DANGER),
     )
     return kb.as_markup()
@@ -66,10 +81,8 @@ def after_watch(pref: str) -> InlineKeyboardMarkup:
 def no_coins() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(
-            text="Заработать 🪙", callback_data="upload", style=SUCCESS
-        ),
-        InlineKeyboardButton(text="Купить 🪙", callback_data="buy", style=PRIMARY),
+        _coin_button("Заработать", "upload", SUCCESS),
+        _coin_button("Купить", "buy", SUCCESS),
     )
     kb.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
     return kb.as_markup()
@@ -84,16 +97,16 @@ def back() -> InlineKeyboardMarkup:
 def upload_gender() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(
-            text=f"♀ Женский · +{REWARD['f']} 🪙",
-            callback_data="ug:f",
-            style=SUCCESS,
-        ),
-        InlineKeyboardButton(
-            text=f"♂ Мужской · +{REWARD['m']} 🪙",
-            callback_data="ug:m",
-            style=SUCCESS,
-        ),
+        *[
+            InlineKeyboardButton(
+                text=emoji.label(GENDER_EMOJI[g])
+                + f"{'Женский' if g == 'f' else 'Мужской'} · +{REWARD[g]}",
+                callback_data=f"ug:{g}",
+                icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
+                style=SUCCESS,
+            )
+            for g in ("f", "m")
+        ]
     )
     kb.row(InlineKeyboardButton(text="Отмена", callback_data="menu", style=DANGER))
     return kb.as_markup()
@@ -101,27 +114,17 @@ def upload_gender() -> InlineKeyboardMarkup:
 
 def buy() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    packs = [
+        _coin_button(f"{stars} ⭐ = {stars * STARS_RATE}", f"pay:{stars}", SUCCESS)
+        for stars in STAR_PACKS
+    ]
+    kb.row(*packs[:2])
+    kb.row(*packs[2:])
     kb.row(
-        *[
-            InlineKeyboardButton(
-                text=f"{stars} ⭐ → {stars * STARS_RATE} 🪙",
-                callback_data=f"pay:{stars}",
-                style=PRIMARY,
-            )
-            for stars in STAR_PACKS[:2]
-        ]
+        InlineKeyboardButton(
+            text="✏️ Своя сумма", callback_data="pay:custom", style=PRIMARY
+        )
     )
-    kb.row(
-        *[
-            InlineKeyboardButton(
-                text=f"{stars} ⭐ → {stars * STARS_RATE} 🪙",
-                callback_data=f"pay:{stars}",
-                style=PRIMARY,
-            )
-            for stars in STAR_PACKS[2:]
-        ]
-    )
-    kb.row(InlineKeyboardButton(text="✏️ Своя сумма", callback_data="pay:custom"))
     kb.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
     return kb.as_markup()
 

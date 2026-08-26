@@ -67,6 +67,6 @@ async def watch(call: CallbackQuery, state: FSMContext) -> None:
     left = (await db.get_user(user_id))["coins"]
     await call.bot.send_message(
         user_id,
-        f"🪙 <b>{left}</b>",
+        f"{texts.COIN} <b>{left}</b>",
         reply_markup=kb.after_watch(user["pref"]),
     )

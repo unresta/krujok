@@ -12,6 +12,9 @@ ADMIN_IDS: set[int] = {
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x
 }
 DB_PATH: str = os.getenv("DB_PATH", "bot.db")
+# Custom emoji need a Premium owner or Fragment usernames; set to 0 to fall back
+# to plain unicode everywhere.
+PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "False")
 
 # --- economy ---
 WATCH_COST = 2
