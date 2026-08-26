@@ -103,6 +103,14 @@ CREATE TABLE IF NOT EXISTS payouts (
     closed_at    INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS profile_reports (
+    user_id   INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    handled   INTEGER NOT NULL DEFAULT 0,
+    ts        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (user_id, author_id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -398,6 +406,14 @@ async def mark_viewed(user_id: int, circle_id: int) -> None:
     await conn().commit()
 
 
+async def has_viewed(user_id: int, circle_id: int) -> bool:
+    async with conn().execute(
+        "SELECT 1 FROM views WHERE user_id = ? AND circle_id = ?",
+        (user_id, circle_id),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
 async def user_stats(user_id: int) -> dict:
     async with conn().execute(
         """
@@ -434,8 +450,11 @@ async def next_pending() -> aiosqlite.Row | None:
 
 
 async def delete_circle(circle_id: int) -> bool:
+    """Everything hanging off the circle goes too, or the counters lie."""
     cur = await conn().execute("DELETE FROM circles WHERE id = ?", (circle_id,))
     await conn().execute("DELETE FROM views WHERE circle_id = ?", (circle_id,))
+    await conn().execute("DELETE FROM reactions WHERE circle_id = ?", (circle_id,))
+    await conn().execute("DELETE FROM reports WHERE circle_id = ?", (circle_id,))
     await conn().commit()
     return cur.rowcount > 0
 
@@ -448,6 +467,8 @@ async def wipe_circles() -> int:
     total = await total_circles()
     await conn().execute("DELETE FROM circles")
     await conn().execute("DELETE FROM views")
+    await conn().execute("DELETE FROM reactions")
+    await conn().execute("DELETE FROM reports")
     await conn().execute("DELETE FROM sqlite_sequence WHERE name = 'circles'")
     await conn().commit()
     return total
@@ -757,6 +778,30 @@ async def reset_profile_views(viewer_id: int) -> None:
     """Second lap once every profile has been seen."""
     await conn().execute(
         "DELETE FROM profile_views WHERE buyer_id = ?", (viewer_id,)
+    )
+    await conn().commit()
+
+
+async def report_profile(user_id: int, author_id: int) -> int | None:
+    """None when this user already complained about this profile."""
+    try:
+        await conn().execute(
+            "INSERT INTO profile_reports(user_id, author_id) VALUES (?, ?)",
+            (user_id, author_id),
+        )
+    except aiosqlite.IntegrityError:
+        return None
+    await conn().commit()
+    async with conn().execute(
+        "SELECT COUNT(*) FROM profile_reports WHERE author_id = ? AND handled = 0",
+        (author_id,),
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def clear_profile_reports(author_id: int) -> None:
+    await conn().execute(
+        "UPDATE profile_reports SET handled = 1 WHERE author_id = ?", (author_id,)
     )
     await conn().commit()
 

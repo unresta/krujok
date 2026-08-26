@@ -29,6 +29,12 @@ class UserMiddleware(BaseMiddleware):
         user = await db.get_user(tg_user.id)
         is_admin = tg_user.id in ADMIN_IDS
 
+        # Telegram has already taken the stars: the coins must be credited even
+        # for a banned user, during maintenance, and without a subscription.
+        if isinstance(event, Message) and event.successful_payment is not None:
+            data["user"] = user
+            return await handler(event, data)
+
         if user["banned"]:
             await self._refuse(event, texts.BANNED)
             return None

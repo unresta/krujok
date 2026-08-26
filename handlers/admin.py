@@ -919,6 +919,7 @@ async def cb_wipe(call: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("a:c:del:"))
 async def cb_circle_delete(call: CallbackQuery) -> None:
     circle_id = int(call.data.split(":")[3])
+    await db.clear_reports(circle_id)
     deleted = await db.delete_circle(circle_id)
     await call.answer("Удалён" if deleted else "Уже нет", show_alert=True)
     await _edit(call, f"Кружок #{circle_id} удалён.", back_kb())

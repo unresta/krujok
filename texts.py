@@ -170,6 +170,17 @@ def approved(reward: int, coins: int) -> str:
 REJECTED = "🔴 Кружок отклонён модератором."
 REPORT_SENT = "Жалоба отправлена модераторам."
 REPORT_DOUBLE = "Ты уже жаловался на этот кружок."
+REPORT_DOUBLE_PROFILE = "Ты уже жаловался на эту анкету."
+
+
+def circles_word(count: int) -> str:
+    """1 кружок, 2 кружка, 5 кружков."""
+    tail = count % 100
+    if 11 <= tail <= 14:
+        return "кружочков"
+    return {1: "кружочек", 2: "кружочка", 3: "кружочка", 4: "кружочка"}.get(
+        tail % 10, "кружочков"
+    )
 CIRCLE_REMOVED = "🔴 Твой кружок удалён по жалобам."
 
 
@@ -336,8 +347,8 @@ def profile_card(profile, circles: int) -> str:
 
 def bought_content(count: int, share: int) -> str:
     return (
-        f"🟢 Доступ открыт: {count} кружочков этого автора теперь бесплатны.\n"
-        "Жми «Кружочки автора», чтобы посмотреть."
+        f"🟢 Доступ открыт: {count} {circles_word(count)} этого автора теперь "
+        "бесплатны.\nЖми «Кружочки автора», чтобы посмотреть."
     )
 
 
@@ -350,7 +361,12 @@ def sale_note(kind: str, share: int) -> str:
     return f"💰 Купили {what}: <b>+{share}</b> {coin()}"
 
 
+def more_circles(left: int) -> str:
+    return f"Осталось ещё {left} {circles_word(left)} этого автора."
+
+
 CONTACT_NOT_FOR_SALE = "Автор не продаёт личку."
+NOTHING_TO_SELL = "У автора пока нет кружочков — покупать нечего."
 ALREADY_BOUGHT = "Уже куплено."
 
 
@@ -398,6 +414,13 @@ def payout_paid(payout_id: int, stars: int) -> str:
 
 def payout_rejected(payout_id: int, coins: int) -> str:
     return f"🔴 Заявка #{payout_id} отклонена, {coins} монеток вернулись на баланс."
+
+
+def payout_spent(balance: int, wanted: int) -> str:
+    return (
+        f"На балансе только {balance} монеток, а на вывод нужно {wanted}: "
+        "заработанное уже потрачено на просмотры или покупки."
+    )
 
 
 def payout_too_small(available: int) -> str:

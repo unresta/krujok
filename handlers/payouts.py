@@ -81,9 +81,15 @@ async def got_details(message: Message, state: FSMContext) -> None:
     stars = settings.stars_for(coins)
 
     payout_id = await db.create_payout(message.from_user.id, coins, stars, details)
-    if payout_id is None:  # balance moved while the form was open
+    if payout_id is None:  # earnings or balance moved while the form was open
         available = await db.withdrawable(message.from_user.id)
-        await message.answer(texts.payout_too_small(available), reply_markup=kb.back())
+        balance = (await db.get_user(message.from_user.id))["coins"]
+        await message.answer(
+            texts.payout_spent(balance, coins)
+            if balance < coins
+            else texts.payout_too_small(available),
+            reply_markup=kb.back(),
+        )
         return
 
     await message.answer(texts.payout_created(payout_id, coins, stars))

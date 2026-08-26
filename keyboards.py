@@ -274,6 +274,18 @@ def profile_card(profile, bought_content: bool, bought_contact: bool) -> InlineK
     return b.as_markup()
 
 
+def more_circles(author_id: int, offset: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Показать ещё",
+            callback_data=f"pf:show:{author_id}:{offset}",
+            style=SUCCESS,
+        )
+    )
+    return b.as_markup()
+
+
 def profile_gender() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(

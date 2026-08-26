@@ -102,6 +102,11 @@ async def react(call: CallbackQuery) -> None:
     if circle["uploader_id"] == call.from_user.id:
         await call.answer("Свой кружок оценивать нечестно 🙂")
         return
+    # A like pays the author, so it has to come from someone who was shown the
+    # circle — not from a guessed callback.
+    if not await db.has_viewed(call.from_user.id, circle_id):
+        await call.answer("Этот кружок тебе не показывали.", show_alert=True)
+        return
 
     vote, likes, dislikes, fresh_like = await db.set_reaction(
         call.from_user.id, circle_id, value
@@ -129,6 +134,10 @@ async def report(call: CallbackQuery) -> None:
     circle = await db.get_circle(circle_id)
     if circle is None:
         await call.answer("Кружок уже удалён.", show_alert=True)
+        return
+
+    if not await db.has_viewed(call.from_user.id, circle_id):
+        await call.answer("Этот кружок тебе не показывали.", show_alert=True)
         return
 
     count = await db.add_report(call.from_user.id, circle_id)

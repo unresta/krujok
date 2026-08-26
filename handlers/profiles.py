@@ -5,6 +5,7 @@ users. Two things are for sale — access to the author's circles as they stand 
 the moment of purchase, and, if the author opted in, their @username.
 """
 
+import asyncio
 import logging
 from contextlib import suppress
 
@@ -23,6 +24,9 @@ from config import ABOUT_MAX, ADMIN_CHAT_ID, ADMIN_IDS
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+CIRCLES_PER_BATCH = 10  # sent per tap, so a big catalogue does not hit the limit
+SEND_PAUSE = 0.3
 
 
 class Anketa(StatesGroup):
@@ -194,7 +198,11 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("pm:"))
 async def review(call: CallbackQuery) -> None:
-    if not (call.from_user.id in ADMIN_IDS or call.message.chat.id == ADMIN_CHAT_ID):
+    if not (
+        call.from_user.id in ADMIN_IDS
+        or call.message.chat.id == ADMIN_CHAT_ID
+        or str(call.message.chat.id) == str(settings.reports_chat())
+    ):
         await call.answer("Нет прав.", show_alert=True)
         return
 
@@ -204,6 +212,7 @@ async def review(call: CallbackQuery) -> None:
     if verdict in ("hide", "keep"):  # verdict on a complaint, not on a new profile
         status = "rejected" if verdict == "hide" else "approved"
         await db.set_profile_status(user_id, status)
+        await db.clear_profile_reports(user_id)
         if verdict == "hide":
             with suppress(TelegramAPIError):
                 await call.bot.send_message(user_id, texts.PROFILE_REJECTED)
@@ -261,7 +270,6 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         return
 
     author = profile["user_id"]
-    await db.mark_profile_seen(viewer_id, author)
     bought_content = await db.get_purchase(viewer_id, author, "content") is not None
     bought_contact = await db.get_purchase(viewer_id, author, "contact") is not None
     await bot.send_photo(
@@ -271,6 +279,7 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         protect_content=True,
         reply_markup=kb.profile_card(profile, bought_content, bought_contact),
     )
+    await db.mark_profile_seen(viewer_id, author)
 
 
 @router.callback_query(F.data.startswith("pf:card:"))
@@ -306,6 +315,11 @@ async def buy_content(call: CallbackQuery) -> None:
     profile = await db.get_profile(author_id)
     if profile is None:
         await call.answer("Анкета пропала.", show_alert=True)
+        return
+
+    # Selling access to an empty catalogue is just taking coins.
+    if not await db.author_circles(author_id, await db.total_circles_max_id()):
+        await call.answer(texts.NOTHING_TO_SELL, show_alert=True)
         return
 
     price = profile["price_content"]
@@ -355,7 +369,9 @@ async def buy_contact(call: CallbackQuery) -> None:
         await _notify_author(call.bot, author_id, "contact", purchase["author_share"])
 
     await call.answer()
-    await call.message.answer(texts.bought_contact(profile["username"] or ""))
+    await call.message.answer(
+        texts.bought_contact(await _fresh_username(call.bot, author_id, profile))
+    )
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
             reply_markup=kb.profile_card(
@@ -369,23 +385,33 @@ async def buy_contact(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("pf:show:"))
 async def show_circles(call: CallbackQuery) -> None:
-    author_id = int(call.data.split(":")[2])
+    parts = call.data.split(":")
+    author_id = int(parts[2])
+    offset = int(parts[3]) if len(parts) > 3 else 0
     purchase = await db.get_purchase(call.from_user.id, author_id, "content")
     if purchase is None:
         await call.answer("Сначала купи доступ.", show_alert=True)
         return
 
-    circles = await db.author_circles(author_id, purchase["max_circle_id"])
+    circles = (await db.author_circles(author_id, purchase["max_circle_id"]))[offset:]
     if not circles:
         await call.answer("У автора пока нечего смотреть.", show_alert=True)
         return
 
-    await call.answer(f"Отправляю {len(circles)}")
-    for circle in circles:
+    await call.answer(f"Отправляю {min(len(circles), CIRCLES_PER_BATCH)}")
+    for circle in circles[:CIRCLES_PER_BATCH]:
         with suppress(TelegramAPIError):
             await call.bot.send_video_note(
                 call.from_user.id, circle["file_id"], protect_content=True
             )
+        await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
+
+    rest = circles[CIRCLES_PER_BATCH:]
+    if rest:
+        await call.message.answer(
+            texts.more_circles(len(rest)),
+            reply_markup=kb.more_circles(author_id, offset + CIRCLES_PER_BATCH),
+        )
 
 
 @router.callback_query(F.data.startswith("pf:rep:"))
@@ -396,20 +422,39 @@ async def report_profile(call: CallbackQuery) -> None:
         await call.answer("Анкета пропала.", show_alert=True)
         return
 
+    count = await db.report_profile(call.from_user.id, author_id)
+    if count is None:
+        await call.answer(texts.REPORT_DOUBLE_PROFILE, show_alert=True)
+        return
     await call.answer(texts.REPORT_SENT, show_alert=True)
+
+    hidden = count >= settings.get("reports_to_hide")
+    if hidden and profile["status"] == "approved":
+        await db.set_profile_status(author_id, "rejected")
+
     chat = settings.reports_chat()
     try:
         await call.bot.send_photo(
             chat,
             profile["photo_id"],
             caption=(
-                f"#жалоба на анкету <code>{author_id}</code>\n"
+                f"#жалоба на анкету <code>{author_id}</code> — {count} шт\n"
+                f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
                 f"{profile['about'] or 'Без описания'}"
             ),
             reply_markup=kb.profile_report_review(author_id),
         )
     except TelegramAPIError as error:
         logger.error("profile report for %s not delivered: %s", author_id, error)
+
+
+async def _fresh_username(bot, author_id: int, profile) -> str:
+    """The stored username is a snapshot; ask Telegram before selling it."""
+    try:
+        chat = await bot.get_chat(author_id)
+    except TelegramAPIError:
+        return profile["username"] or ""
+    return chat.username or profile["username"] or ""
 
 
 async def _notify_author(bot, author_id: int, kind: str, share: int) -> None:
