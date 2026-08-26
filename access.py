@@ -10,6 +10,7 @@ fails, and the gate opens rather than locking every user out of the bot.
 """
 
 import logging
+import string
 import time
 
 from aiogram import Bot
@@ -120,12 +121,29 @@ def referral_link(user_id: int) -> str:
     return f"https://t.me/{bot_username}?start=r{user_id}"
 
 
+CODE_ALLOWED = set(string.ascii_lowercase + string.digits + "_-")
+
+
 def parse_payload(payload: str) -> int | None:
     """/start r123456 -> 123456"""
     payload = (payload or "").strip()
     if not payload.startswith("r") or not payload[1:].isdigit():
         return None
     return int(payload[1:])
+
+
+def parse_campaign(payload: str) -> str | None:
+    """Anything that is not a referral link is treated as an ad campaign code."""
+    code = (payload or "").strip().lower()
+    if not code or parse_payload(code) is not None:
+        return None
+    if len(code) > 32 or not set(code) <= CODE_ALLOWED:
+        return None
+    return code
+
+
+def campaign_link(code: str) -> str:
+    return f"https://t.me/{bot_username}?start={code}"
 
 
 async def remember_referrer(user_id: int, payload: str) -> None:

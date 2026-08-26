@@ -111,6 +111,13 @@ CREATE TABLE IF NOT EXISTS profile_reports (
     PRIMARY KEY (user_id, author_id)
 );
 
+CREATE TABLE IF NOT EXISTS campaigns (
+    code       TEXT PRIMARY KEY,          -- what goes after ?start=
+    title      TEXT NOT NULL DEFAULT '',
+    hits       INTEGER NOT NULL DEFAULT 0, -- every /start, repeats included
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -144,6 +151,7 @@ MIGRATIONS = {
         "ref_credited": "INTEGER NOT NULL DEFAULT 0",
         "earned": "INTEGER NOT NULL DEFAULT 0",
         "accepted": "INTEGER NOT NULL DEFAULT 0",
+        "source": "TEXT",  # campaign code the user arrived with
     },
     "circles": {
         "likes": "INTEGER NOT NULL DEFAULT 0",
@@ -308,6 +316,90 @@ async def referral_totals() -> tuple[int, int]:
     ) as cur:
         row = await cur.fetchone()
     return row["invited"], row["confirmed"]
+
+
+# --- ad campaigns --------------------------------------------------------
+
+
+async def create_campaign(code: str, title: str = "") -> bool:
+    try:
+        await conn().execute(
+            "INSERT INTO campaigns(code, title) VALUES (?, ?)", (code, title)
+        )
+    except aiosqlite.IntegrityError:
+        return False
+    await conn().commit()
+    return True
+
+
+async def touch_campaign(code: str, user_id: int) -> None:
+    """Count the click and stamp the user, but only the first link they used."""
+    await create_campaign(code)  # links made outside the panel still count
+    await conn().execute(
+        "UPDATE campaigns SET hits = hits + 1 WHERE code = ?", (code,)
+    )
+    await ensure_user(user_id)
+    await conn().execute(
+        "UPDATE users SET source = ? WHERE id = ? AND source IS NULL",
+        (code, user_id),
+    )
+    await conn().commit()
+
+
+async def delete_campaign(code: str) -> bool:
+    """The link stops being tracked; users keep their stamp for history."""
+    cur = await conn().execute("DELETE FROM campaigns WHERE code = ?", (code,))
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def campaigns() -> list[aiosqlite.Row]:
+    async with conn().execute(
+        """
+        SELECT c.*, (SELECT COUNT(*) FROM users u WHERE u.source = c.code) AS users
+        FROM campaigns c ORDER BY c.hits DESC, c.created_at
+        """
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def campaign_stats(code: str) -> dict | None:
+    async with conn().execute(
+        "SELECT * FROM campaigns WHERE code = ?", (code,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return None
+
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM users WHERE source = :c)                    AS users,
+          (SELECT COUNT(*) FROM users WHERE source = :c AND accepted = 1)   AS accepted,
+          (SELECT COUNT(*) FROM users WHERE source = :c AND banned = 1)     AS banned,
+          (SELECT COUNT(*) FROM users WHERE source = :c
+             AND created_at > strftime('%s','now') - 86400)                 AS today,
+          (SELECT COUNT(*) FROM profiles p JOIN users u ON u.id = p.user_id
+             WHERE u.source = :c AND p.status = 'approved')                 AS profiles,
+          (SELECT COUNT(*) FROM circles ci JOIN users u ON u.id = ci.uploader_id
+             WHERE u.source = :c AND ci.status = 'approved')                AS circles,
+          (SELECT COUNT(*) FROM views v JOIN users u ON u.id = v.user_id
+             WHERE u.source = :c)                                           AS views,
+          (SELECT COUNT(DISTINCT pay.user_id) FROM payments pay
+             JOIN users u ON u.id = pay.user_id
+             WHERE u.source = :c AND pay.refunded = 0)                      AS payers,
+          (SELECT COALESCE(SUM(pay.stars),0) FROM payments pay
+             JOIN users u ON u.id = pay.user_id
+             WHERE u.source = :c AND pay.refunded = 0)                      AS stars,
+          (SELECT COALESCE(SUM(pur.price),0) FROM purchases pur
+             JOIN users u ON u.id = pur.buyer_id WHERE u.source = :c)       AS spent
+        """,
+        {"c": code},
+    ) as cur:
+        stats = dict(await cur.fetchone())
+
+    stats.update(code=row["code"], title=row["title"], hits=row["hits"])
+    return stats
 
 
 # --- circles -------------------------------------------------------------

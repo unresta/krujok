@@ -16,6 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
+    CopyTextButton,
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -52,6 +53,7 @@ class Admin(StatesGroup):
     circle_id = State()
     channel = State()
     reports_chat = State()
+    campaign = State()
     profiles_chat = State()
 
 
@@ -109,7 +111,10 @@ def home_kb(
     b.row(
         InlineKeyboardButton(
             text="Подписка на канал", callback_data="a:chan", style=kb.PRIMARY
-        )
+        ),
+        InlineKeyboardButton(
+            text="Ссылки", callback_data="a:links", style=kb.PRIMARY
+        ),
     )
     b.row(
         InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
@@ -555,6 +560,127 @@ async def cb_payouts(call: CallbackQuery) -> None:
                 f"Реквизиты: <code>{payout['details']}</code>",
                 reply_markup=kb.payout_review(payout["id"]),
             )
+    await call.answer()
+
+
+# --- ad links ------------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:links")
+async def cb_links(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    rows = await db.campaigns()
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Новая ссылка", callback_data="a:links:new", style=kb.SUCCESS
+        )
+    )
+    for row in rows[:20]:  # a callback list, not a report — keep it scannable
+        b.row(
+            InlineKeyboardButton(
+                text=f"{row['title'] or row['code']} · {row['users']} чел",
+                callback_data=f"a:link:{row['code']}",
+                style=kb.PRIMARY,
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+
+    total_users = sum(row["users"] for row in rows)
+    await _edit(
+        call,
+        "<b>Рекламные ссылки</b>\n\n"
+        f"Ссылок: {len(rows)} · пришло с них: {total_users}\n\n"
+        "Каждая ссылка — это <code>?start=код</code>. Первая ссылка, по которой "
+        "пришёл человек, закрепляется за ним навсегда.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:links:new")
+async def cb_link_new(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.campaign)
+    await _edit(
+        call,
+        "Пришли код ссылки — латиница, цифры, <code>_</code> и <code>-</code>, "
+        "до 32 символов.\n"
+        "Можно с названием через пробел: <code>tg_ads Реклама в канале X</code>.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.campaign, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_campaign(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    code, _, title = raw.partition(" ")
+    code = access.parse_campaign(code)
+    if code is None:
+        await message.answer("Код не подходит: латиница, цифры, _ и -, до 32 знаков.")
+        return
+
+    await state.clear()
+    fresh = await db.create_campaign(code, title.strip())
+    await message.answer(
+        ("Ссылка создана." if fresh else "Такая ссылка уже была.")
+        + f"\n\n<code>{access.campaign_link(code)}</code>",
+        reply_markup=_link_kb(code, access.campaign_link(code)),
+    )
+
+
+def _link_kb(code: str, link: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="Скопировать", copy_text=CopyTextButton(text=link))
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Статистика", callback_data=f"a:link:{code}", style=kb.PRIMARY
+        ),
+        InlineKeyboardButton(
+            text="Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
+        ),
+    )
+    b.row(InlineKeyboardButton(text="К ссылкам", callback_data="a:links", style=kb.DANGER))
+    return b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:link:del:"))
+async def cb_link_delete(call: CallbackQuery, state: FSMContext) -> None:
+    code = call.data.split(":", 3)[3]
+    await db.delete_campaign(code)
+    await call.answer("Ссылка удалена")
+    await cb_links(call, state)
+
+
+@router.callback_query(F.data.startswith("a:link:"))
+async def cb_link(call: CallbackQuery) -> None:
+    code = call.data.split(":", 2)[2]
+    stats = await db.campaign_stats(code)
+    if stats is None:
+        await call.answer("Ссылки больше нет.", show_alert=True)
+        return
+
+    link = access.campaign_link(code)
+    conversion = (
+        f"{stats['accepted'] * 100 // stats['users']}%" if stats["users"] else "—"
+    )
+    await _edit(
+        call,
+        f"<b>{stats['title'] or code}</b>\n"
+        f"<code>{link}</code>\n\n"
+        f"Переходов: <b>{stats['hits']}</b>\n"
+        f"Пришло людей: <b>{stats['users']}</b> (за сутки +{stats['today']})\n"
+        f"Приняли правила: {stats['accepted']} ({conversion})\n"
+        f"Забанено: {stats['banned']}\n\n"
+        f"Анкет: {stats['profiles']} · кружочков: {stats['circles']}\n"
+        f"Просмотров: {stats['views']}\n"
+        f"Платили: {stats['payers']} чел на {stats['stars']} ⭐\n"
+        f"Потрачено монеток на анкеты: {stats['spent']}",
+        _link_kb(code, link),
+    )
     await call.answer()
 
 

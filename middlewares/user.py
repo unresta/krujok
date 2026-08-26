@@ -43,11 +43,14 @@ class UserMiddleware(BaseMiddleware):
             await self._refuse(event, texts.MAINTENANCE)
             return None
 
-        # A referral is recorded before the gate and paid after it.
+        # A referral is recorded before the gate and paid after it; an ad code
+        # is counted here too, or a user who never subscribes stays invisible.
         if isinstance(event, Message) and (event.text or "").startswith("/start "):
-            await access.remember_referrer(
-                tg_user.id, event.text.split(maxsplit=1)[1]
-            )
+            payload = event.text.split(maxsplit=1)[1]
+            await access.remember_referrer(tg_user.id, payload)
+            code = access.parse_campaign(payload)
+            if code:
+                await db.touch_campaign(code, tg_user.id)
 
         if not self._exempt(event) and not await access.is_subscribed(
             data["bot"], tg_user.id
