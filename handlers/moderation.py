@@ -13,7 +13,11 @@ router = Router()
 
 
 def _is_moderator(call: CallbackQuery) -> bool:
-    return call.message.chat.id == ADMIN_CHAT_ID or call.from_user.id in ADMIN_IDS
+    return (
+        call.from_user.id in ADMIN_IDS
+        or call.message.chat.id == ADMIN_CHAT_ID
+        or str(call.message.chat.id) == str(settings.circles_chat())
+    )
 
 
 @router.callback_query(F.data.startswith("mod:"))

@@ -1,4 +1,7 @@
+import logging
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, User
@@ -8,9 +11,9 @@ import keyboards as kb
 import texts
 import ui
 import settings
-from config import ADMIN_CHAT_ID
-
 router = Router()
+
+logger = logging.getLogger(__name__)
 
 
 class Upload(StatesGroup):
@@ -99,17 +102,23 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
         return texts.DUPLICATE
 
     reward = settings.reward(gender)
-    await bot.send_video_note(
-        ADMIN_CHAT_ID, data["file_id"], protect_content=True
-    )
+    chat = settings.circles_chat()
     who = author.username and f"@{author.username}" or "—"
-    admin_msg = await bot.send_message(
-        ADMIN_CHAT_ID,
-        f"#на_проверку <b>#{circle_id}</b>\n"
-        f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
-        f"Длина: {data['duration']} сек\n"
-        f"Автор: <code>{author.id}</code> {who}",
-        reply_markup=kb.moderation(circle_id),
-    )
-    await db.set_admin_msg(circle_id, admin_msg.message_id)
+    try:
+        await bot.send_video_note(chat, data["file_id"], protect_content=True)
+        card = await bot.send_message(
+            chat,
+            f"#на_проверку <b>#{circle_id}</b>\n"
+            f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
+            f"Длина: {data['duration']} сек\n"
+            f"Автор: <code>{author.id}</code> {who}",
+            reply_markup=kb.moderation(circle_id),
+        )
+        await db.set_admin_msg(circle_id, card.message_id)
+    except TelegramAPIError as error:
+        # The circle is saved and waits in the panel's queue either way; silence
+        # here is exactly what made a broken chat look like a broken upload.
+        logger.error(
+            "circle #%s not delivered to %s: %s", circle_id, chat, error
+        )
     return texts.upload_sent(circle_id, reward)

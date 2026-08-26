@@ -11,6 +11,8 @@ ADMIN_CHAT_ID: int = int(os.getenv("ADMIN_CHAT_ID", "0"))
 REPORTS_CHAT: str = os.getenv("REPORTS_CHAT", "")
 # Author profiles awaiting review; empty falls back to the moderation chat too.
 PROFILES_CHAT: str = os.getenv("PROFILES_CHAT", "")
+# Circles awaiting review; empty means ADMIN_CHAT_ID.
+CIRCLES_CHAT: str = os.getenv("CIRCLES_CHAT", "")
 # Personal ids allowed to run /stats and /refund.
 ADMIN_IDS: set[int] = {
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x

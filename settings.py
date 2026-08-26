@@ -36,6 +36,7 @@ TEXT_DEFAULTS: dict[str, str] = {
     "channel": config.CHANNEL,  # @name or -100… ; empty disables the gate
     "reports_chat": config.REPORTS_CHAT,  # empty falls back to ADMIN_CHAT_ID
     "profiles_chat": config.PROFILES_CHAT,
+    "circles_chat": config.CIRCLES_CHAT,
     "currency": config.CURRENCY,
 }
 
@@ -124,6 +125,11 @@ def money(minor: int) -> str:
 def revenue_of(stars: int) -> int:
     """What those stars are worth, in minor units."""
     return stars * _values["star_price"]
+
+
+def circles_chat() -> int | str:
+    """Where uploaded circles go for review."""
+    return _texts["circles_chat"].strip() or config.ADMIN_CHAT_ID
 
 
 def profiles_chat() -> int | str:

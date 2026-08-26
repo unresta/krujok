@@ -57,6 +57,7 @@ class Admin(StatesGroup):
     spend = State()
     delete_link = State()
     profiles_chat = State()
+    circles_chat = State()
 
 
 # --- home ----------------------------------------------------------------
@@ -887,7 +888,85 @@ async def link_cmd(message: Message) -> None:
 
 
 @router.callback_query(F.data == "a:queue")
-async def cb_queue(call: CallbackQuery) -> None:
+async def cb_queue(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    chat = settings.circles_chat()
+    waiting = (await db.dashboard())["pending"]
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Чат кружков", callback_data="a:queue:chat", style=kb.PRIMARY
+        )
+    )
+    if waiting:
+        b.row(
+            InlineKeyboardButton(
+                text="Показать следующий",
+                callback_data="a:queue:next",
+                style=kb.SUCCESS,
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        f"<b>Кружочки на проверке</b>\n\nЧат: <code>{chat}</code>\n"
+        f"{await _chat_status(call.bot, chat)}\n\nЖдут проверки: {waiting}",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:queue:chat")
+async def cb_queue_chat(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.circles_chat)
+    await _edit(
+        call,
+        "Пришли id чата для кружков (<code>-100…</code>) или <code>@username</code>.\n"
+        "Бот должен быть в этом чате. <code>-</code> — вернуть в чат модерации.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.circles_chat, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_circles_chat(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw == "-":
+        raw = ""
+    elif not (raw.startswith("@") or raw.lstrip("-").isdigit()):
+        await message.answer("Нужен id, @username или «-».")
+        return
+
+    await state.clear()
+    await settings.set_text("circles_chat", raw)
+    chat = settings.circles_chat()
+    await message.answer(
+        f"Чат кружков: <code>{chat}</code>\n"
+        f"{await _chat_status(message.bot, chat)}",
+        reply_markup=back_kb(),
+    )
+
+
+@router.message(Command("where"))
+async def where_cmd(message: Message) -> None:
+    """All four destinations at once — the fastest way to find a broken one."""
+    places = {
+        "Кружочки": settings.circles_chat(),
+        "Анкеты": settings.profiles_chat(),
+        "Жалобы и выплаты": settings.reports_chat(),
+    }
+    lines = []
+    for label, chat in places.items():
+        lines.append(
+            f"<b>{label}</b>: <code>{chat}</code>\n"
+            f"{await _chat_status(message.bot, chat)}"
+        )
+    await message.answer("\n\n".join(lines))
+
+
+@router.callback_query(F.data == "a:queue:next")
+async def cb_queue_next(call: CallbackQuery) -> None:
     circle = await db.next_pending()
     if circle is None:
         await call.answer("Очередь пуста 🟢", show_alert=True)
