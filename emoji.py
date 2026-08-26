@@ -39,6 +39,13 @@ FEED = "5850309953293653168"
 LIKE = "5307804022726467465"
 DISLIKE = "5346076867143147808"
 
+# Lines of an author's profile card.
+ABOUT = "5258503720928288433"
+PRICE = "5348418461838098123"
+CIRCLE_COUNT = "5294299296928117557"
+SOLD = "5879770735999717115"
+INFO = "5352741157442961082"
+
 # Used until resolve() replaces them, and forever when custom emoji are off.
 FALLBACK = {
     COIN: "🪙",
@@ -55,6 +62,11 @@ FALLBACK = {
     FEED: "🎛️",
     LIKE: "👍",
     DISLIKE: "👎",
+    ABOUT: "📝",
+    PRICE: "💲",
+    CIRCLE_COUNT: "⚪",
+    SOLD: "👤",
+    INFO: "📌",
 }
 
 # Ids Telegram confirmed — only these are allowed to render as custom emoji.

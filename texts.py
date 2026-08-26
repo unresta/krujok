@@ -335,13 +335,15 @@ def profile_card(profile, circles: int) -> str:
         else "не продаётся"
     )
     return (
-        f"{emoji.text(emoji.FILM)} <b>{PREF_TITLE(profile['gender'])}</b>\n\n"
-        f"{profile['about'] or 'Без описания'}\n\n"
-        f"Кружочков у автора: <b>{circles}</b>\n"
-        f"Доступ ко всем: <b>{profile['price_content']}</b> {coin()}\n"
+        f"<b>{PREF_TITLE(profile['gender'])}</b>\n\n"
+        f"{emoji.text(emoji.ABOUT)} {profile['about'] or 'Без описания'}\n\n"
+        f"{emoji.text(emoji.CIRCLE_COUNT)} Кружочков у автора: <b>{circles}</b>\n"
+        f"{emoji.text(emoji.PRICE)} Доступ ко всем: "
+        f"<b>{profile['price_content']}</b> {coin()}\n"
         f"Личка: {contact}\n"
-        f"Купили: {profile['sold']} раз\n\n"
-        "<i>Покупка открывает кружочки, которые есть у автора прямо сейчас.</i>"
+        f"{emoji.text(emoji.SOLD)} Купили: {profile['sold']} раз\n\n"
+        f"{emoji.text(emoji.INFO)} <i>Покупка открывает кружочки, которые есть "
+        "у автора прямо сейчас.</i>"
     )
 
 
