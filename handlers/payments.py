@@ -22,6 +22,13 @@ class Buy(StatesGroup):
     waiting_amount = State()
 
 
+@router.message(F.text == kb.BTN_SHOP)
+async def shop(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user = await db.get_user(message.from_user.id)
+    await message.answer(texts.buy(user["coins"]), reply_markup=kb.buy())
+
+
 @router.callback_query(F.data == "buy")
 async def buy_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -37,7 +44,7 @@ async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Buy.waiting_amount)
+@router.message(Buy.waiting_amount, ~F.text.in_(kb.MENU_BUTTONS))
 async def custom_amount(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if not raw.isdigit() or not (settings.get("min_stars") <= int(raw) <= MAX_STARS):

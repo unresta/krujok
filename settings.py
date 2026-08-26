@@ -20,6 +20,9 @@ DEFAULTS: dict[str, int] = {
     "reward_m_short": config.REWARD_SHORT["m"],
     "max_pending": config.MAX_PENDING,
     "ref_reward": config.REF_REWARD,
+    "view_payout": config.VIEW_PAYOUT,
+    "like_bonus": config.LIKE_BONUS,
+    "reports_to_hide": config.REPORTS_TO_HIDE,
     "maintenance": 0,
 }
 
@@ -40,6 +43,9 @@ TITLES: dict[str, str] = {
     "reward_m_short": "Короткий мужской",
     "max_pending": "Кружков на проверке",
     "ref_reward": "За реферала",
+    "view_payout": "Автору за просмотр",
+    "like_bonus": "Автору за лайк",
+    "reports_to_hide": "Жалоб до скрытия",
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -54,6 +60,9 @@ LIMITS: dict[str, tuple[int, int]] = {
     "reward_m_short": (0, 1000),
     "max_pending": (1, 100),
     "ref_reward": (0, 1000),
+    "view_payout": (0, 1000),
+    "like_bonus": (0, 1000),
+    "reports_to_hide": (1, 1000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

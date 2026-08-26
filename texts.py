@@ -17,7 +17,71 @@ def menu(coins: int, pref: str) -> str:
     return (
         "<b>Кружочки</b>\n\n"
         f"{coin()} Баланс: <b>{coins}</b>\n"
-        f"{emoji.text(emoji.FILM)} Показываю: <b>{PREF_TITLE(pref)}</b>"
+        f"{emoji.text(emoji.FILM)} Лента: <b>{PREF_TITLE(pref)}</b>\n\n"
+        "Кнопки внизу."
+    )
+
+
+def feed(pref: str) -> str:
+    return (
+        "<b>Лента</b>\n\n"
+        f"Сейчас показываю: <b>{PREF_TITLE(pref)}</b>\n"
+        "Выбери, какие кружочки хочешь смотреть."
+    )
+
+
+def rules() -> str:
+    full = settings.get("min_duration")
+    floor = settings.get("min_duration_short")
+    return (
+        "ℹ️ <b>Правила сервиса</b>\n\n"
+        "• Запрещены материалы: ЛГБТ, обнажённые видео пользователей до 18 лет, "
+        "реклама, спам, оскорбления и незаконный контент\n"
+        f"• Полная награда — за кружок от {full} секунд; "
+        f"от {floor} до {full - 1} секунд принимаем за меньшую цену, "
+        f"короче {floor} секунд — нет\n"
+        "• Уважай других пользователей и не злоупотребляй жалобами\n\n"
+        "За нарушение правил доступ к боту может быть ограничен без предупреждения."
+    )
+
+
+def faq() -> str:
+    return (
+        "❓ <b>FAQ</b>\n\n"
+        f"<b>Откуда берутся монетки?</b>\n"
+        f"Загрузи свой кружок (+{settings.reward('f')} за женский, "
+        f"+{settings.reward('m')} за мужской после проверки), позови друга "
+        f"(+{settings.get('ref_reward')}) или купи за ⭐ в «Магазине».\n\n"
+        f"<b>Сколько стоит просмотр?</b>\n"
+        f"{settings.get('watch_cost')} монетки за кружок. "
+        "Один и тот же кружок дважды не попадётся, свои — не показываются.\n\n"
+        "<b>Как заработать на своих кружочках?</b>\n"
+        f"Каждый платный просмотр твоего кружка приносит "
+        f"{settings.get('view_payout')} монетку, каждый лайк — "
+        f"{settings.get('like_bonus')}. Смотри «Профиль».\n\n"
+        "<b>Почему кружок не приняли?</b>\n"
+        "Либо он короче минимума, либо такой уже есть в базе, либо модератор "
+        "счёл его нарушающим правила.\n\n"
+        "<b>Долго ли ждать проверки?</b>\n"
+        "Обычно недолго. Пока кружок на проверке, можно загружать следующие — "
+        f"до {settings.get('max_pending')} штук.\n\n"
+        "<b>Можно ли скачать или переслать кружок?</b>\n"
+        "Нет: кружочки уходят с защитой от пересылки и сохранения.\n\n"
+        "<b>Кто увидит, что кружок мой?</b>\n"
+        "Никто. Автор нигде не показывается, обмен анонимный.\n\n"
+        "<b>Что делать с нарушением?</b>\n"
+        "Кнопка «Пожаловаться» под кружком. Жалобы уходят модераторам."
+    )
+
+
+def referrals(done: int, waiting: int, link: str) -> str:
+    return (
+        "👥 <b>Рефералы</b>\n\n"
+        f"Приглашено: <b>{done}</b>"
+        + (f" · ждут подписки: {waiting}\n" if waiting else "\n")
+        + f"За каждого друга, который подпишется на канал, — "
+        f"<b>+{settings.get('ref_reward')}</b> {coin()}\n\n"
+        f"Твоя ссылка:\n<code>{link}</code>"
     )
 
 
@@ -85,6 +149,13 @@ def approved(reward: int, coins: int, short: bool) -> str:
 
 
 REJECTED = "🔴 Кружок отклонён модератором."
+REPORT_SENT = "Жалоба отправлена модераторам."
+REPORT_DOUBLE = "Ты уже жаловался на этот кружок."
+CIRCLE_REMOVED = "🔴 Твой кружок удалён по жалобам."
+
+
+def earned_toast(amount: int) -> str:
+    return f"Твой кружок посмотрели: +{amount}"
 
 
 def buy(coins: int) -> str:
@@ -110,18 +181,26 @@ def paid(stars: int, coins_added: int, coins: int) -> str:
     )
 
 
-def profile(coins: int, s: dict, ref_done: int, ref_wait: int, link: str) -> str:
-    reward = settings.get("ref_reward")
-    waiting = f" · ждут подписки: {ref_wait}" if ref_wait else ""
+def profile(
+    user_id: int,
+    coins: int,
+    s: dict,
+    earned: int,
+    likes: int,
+    views: int,
+    ref_done: int,
+) -> str:
     return (
-        "<b>Профиль</b>\n\n"
-        f"{coin()} Баланс: <b>{coins}</b>\n"
-        f"👀 Просмотрено: {s['watched']}\n"
-        f"📤 Загружено: {s['approved']} одобрено · "
-        f"{s['pending']} на проверке · {s['rejected']} отклонено\n\n"
-        f"👥 Приглашено: <b>{ref_done}</b>{waiting}\n"
-        f"За друга, который подпишется на канал, — <b>+{reward}</b> {coin()}\n"
-        f"<code>{link}</code>"
+        "👤 <b>Профиль</b>\n\n"
+        f"ID: <code>{user_id}</code>\n"
+        f"{coin()} Баланс: <b>{coins}</b>\n\n"
+        f"📤 Мои кружочки: {s['approved']} в базе · {s['pending']} на проверке · "
+        f"{s['rejected']} отклонено\n"
+        f"👀 Их посмотрели: {views}\n"
+        f"👍 Лайков: {likes}\n"
+        f"{coin()} Заработано на кружочках: <b>{earned}</b>\n\n"
+        f"👀 Сам посмотрел: {s['watched']}\n"
+        f"👥 Приглашено: {ref_done}"
     )
 
 

@@ -11,8 +11,6 @@ import ui
 
 router = Router()
 
-PREF_CYCLE = {"f": "m", "m": "any", "any": "f"}
-
 
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext) -> None:
@@ -35,31 +33,65 @@ async def menu_cb(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
+# --- feed ----------------------------------------------------------------
+
+
+@router.message(F.text == kb.BTN_FEED)
+async def feed(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user = await db.get_user(message.from_user.id)
+    await message.answer(texts.feed(user["pref"]), reply_markup=kb.feed(user["pref"]))
+
+
 @router.callback_query(F.data.startswith("pref:"))
 async def pref(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     choice = call.data.split(":", 1)[1]
-    user = await db.get_user(call.from_user.id)
-    pref_value = PREF_CYCLE[user["pref"]] if choice == "cycle" else choice
-    await db.set_pref(call.from_user.id, pref_value)
-
-    if choice == "cycle":
-        # Called from the post-watch panel — keep that panel, just relabel it.
-        await call.message.edit_reply_markup(reply_markup=kb.after_watch(pref_value))
-    else:
-        await ui.render_menu(call, call.from_user.id)
-    await call.answer(kb.PREF_LABEL[pref_value])  # toast is plain text, no HTML
+    await db.set_pref(call.from_user.id, choice)
+    await ui.edit(call, texts.feed(choice), kb.feed(choice))
+    await call.answer(kb.PREF_LABEL[choice])  # toast is plain text, no HTML
 
 
-@router.callback_query(F.data == "profile")
-async def profile(call: CallbackQuery) -> None:
-    user = await db.get_user(call.from_user.id)
-    stats = await db.user_stats(call.from_user.id)
-    done, waiting = await db.referral_counts(call.from_user.id)
-    link = access.referral_link(call.from_user.id)
-    await ui.edit(
-        call,
-        texts.profile(user["coins"], stats, done, waiting, link),
-        kb.profile(link),
+# --- profile, referrals, rules -------------------------------------------
+
+
+@router.message(F.text == kb.BTN_PROFILE)
+async def profile(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    stats = await db.user_stats(user_id)
+    earned, likes, views = await db.author_earnings(user_id)
+    done, _ = await db.referral_counts(user_id)
+    await message.answer(
+        texts.profile(user_id, user["coins"], stats, earned, likes, views, done),
+        reply_markup=kb.profile(access.referral_link(user_id)),
     )
+
+
+@router.message(F.text == kb.BTN_REF)
+async def referrals(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    done, waiting = await db.referral_counts(message.from_user.id)
+    link = access.referral_link(message.from_user.id)
+    await message.answer(
+        texts.referrals(done, waiting, link), reply_markup=kb.referrals(link)
+    )
+
+
+@router.message(F.text == kb.BTN_RULES)
+async def rules(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(texts.rules(), reply_markup=kb.rules())
+
+
+@router.callback_query(F.data == "rules")
+async def rules_cb(call: CallbackQuery) -> None:
+    await ui.edit(call, texts.rules(), kb.rules())
+    await call.answer()
+
+
+@router.callback_query(F.data == "faq")
+async def faq_cb(call: CallbackQuery) -> None:
+    await ui.edit(call, texts.faq(), kb.faq())
     await call.answer()

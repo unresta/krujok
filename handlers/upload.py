@@ -18,6 +18,12 @@ class Upload(StatesGroup):
     waiting_gender = State()  # circle already in hand
 
 
+@router.message(F.text == kb.BTN_UPLOAD)
+async def upload_button(message: Message, state: FSMContext) -> None:
+    await state.set_state(Upload.waiting_gender)
+    await message.answer(texts.UPLOAD_PICK_GENDER, reply_markup=kb.upload_gender())
+
+
 @router.callback_query(F.data == "upload")
 async def ask_gender(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Upload.waiting_gender)
@@ -73,7 +79,7 @@ async def got_video(message: Message, state: FSMContext) -> None:
     await message.answer(text, reply_markup=kb.back())
 
 
-@router.message(Upload.waiting_video)
+@router.message(Upload.waiting_video, ~F.text.in_(kb.MENU_BUTTONS))
 async def wrong_content(message: Message) -> None:
     await message.answer(texts.NOT_A_CIRCLE, reply_markup=kb.back())
 

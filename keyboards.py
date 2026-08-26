@@ -16,6 +16,8 @@ from aiogram.types import (
     CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -54,36 +56,81 @@ def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardBut
     )
 
 
-def menu(pref: str, has_coins: bool) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="Профиль", callback_data="profile", style=PRIMARY)
-    )
-    kb.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
-    kb.row(
-        _coin_button("Заработать", "upload", SUCCESS),
-        _coin_button("Купить", "buy", SUCCESS),
-    )
-    kb.row(_coin_button(f'Смотреть · {settings.get("watch_cost")}', "watch", PRIMARY))
-    return kb.as_markup()
+# --- main menu: a reply keyboard that never scrolls away -----------------
+
+BTN_WATCH = "▶️ Смотреть кружки"
+BTN_UPLOAD = "🎥 Загрузить кружок"
+BTN_PROFILE = "👤 Профиль"
+BTN_FEED = "🎛 Лента"
+BTN_REF = "👥 Рефералы"
+BTN_RULES = "ℹ️ Правила и FAQ"
+BTN_SHOP = "⭐ Магазин"
 
 
-def after_watch(pref: str) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.row(_coin_button(f'Ещё · {settings.get("watch_cost")}', "watch", PRIMARY))
-    kb.row(
+# Menu presses must never be mistaken for an answer to a prompt.
+MENU_BUTTONS = frozenset(
+    {BTN_WATCH, BTN_UPLOAD, BTN_PROFILE, BTN_FEED, BTN_REF, BTN_RULES, BTN_SHOP}
+)
+
+
+def main_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_WATCH)],
+            [KeyboardButton(text=BTN_UPLOAD), KeyboardButton(text=BTN_PROFILE)],
+            [KeyboardButton(text=BTN_FEED), KeyboardButton(text=BTN_REF)],
+            [KeyboardButton(text=BTN_RULES), KeyboardButton(text=BTN_SHOP)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def circle(circle_id: int, likes: int, dislikes: int, vote: int) -> InlineKeyboardMarkup:
+    """Sits under the circle itself, so reactions travel with the video."""
+    b = InlineKeyboardBuilder()
+    b.row(
         InlineKeyboardButton(
-            text=emoji.label(GENDER_EMOJI[pref]) + PREF_LABEL[pref],
-            callback_data="pref:cycle",
-            icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[pref]),
-            style=PRIMARY,
+            text=f"👍 {likes}",
+            callback_data=f"lk:{circle_id}:1",
+            style=SUCCESS if vote == 1 else None,
         ),
-        InlineKeyboardButton(text="Хватит", callback_data="menu", style=DANGER),
+        InlineKeyboardButton(
+            text=f"👎 {dislikes}",
+            callback_data=f"lk:{circle_id}:-1",
+            style=DANGER if vote == -1 else None,
+        ),
     )
-    return kb.as_markup()
+    b.row(
+        InlineKeyboardButton(
+            text="Пожаловаться", callback_data=f"rep:{circle_id}", style=DANGER
+        )
+    )
+    b.row(_coin_button(f'Следующий · {settings.get("watch_cost")}', "watch", SUCCESS))
+    return b.as_markup()
+
+
+def feed(pref: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
+    return b.as_markup()
 
 
 def profile(link: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
+    b.row(
+        InlineKeyboardButton(
+            text="Позвать друга",
+            url=f"https://t.me/share/url?url={link}&text="
+            "Кружочки без лишних слов",
+            style=PRIMARY,
+        )
+    )
+    return b.as_markup()
+
+
+def referrals(link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
@@ -98,7 +145,31 @@ def profile(link: str) -> InlineKeyboardMarkup:
             text="Скопировать ссылку", copy_text=CopyTextButton(text=link)
         )
     )
-    b.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def rules() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="FAQ", callback_data="faq", style=PRIMARY))
+    return b.as_markup()
+
+
+def faq() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Правила", callback_data="rules", style=PRIMARY))
+    return b.as_markup()
+
+
+def report_review(circle_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Удалить кружок", callback_data=f"rp:del:{circle_id}", style=DANGER
+        ),
+        InlineKeyboardButton(
+            text="Оставить", callback_data=f"rp:keep:{circle_id}", style=SUCCESS
+        ),
+    )
     return b.as_markup()
 
 
@@ -114,7 +185,7 @@ def no_coins() -> InlineKeyboardMarkup:
 
 def back() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text="Закрыть", callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 

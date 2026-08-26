@@ -67,8 +67,8 @@ async def main() -> None:
         subscribe.router,
         common.router,
         payments.router,
-        upload.router,
         watch.router,
+        upload.router,
         fallback,
     )
 

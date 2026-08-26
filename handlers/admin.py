@@ -56,7 +56,7 @@ class Admin(StatesGroup):
 # --- home ----------------------------------------------------------------
 
 
-def home_kb(maintenance: bool, pending: int) -> InlineKeyboardMarkup:
+def home_kb(maintenance: bool, pending: int, reports: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(text="Статистика", callback_data="a:stats", style=kb.PRIMARY),
@@ -82,6 +82,13 @@ def home_kb(maintenance: bool, pending: int) -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(text="Платежи", callback_data="a:pay", style=kb.PRIMARY),
         InlineKeyboardButton(text="Топ авторов", callback_data="a:top", style=kb.PRIMARY),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"Жалобы · {reports}",
+            callback_data="a:reports",
+            style=kb.DANGER if reports else None,
+        )
     )
     b.row(
         InlineKeyboardButton(
@@ -123,7 +130,7 @@ async def home_text() -> str:
 async def show_home(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     d = await db.dashboard()
-    await _edit(call, await home_text(), home_kb(settings.maintenance(), d["pending"]))
+    await _edit(call, await home_text(), home_kb(settings.maintenance(), d["pending"], await db.open_reports()))
 
 
 @router.message(Command("admin"))
@@ -131,7 +138,7 @@ async def open_panel(message: Message, state: FSMContext) -> None:
     await state.clear()
     d = await db.dashboard()
     await message.answer(
-        await home_text(), reply_markup=home_kb(settings.maintenance(), d["pending"])
+        await home_text(), reply_markup=home_kb(settings.maintenance(), d["pending"], await db.open_reports())
     )
 
 
@@ -281,7 +288,7 @@ async def cb_channel_set(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.channel)
+@router.message(Admin.channel, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_channel(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if raw.startswith("https://t.me/"):
@@ -305,6 +312,27 @@ async def cb_channel_off(call: CallbackQuery, state: FSMContext) -> None:
     access.drop_link_cache()
     await call.answer("Подписка выключена")
     await cb_channel(call, state)
+
+
+@router.callback_query(F.data == "a:reports")
+async def cb_reports(call: CallbackQuery) -> None:
+    rows = await db.reported_circles()
+    if not rows:
+        await call.answer("Жалоб нет 🟢", show_alert=True)
+        return
+
+    for circle in rows[:5]:  # a screenful, the rest stay in the queue
+        with suppress(TelegramAPIError):
+            await call.bot.send_video_note(call.from_user.id, circle["file_id"])
+            await call.bot.send_message(
+                call.from_user.id,
+                f"#жалоба <b>#{circle['id']}</b> — {circle['complaints']} шт\n"
+                f"Статус: {circle['status']} · просмотров: {circle['views']} · "
+                f"👍 {circle['likes']} / 👎 {circle['dislikes']}\n"
+                f"Автор: <code>{circle['uploader_id']}</code>",
+                reply_markup=kb.report_review(circle["id"]),
+            )
+    await call.answer()
 
 
 # --- moderation queue ----------------------------------------------------
@@ -527,7 +555,7 @@ async def cb_bulk_done(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.bulk)
+@router.message(Admin.bulk, ~F.text.in_(kb.MENU_BUTTONS))
 async def bulk_other(message: Message) -> None:
     await message.answer("Жду кружочки. «Готово» в панели — закончить.")
 
@@ -546,7 +574,7 @@ async def cb_user(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.user_id)
+@router.message(Admin.user_id, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_user_id(message: Message, state: FSMContext) -> None:
     origin = message.forward_origin
     sender = getattr(origin, "sender_user", None)
@@ -630,7 +658,7 @@ async def cb_user_give(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.give)
+@router.message(Admin.give, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_give(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if not raw.lstrip("-").isdigit():
@@ -663,7 +691,7 @@ async def cb_circle(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.circle_id)
+@router.message(Admin.circle_id, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_circle_id(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").lstrip("#").strip()
     if not raw.isdigit():
@@ -749,7 +777,7 @@ async def cb_cast(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.broadcast)
+@router.message(Admin.broadcast, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_cast(message: Message, state: FSMContext) -> None:
     await state.update_data(from_chat=message.chat.id, message_id=message.message_id)
     total = len(await db.all_user_ids())
@@ -851,7 +879,7 @@ async def cb_econ_key(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Admin.setting)
+@router.message(Admin.setting, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_setting(message: Message, state: FSMContext) -> None:
     key = (await state.get_data())["key"]
     low, high = settings.LIMITS[key]

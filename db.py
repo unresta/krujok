@@ -39,6 +39,23 @@ CREATE TABLE IF NOT EXISTS views (
     PRIMARY KEY (user_id, circle_id)
 );
 
+CREATE TABLE IF NOT EXISTS reactions (
+    user_id   INTEGER NOT NULL,
+    circle_id INTEGER NOT NULL,
+    value     INTEGER NOT NULL,          -- 1 like, -1 dislike
+    ts        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (user_id, circle_id)
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   INTEGER NOT NULL,
+    circle_id INTEGER NOT NULL,
+    handled   INTEGER NOT NULL DEFAULT 0,
+    ts        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE (user_id, circle_id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -70,7 +87,12 @@ MIGRATIONS = {
     "users": {
         "ref_by": "INTEGER",
         "ref_credited": "INTEGER NOT NULL DEFAULT 0",
-    }
+    },
+    "circles": {
+        "likes": "INTEGER NOT NULL DEFAULT 0",
+        "dislikes": "INTEGER NOT NULL DEFAULT 0",
+        "earned": "INTEGER NOT NULL DEFAULT 0",
+    },
 }
 
 
@@ -283,6 +305,14 @@ async def review_circle(circle_id: int, status: str, admin_id: int) -> bool:
     return cur.rowcount > 0
 
 
+async def set_status(circle_id: int, status: str) -> None:
+    """Force a status — used by report handling, where the circle is not pending."""
+    await conn().execute(
+        "UPDATE circles SET status = ? WHERE id = ?", (status, circle_id)
+    )
+    await conn().commit()
+
+
 async def pending_count(user_id: int) -> int:
     async with conn().execute(
         "SELECT COUNT(*) FROM circles WHERE uploader_id = ? AND status = 'pending'",
@@ -422,6 +452,125 @@ async def dashboard() -> dict:
         """
     ) as cur:
         return dict(await cur.fetchone())
+
+
+# --- reactions and reports ----------------------------------------------
+
+
+async def set_reaction(user_id: int, circle_id: int, value: int) -> tuple[int, int, int, bool]:
+    """Vote, or take the vote back by pressing the same button again.
+
+    Returns (my vote now, likes, dislikes, a like was just added) — the last
+    flag is what pays the author, so an unvote-revote cannot pay twice.
+    """
+    async with conn().execute(
+        "SELECT value FROM reactions WHERE user_id = ? AND circle_id = ?",
+        (user_id, circle_id),
+    ) as cur:
+        row = await cur.fetchone()
+    old = row["value"] if row else 0
+    new = 0 if old == value else value
+
+    if new:
+        await conn().execute(
+            "INSERT INTO reactions(user_id, circle_id, value) VALUES (?, ?, ?)"
+            " ON CONFLICT(user_id, circle_id) DO UPDATE SET value = excluded.value,"
+            " ts = strftime('%s','now')",
+            (user_id, circle_id, new),
+        )
+    else:
+        await conn().execute(
+            "DELETE FROM reactions WHERE user_id = ? AND circle_id = ?",
+            (user_id, circle_id),
+        )
+
+    await conn().execute(
+        "UPDATE circles SET likes = likes + ?, dislikes = dislikes + ? WHERE id = ?",
+        ((new == 1) - (old == 1), (new == -1) - (old == -1), circle_id),
+    )
+    await conn().commit()
+
+    async with conn().execute(
+        "SELECT likes, dislikes FROM circles WHERE id = ?", (circle_id,)
+    ) as cur:
+        counts = await cur.fetchone()
+    fresh_like = new == 1 and old != 1
+    return new, counts["likes"], counts["dislikes"], fresh_like
+
+
+async def get_reaction(user_id: int, circle_id: int) -> int:
+    async with conn().execute(
+        "SELECT value FROM reactions WHERE user_id = ? AND circle_id = ?",
+        (user_id, circle_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return row["value"] if row else 0
+
+
+async def add_report(user_id: int, circle_id: int) -> int | None:
+    """None when this user already complained about this circle."""
+    try:
+        await conn().execute(
+            "INSERT INTO reports(user_id, circle_id) VALUES (?, ?)",
+            (user_id, circle_id),
+        )
+    except aiosqlite.IntegrityError:
+        return None
+    await conn().commit()
+    async with conn().execute(
+        "SELECT COUNT(*) FROM reports WHERE circle_id = ? AND handled = 0",
+        (circle_id,),
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def clear_reports(circle_id: int) -> None:
+    await conn().execute(
+        "UPDATE reports SET handled = 1 WHERE circle_id = ?", (circle_id,)
+    )
+    await conn().commit()
+
+
+async def reported_circles(limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        """
+        SELECT c.*, COUNT(r.id) AS complaints
+        FROM reports r JOIN circles c ON c.id = r.circle_id
+        WHERE r.handled = 0
+        GROUP BY c.id ORDER BY complaints DESC, c.id LIMIT ?
+        """,
+        (limit,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def open_reports() -> int:
+    async with conn().execute(
+        "SELECT COUNT(DISTINCT circle_id) FROM reports WHERE handled = 0"
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def pay_author(circle_id: int, uploader_id: int, amount: int) -> None:
+    """Author earnings are tracked per circle so the profile can show them."""
+    if not uploader_id or not amount:
+        return
+    await add_coins(uploader_id, amount)
+    await conn().execute(
+        "UPDATE circles SET earned = earned + ? WHERE id = ?", (amount, circle_id)
+    )
+    await conn().commit()
+
+
+async def author_earnings(user_id: int) -> tuple[int, int, int]:
+    """(coins earned by circles, total likes, total views)"""
+    async with conn().execute(
+        "SELECT COALESCE(SUM(earned),0) AS earned, COALESCE(SUM(likes),0) AS likes,"
+        " COALESCE(SUM(views),0) AS views FROM circles WHERE uploader_id = ?",
+        (user_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    return row["earned"], row["likes"], row["views"]
 
 
 # --- settings ------------------------------------------------------------
