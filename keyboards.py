@@ -299,7 +299,14 @@ def profile_contact_ask(has_username: bool) -> InlineKeyboardMarkup:
         )
     else:
         b.row(
-            InlineKeyboardButton(text="Понятно", callback_data="pc:no", style=PRIMARY)
+            InlineKeyboardButton(
+                text="Добавил(а) юзернейм", callback_data="pc:recheck", style=SUCCESS
+            )
+        )
+        b.row(
+            InlineKeyboardButton(
+                text="Не продавать личку", callback_data="pc:no", style=DANGER
+            )
         )
     return b.as_markup()
 

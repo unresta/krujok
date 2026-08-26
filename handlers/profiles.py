@@ -109,7 +109,22 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(Anketa.contact, F.data.startswith("pc:"))
 async def got_contact_choice(call: CallbackQuery, state: FSMContext) -> None:
-    wants = call.data.split(":")[1] == "yes" and bool(call.from_user.username)
+    choice = call.data.split(":")[1]
+
+    if choice == "recheck":
+        # Telegram sends a fresh from_user with every update, so a username set
+        # a second ago is already visible here.
+        if not call.from_user.username:
+            await call.answer(texts.PROFILE_STILL_NO_USERNAME, show_alert=True)
+            return
+        await call.answer("Вижу 🟢")
+        with suppress(TelegramAPIError):
+            await call.message.edit_text(
+                texts.PROFILE_CONTACT_ASK, reply_markup=kb.profile_contact_ask(True)
+            )
+        return
+
+    wants = choice == "yes" and bool(call.from_user.username)
     if not wants:
         await state.update_data(contact_ok=False, price_contact=0)
         await call.answer()
