@@ -29,6 +29,10 @@ CIRCLES_PER_BATCH = 10  # sent per tap, so a big catalogue does not hit the limi
 SEND_PAUSE = 0.3
 
 
+class Review(StatesGroup):
+    reason = State()
+
+
 class Anketa(StatesGroup):
     photo = State()
     about = State()
@@ -205,7 +209,7 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("pm:"))
-async def review(call: CallbackQuery) -> None:
+async def review(call: CallbackQuery, state: FSMContext) -> None:
     if not (
         call.from_user.id in ADMIN_IDS
         or call.message.chat.id == ADMIN_CHAT_ID
@@ -215,16 +219,45 @@ async def review(call: CallbackQuery) -> None:
         await call.answer("Нет прав.", show_alert=True)
         return
 
-    _, verdict, raw_id = call.data.split(":")
-    user_id = int(raw_id)
+    parts = call.data.split(":")
+    verdict = parts[1]
+    user_id = int(parts[-1])
+
+    if verdict == "no":  # ask why before turning anyone away
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.profile_reasons(user_id)
+            )
+        await call.answer("За что отклоняем?")
+        return
+
+    if verdict == "back":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.profile_review(user_id)
+            )
+        await call.answer()
+        return
+
+    if verdict == "rc":  # a reason typed by hand
+        await state.set_state(Review.reason)
+        await state.update_data(user_id=user_id, card=call.message.message_id)
+        await call.message.answer(
+            f"Причина отклонения для <code>{user_id}</code>? "
+            "Пришли одним сообщением — автор её увидит."
+        )
+        await call.answer()
+        return
+
+    reason = texts.REJECT_REASONS[parts[2]] if verdict == "r" else ""
+    status = "approved" if verdict == "ok" else "rejected"
 
     if verdict in ("hide", "keep"):  # verdict on a complaint, not on a new profile
         status = "rejected" if verdict == "hide" else "approved"
         await db.set_profile_status(user_id, status)
         await db.clear_profile_reports(user_id)
         if verdict == "hide":
-            with suppress(TelegramAPIError):
-                await call.bot.send_message(user_id, texts.PROFILE_REJECTED)
+            await _tell_author(call.bot, user_id, "rejected", "жалобы пользователей")
         mark = "🔴 скрыта" if verdict == "hide" else "🟢 оставлена"
         with suppress(TelegramAPIError):
             await call.message.edit_caption(
@@ -233,22 +266,52 @@ async def review(call: CallbackQuery) -> None:
         await call.answer(mark)
         return
 
-    status = "approved" if verdict == "ok" else "rejected"
     if not await db.review_profile(user_id, status):
         await call.answer("Уже обработана.", show_alert=True)
         return
 
-    with suppress(TelegramAPIError):
-        await call.bot.send_message(
-            user_id,
-            texts.PROFILE_APPROVED if status == "approved" else texts.PROFILE_REJECTED,
-        )
+    await _tell_author(call.bot, user_id, status, reason)
     mark = "🟢 одобрена" if status == "approved" else "🔴 отклонена"
+    if reason:
+        mark += f" · {reason}"
     with suppress(TelegramAPIError):
         await call.message.edit_caption(
             caption=f"{call.message.html_text}\n\n<b>{mark}</b>", reply_markup=None
         )
     await call.answer(mark)
+
+
+async def _tell_author(bot, user_id: int, status: str, reason: str = "") -> None:
+    with suppress(TelegramAPIError):
+        await bot.send_message(
+            user_id,
+            texts.PROFILE_APPROVED
+            if status == "approved"
+            else texts.profile_rejected(reason),
+        )
+
+
+@router.message(Review.reason, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_reason(message: Message, state: FSMContext) -> None:
+    reason = (message.text or "").strip()
+    if not 3 <= len(reason) <= 200:
+        await message.answer("Причина: от 3 до 200 символов.")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    user_id = data["user_id"]
+
+    if not await db.review_profile(user_id, "rejected"):
+        await message.answer("Анкету уже обработали.")
+        return
+
+    await _tell_author(message.bot, user_id, "rejected", reason)
+    with suppress(TelegramAPIError):
+        await message.bot.edit_message_reply_markup(
+            chat_id=message.chat.id, message_id=data["card"], reply_markup=None
+        )
+    await message.answer(f"🔴 Отклонена: {reason}")
 
 
 # --- browsing and buying -------------------------------------------------

@@ -371,6 +371,32 @@ def profile_review(user_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def profile_reasons(user_id: int) -> InlineKeyboardMarkup:
+    """Why the profile is being turned down — the author gets told."""
+    from texts import REJECT_REASONS
+
+    b = InlineKeyboardBuilder()
+    for key, label in REJECT_REASONS.items():
+        b.row(
+            InlineKeyboardButton(
+                text=label.capitalize(),
+                callback_data=f"pm:r:{key}:{user_id}",
+                style=DANGER,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="Своя причина", callback_data=f"pm:rc:{user_id}", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Назад", callback_data=f"pm:back:{user_id}", style=SUCCESS
+        )
+    )
+    return b.as_markup()
+
+
 def profile_report_review(user_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
