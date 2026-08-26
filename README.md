@@ -89,12 +89,36 @@ UI: одно сообщение-панель, которое редактиру�
 нет прав, сеть) — рисуется обычным юникодом, сообщения не ломаются.
 `PREMIUM_EMOJI=0` в `.env` выключает кастомные эмодзи целиком.
 
-## Запуск
+## Запуск в Docker
+
+```bash
+cp .env.example .env   # заполнить BOT_TOKEN, ADMIN_CHAT_ID, ADMIN_IDS
+mkdir -p data
+docker compose up -d --build
+```
+
+База лежит в `./data/bot.db` на томе, поэтому `docker compose down` её не трогает;
+`DB_PATH` в compose жёстко указывает на этот том. Логи пишутся json-драйвером с
+ротацией (5 файлов по 10 МБ), смотреть так:
+
+```bash
+docker compose logs -f          # хвост логов
+docker compose restart          # перезапуск
+docker compose up -d --build    # после git pull
+```
+
+Переезд с systemd: остановить старый сервис, положить базу на том, поднять контейнер.
+
+```bash
+systemctl disable --now krujok && mkdir -p data && mv bot.db* data/ 2>/dev/null; docker compose up -d --build
+```
+
+## Запуск без Docker
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # заполнить BOT_TOKEN, ADMIN_CHAT_ID, ADMIN_IDS
+cp .env.example .env
 python bot.py
 ```
 
