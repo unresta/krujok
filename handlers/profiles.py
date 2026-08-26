@@ -275,7 +275,14 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         await db.reset_profile_views(viewer_id)
         profile = await db.pick_profile(viewer_id)
     if profile is None:
-        await origin.answer(texts.PROFILE_EMPTY, reply_markup=kb.back())
+        # Nothing to show is the best moment to ask for a profile of their own.
+        mine = await db.get_profile(viewer_id)
+        if mine is None:
+            await origin.answer(
+                texts.profile_empty_pitch(), reply_markup=kb.my_profile(False)
+            )
+        else:
+            await origin.answer(texts.PROFILE_EMPTY_WAIT, reply_markup=kb.back())
         return
 
     author = profile["user_id"]
