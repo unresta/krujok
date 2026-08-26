@@ -1,16 +1,24 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType, ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, CallbackQuery, Message
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    CallbackQuery,
+    Message,
+)
 
 import db
 import emoji
+import settings
 import ui
-from config import BOT_TOKEN
+from config import ADMIN_IDS, BOT_TOKEN
 from handlers import admin, common, moderation, payments, upload, watch
 from middlewares.user import UserMiddleware
 
@@ -33,6 +41,7 @@ async def stale_button(call: CallbackQuery) -> None:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     await db.connect()
+    await settings.load()
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
@@ -52,12 +61,17 @@ async def main() -> None:
         fallback,
     )
 
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Кружочки"),
-            BotCommand(command="menu", description="Меню"),
-        ]
-    )
+    public = [
+        BotCommand(command="start", description="Кружочки"),
+        BotCommand(command="menu", description="Меню"),
+    ]
+    await bot.set_my_commands(public)
+    for admin_id in ADMIN_IDS:  # /admin shows up only in the admins' own chats
+        with suppress(TelegramAPIError):
+            await bot.set_my_commands(
+                public + [BotCommand(command="admin", description="Админ-панель")],
+                scope=BotCommandScopeChat(chat_id=admin_id),
+            )
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)

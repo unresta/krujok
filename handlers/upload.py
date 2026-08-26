@@ -7,7 +7,8 @@ import db
 import keyboards as kb
 import texts
 import ui
-from config import ADMIN_CHAT_ID, MAX_PENDING, MIN_DURATION, REWARD
+import settings
+from config import ADMIN_CHAT_ID
 
 router = Router()
 
@@ -47,10 +48,10 @@ async def got_video(message: Message, state: FSMContext) -> None:
     """A circle is accepted at any point — the type is asked for if unknown."""
     note = message.video_note
 
-    if await db.pending_count(message.from_user.id) >= MAX_PENDING:
+    if await db.pending_count(message.from_user.id) >= settings.get("max_pending"):
         await message.answer(texts.TOO_MANY_PENDING, reply_markup=kb.back())
         return
-    if note.duration < MIN_DURATION:
+    if note.duration < settings.get("min_duration"):
         await message.answer(texts.too_short(note.duration), reply_markup=kb.back())
         return
 
@@ -94,10 +95,10 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
     admin_msg = await bot.send_message(
         ADMIN_CHAT_ID,
         f"#на_проверку <b>#{circle_id}</b>\n"
-        f"Тип: {kb.PREF_TITLE(gender)} (+{REWARD[gender]} {texts.coin()})\n"
+        f"Тип: {kb.PREF_TITLE(gender)} (+{settings.reward(gender)} {texts.coin()})\n"
         f"Длина: {data['duration']} сек\n"
         f"Автор: <code>{author.id}</code> {who}",
         reply_markup=kb.moderation(circle_id),
     )
     await db.set_admin_msg(circle_id, admin_msg.message_id)
-    return texts.UPLOAD_SENT
+    return texts.upload_sent(circle_id)

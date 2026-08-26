@@ -10,7 +10,8 @@ import db
 import keyboards as kb
 import texts
 import ui
-from config import WATCH_COOLDOWN, WATCH_COST
+import settings
+from config import WATCH_COOLDOWN
 
 router = Router()
 
@@ -29,7 +30,8 @@ async def watch(call: CallbackQuery, state: FSMContext) -> None:
     _last_tap[user_id] = now
 
     user = await db.get_user(user_id)
-    if user["coins"] < WATCH_COST:
+    cost = settings.get("watch_cost")
+    if user["coins"] < cost:
         await ui.edit(call, texts.not_enough(user["coins"]), kb.no_coins())
         await call.answer()
         return
@@ -40,7 +42,7 @@ async def watch(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer()
         return
 
-    if not await db.try_spend(user_id, WATCH_COST):  # raced with another tap
+    if not await db.try_spend(user_id, cost):  # raced with another tap
         await ui.edit(call, texts.not_enough(user["coins"]), kb.no_coins())
         await call.answer()
         return
@@ -57,7 +59,7 @@ async def watch(call: CallbackQuery, state: FSMContext) -> None:
             protect_content=True,  # no forwarding, no saving
         )
     except TelegramAPIError:
-        await db.add_coins(user_id, WATCH_COST)  # nothing delivered, nothing charged
+        await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
         await call.bot.send_message(
             user_id, "Не удалось отправить кружок, монетки вернул.", reply_markup=kb.back()
         )

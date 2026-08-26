@@ -5,7 +5,7 @@ known after emoji.resolve() has run against Telegram.
 """
 
 import emoji
-from config import MIN_DURATION, MIN_STARS, REWARD, STARS_RATE, WATCH_COST
+import settings
 from keyboards import PREF_TITLE
 
 
@@ -23,8 +23,10 @@ def menu(coins: int, pref: str) -> str:
 
 def not_enough(coins: int) -> str:
     return (
-        f"{coin()} Баланс: <b>{coins}</b> — на просмотр нужно {WATCH_COST}.\n\n"
-        f"Загрузи кружок (+{REWARD['f']} за женский, +{REWARD['m']} за мужской) "
+        f"{coin()} Баланс: <b>{coins}</b> — "
+        f'на просмотр нужно {settings.get("watch_cost")}.\n\n'
+        f"Загрузи кружок (+{settings.reward('f')} за женский, "
+        f"+{settings.reward('m')} за мужской) "
         "или купи монетки за ⭐."
     )
 
@@ -42,8 +44,8 @@ def upload_ask(gender: str) -> str:
     kind = "женский" if gender == "f" else "мужской"
     return (
         f"🎥 Пришли {kind} кружок одним сообщением.\n\n"
-        f"• минимум {MIN_DURATION} сек\n"
-        f"• +{REWARD[gender]} {coin()} после проверки модератором"
+        f'• минимум {settings.get("min_duration")} сек\n'
+        f"• +{settings.reward(gender)} {coin()} после проверки модератором"
     )
 
 
@@ -51,13 +53,22 @@ NOT_A_CIRCLE = "Это не кружок. Зажми 🎥 в поле ввода
 
 
 def too_short(duration: int) -> str:
-    return f"Кружок {duration} сек — коротко. Нужно от {MIN_DURATION} сек."
+    return (
+        f"Кружок {duration} сек — коротко. "
+        f'Нужно от {settings.get("min_duration")} сек.'
+    )
 
 
 DUPLICATE = "Такой кружок уже есть в базе."
 TOO_MANY_PENDING = "У тебя уже несколько кружков на проверке. Дождись решения."
 UPLOAD_ASK_GENDER = "Какой это кружок?"
-UPLOAD_SENT = "✅ Отправлено на проверку. Монетки придут после одобрения."
+
+
+def upload_sent(circle_id: int) -> str:
+    return (
+        f"✅ Кружок <b>#{circle_id}</b> отправлен на проверку.\n"
+        "Монетки придут после одобрения."
+    )
 
 
 def approved(reward: int, coins: int) -> str:
@@ -73,12 +84,17 @@ REJECTED = "🔴 Кружок отклонён модератором."
 def buy(coins: int) -> str:
     return (
         f"{coin()} Баланс: <b>{coins}</b>\n\n"
-        f"1 ⭐ = <b>{STARS_RATE}</b> {coin()}, минимум {MIN_STARS} ⭐."
+        f'1 ⭐ = <b>{settings.get("stars_rate")}</b> {coin()}, '
+        f'минимум {settings.get("min_stars")} ⭐.'
     )
 
 
-BUY_CUSTOM = f"Сколько ⭐ спишем? Пришли число (от {MIN_STARS})."
-BUY_BAD_INPUT = f"Нужно целое число от {MIN_STARS}."
+def buy_custom() -> str:
+    return f'Сколько ⭐ спишем? Пришли число (от {settings.get("min_stars")}).'
+
+
+def buy_bad_input() -> str:
+    return f'Нужно целое число от {settings.get("min_stars")}.'
 
 
 def paid(stars: int, coins_added: int, coins: int) -> str:
@@ -99,3 +115,4 @@ def profile(coins: int, s: dict) -> str:
 
 
 BANNED = "Доступ закрыт."
+MAINTENANCE = "🔧 Бот на техработах. Загляни чуть позже."

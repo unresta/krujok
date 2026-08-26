@@ -1,66 +1,704 @@
+"""Admin panel: /admin opens one editable message with everything in it.
+
+Every screen is a callback on the "a:" prefix and every one of them is gated on
+ADMIN_IDS — the panel lives in the admin's private chat, not in the moderation
+chat, so a leaked button id is not enough to use it.
+"""
+
+import asyncio
+import logging
 from contextlib import suppress
 
-from aiogram import Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReactionTypeEmoji,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
-from config import ADMIN_IDS
+import keyboards as kb
+import settings
+from config import ADMIN_IDS, DB_PATH
+
+logger = logging.getLogger(__name__)
 
 router = Router()
+# The whole panel is admins-only; nothing here is reachable without the filter.
+router.message.filter(F.from_user.id.in_(ADMIN_IDS))
+router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
+
+BROADCAST_PAUSE = 0.05  # ~20 messages per second, below Telegram's limit
+BROADCAST_PROGRESS_EVERY = 25
 
 
-def _is_admin(message: Message) -> bool:
-    return message.from_user is not None and message.from_user.id in ADMIN_IDS
+class Admin(StatesGroup):
+    bulk = State()
+    user_id = State()
+    give = State()
+    broadcast = State()
+    setting = State()
+    circle_id = State()
+
+
+# --- home ----------------------------------------------------------------
+
+
+def home_kb(maintenance: bool, pending: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="Статистика", callback_data="a:stats", style=kb.PRIMARY),
+        InlineKeyboardButton(
+            text=f"Очередь · {pending}",
+            callback_data="a:queue",
+            style=kb.SUCCESS if pending else None,
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Массовая загрузка", callback_data="a:bulk", style=kb.SUCCESS
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="Пользователь", callback_data="a:user", style=kb.PRIMARY),
+        InlineKeyboardButton(text="Кружок", callback_data="a:circle", style=kb.PRIMARY),
+    )
+    b.row(
+        InlineKeyboardButton(text="Рассылка", callback_data="a:cast", style=kb.PRIMARY),
+        InlineKeyboardButton(text="Экономика", callback_data="a:econ", style=kb.PRIMARY),
+    )
+    b.row(
+        InlineKeyboardButton(text="Платежи", callback_data="a:pay", style=kb.PRIMARY),
+        InlineKeyboardButton(text="Топ авторов", callback_data="a:top", style=kb.PRIMARY),
+    )
+    b.row(
+        InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
+        InlineKeyboardButton(
+            text="Техработы: вкл" if maintenance else "Техработы: выкл",
+            callback_data="a:maint",
+            style=kb.DANGER if maintenance else None,
+        ),
+    )
+    b.row(InlineKeyboardButton(text="Закрыть", callback_data="a:close", style=kb.DANGER))
+    return b.as_markup()
+
+
+def back_kb(extra: list[InlineKeyboardButton] | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for button in extra or []:
+        b.row(button)
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    return b.as_markup()
+
+
+async def home_text() -> str:
+    d = await db.dashboard()
+    return (
+        "<b>Админ-панель</b>\n\n"
+        f"👤 {d['users']} польз. (+{d['users_today']} за сутки), "
+        f"бан: {d['banned']}\n"
+        f"🎞 {d['approved']} в базе · {d['pending']} ждут · {d['rejected']} отказ\n"
+        f"👀 {d['views']} просмотров (+{d['views_today']} за сутки)\n"
+        f"⭐ {d['stars']} звёзд · 🪙 {d['coins']} на руках"
+    )
+
+
+async def show_home(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    d = await db.dashboard()
+    await _edit(call, await home_text(), home_kb(settings.maintenance(), d["pending"]))
+
+
+@router.message(Command("admin"))
+async def open_panel(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    d = await db.dashboard()
+    await message.answer(
+        await home_text(), reply_markup=home_kb(settings.maintenance(), d["pending"])
+    )
+
+
+async def _edit(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
+    with suppress(TelegramBadRequest):
+        await call.message.edit_text(text, reply_markup=markup)
+
+
+@router.callback_query(F.data == "a:home")
+async def cb_home(call: CallbackQuery, state: FSMContext) -> None:
+    await show_home(call, state)
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:close")
+async def cb_close(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    with suppress(TelegramAPIError):
+        await call.message.delete()
+    await call.answer()
+
+
+# --- stats ---------------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:stats")
+async def cb_stats(call: CallbackQuery) -> None:
+    d = await db.dashboard()
+    house = d["circles"] - d["approved"] - d["pending"] - d["rejected"]
+    await _edit(
+        call,
+        "<b>Статистика</b>\n\n"
+        f"Пользователи: {d['users']} (за сутки +{d['users_today']}, "
+        f"забанено {d['banned']})\n"
+        f"Монеток на руках: {d['coins']}\n\n"
+        f"Кружки: {d['circles']} всего\n"
+        f"• одобрено {d['approved']} — ♀ {d['female']} / ♂ {d['male']}\n"
+        f"• на проверке {d['pending']}, отклонено {d['rejected']}"
+        + (f", прочее {house}\n" if house else "\n")
+        + f"\nПросмотры: {d['views']} (за сутки +{d['views_today']})\n"
+        f"Платежи: {d['payments']} шт, {d['stars']} ⭐",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:top")
+async def cb_top(call: CallbackQuery) -> None:
+    rows = await db.top_uploaders()
+    if not rows:
+        body = "Пока никто ничего не загрузил."
+    else:
+        body = "\n".join(
+            f"{i}. <code>{r['uploader_id']}</code> — "
+            f"{r['approved']} одобрено из {r['total']}"
+            for i, r in enumerate(rows, 1)
+        )
+    await _edit(call, f"<b>Топ авторов</b>\n\n{body}", back_kb())
+    await call.answer()
+
+
+# --- moderation queue ----------------------------------------------------
+
+
+@router.callback_query(F.data == "a:queue")
+async def cb_queue(call: CallbackQuery) -> None:
+    circle = await db.next_pending()
+    if circle is None:
+        await call.answer("Очередь пуста 🟢", show_alert=True)
+        return
+
+    await call.bot.send_video_note(call.from_user.id, circle["file_id"])
+    await call.bot.send_message(
+        call.from_user.id,
+        f"<b>#{circle['id']}</b> · {kb.PREF_TITLE(circle['gender'])} · "
+        f"{circle['duration']} сек\n"
+        f"Автор: <code>{circle['uploader_id']}</code>",
+        reply_markup=kb.moderation(circle["id"]),
+    )
+    await call.answer()
+
+
+# --- bulk upload ---------------------------------------------------------
+
+
+def bulk_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="♀ Женские", callback_data="a:bulk:f", style=kb.SUCCESS
+        ),
+        InlineKeyboardButton(
+            text="♂ Мужские", callback_data="a:bulk:m", style=kb.SUCCESS
+        ),
+    )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    return b.as_markup()
+
+
+@router.callback_query(F.data == "a:bulk")
+async def cb_bulk(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(
+        call,
+        "<b>Массовая загрузка</b>\n\n"
+        "Выбери тип — дальше просто шли кружочки подряд, каждый уходит в базу "
+        "сразу одобренным, без модерации и без начисления монеток.",
+        bulk_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:bulk:"))
+async def cb_bulk_gender(call: CallbackQuery, state: FSMContext) -> None:
+    gender = call.data.split(":")[2]
+    await state.set_state(Admin.bulk)
+    await state.update_data(
+        gender=gender,
+        added=0,
+        dupes=0,
+        panel_chat=call.message.chat.id,
+        panel_id=call.message.message_id,
+    )
+    await _edit(call, _bulk_text(gender, 0, 0), _bulk_done_kb())
+    await call.answer()
+
+
+def _bulk_done_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="Готово", callback_data="a:home", style=kb.DANGER)
+    )
+    return b.as_markup()
+
+
+def _bulk_text(gender: str, added: int, dupes: int) -> str:
+    return (
+        f"<b>Массовая загрузка · {kb.PREF_TITLE(gender)}</b>\n\n"
+        f"Загружено: <b>{added}</b>\n"
+        f"Пропущено дублей: {dupes}\n\n"
+        "Шли кружочки подряд. «Готово» — закончить."
+    )
+
+
+@router.message(Admin.bulk, F.video_note)
+async def bulk_receive(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    note = message.video_note
+
+    circle_id = await db.add_circle(
+        file_id=note.file_id,
+        file_unique_id=note.file_unique_id,
+        uploader_id=0,  # house-owned
+        gender=data["gender"],
+        duration=note.duration,
+        status="approved",
+    )
+    added = data["added"] + (1 if circle_id else 0)
+    dupes = data["dupes"] + (0 if circle_id else 1)
+    await state.update_data(added=added, dupes=dupes)
+
+    with suppress(TelegramAPIError):  # panel edits are best-effort under a flood
+        await message.bot.edit_message_text(
+            chat_id=data["panel_chat"],
+            message_id=data["panel_id"],
+            text=_bulk_text(data["gender"], added, dupes),
+            reply_markup=_bulk_done_kb(),
+        )
+    with suppress(TelegramAPIError):  # a tick per circle, so the flood stays readable
+        await message.react([ReactionTypeEmoji(emoji="👍" if circle_id else "🤔")])
+
+
+@router.message(Admin.bulk)
+async def bulk_other(message: Message) -> None:
+    await message.answer("Жду кружочки. «Готово» в панели — закончить.")
+
+
+# --- user card -----------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:user")
+async def cb_user(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.user_id)
+    await _edit(
+        call,
+        "Пришли id пользователя числом — или перешли сюда его сообщение.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.user_id)
+async def got_user_id(message: Message, state: FSMContext) -> None:
+    origin = message.forward_origin
+    sender = getattr(origin, "sender_user", None)
+    raw = (message.text or "").strip()
+    if sender is not None:
+        user_id = sender.id
+    elif raw.lstrip("-").isdigit():
+        user_id = int(raw)
+    else:
+        await message.answer(
+            "Нужен id числом или пересланное сообщение "
+            "(у скрытых аккаунтов id не видно)."
+        )
+        return
+
+    await state.clear()
+    text, markup = await user_card(user_id)
+    await message.answer(text, reply_markup=markup)
+
+
+async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    user = await db.get_user(user_id)
+    stats = await db.user_stats(user_id)
+    text = (
+        f"<b>Пользователь</b> <code>{user_id}</code>\n\n"
+        f"🪙 Баланс: <b>{user['coins']}</b>\n"
+        f"Тип: {kb.PREF_TITLE(user['pref'])}\n"
+        f"Статус: {'🔴 забанен' if user['banned'] else '🟢 активен'}\n\n"
+        f"👀 Просмотрено: {stats['watched']}\n"
+        f"📤 Загружено: {stats['approved']} одобрено · {stats['pending']} ждут · "
+        f"{stats['rejected']} отказ"
+    )
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="+10 🪙", callback_data=f"a:u:add:{user_id}:10", style=kb.SUCCESS
+        ),
+        InlineKeyboardButton(
+            text="+50 🪙", callback_data=f"a:u:add:{user_id}:50", style=kb.SUCCESS
+        ),
+        InlineKeyboardButton(
+            text="−10 🪙", callback_data=f"a:u:add:{user_id}:-10", style=kb.DANGER
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Своя сумма", callback_data=f"a:u:give:{user_id}", style=kb.PRIMARY
+        ),
+        InlineKeyboardButton(
+            text="Разбанить" if user["banned"] else "Забанить",
+            callback_data=f"a:u:ban:{user_id}:{0 if user['banned'] else 1}",
+            style=kb.SUCCESS if user["banned"] else kb.DANGER,
+        ),
+    )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    return text, b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:u:add:"))
+async def cb_user_add(call: CallbackQuery) -> None:
+    _, _, _, raw_id, raw_amount = call.data.split(":")
+    await db.add_coins(int(raw_id), int(raw_amount))
+    text, markup = await user_card(int(raw_id))
+    await _edit(call, text, markup)
+    await call.answer(f"{raw_amount} 🪙")
+
+
+@router.callback_query(F.data.startswith("a:u:give:"))
+async def cb_user_give(call: CallbackQuery, state: FSMContext) -> None:
+    user_id = int(call.data.split(":")[3])
+    await state.set_state(Admin.give)
+    await state.update_data(user_id=user_id)
+    await _edit(
+        call, f"Сколько монеток начислить <code>{user_id}</code>? "
+        "Можно отрицательное число.", back_kb()
+    )
+    await call.answer()
+
+
+@router.message(Admin.give)
+async def got_give(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if not raw.lstrip("-").isdigit():
+        await message.answer("Нужно число.")
+        return
+    user_id = (await state.get_data())["user_id"]
+    await state.clear()
+    await db.add_coins(user_id, int(raw))
+    text, markup = await user_card(user_id)
+    await message.answer(text, reply_markup=markup)
+
+
+@router.callback_query(F.data.startswith("a:u:ban:"))
+async def cb_user_ban(call: CallbackQuery) -> None:
+    _, _, _, raw_id, raw_flag = call.data.split(":")
+    await db.set_banned(int(raw_id), bool(int(raw_flag)))
+    text, markup = await user_card(int(raw_id))
+    await _edit(call, text, markup)
+    await call.answer("Забанен" if int(raw_flag) else "Разбанен")
+
+
+# --- circle card ---------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:circle")
+async def cb_circle(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.circle_id)
+    total = await db.total_circles()
+    await _edit(call, f"Пришли номер кружка (всего в базе: {total}).", back_kb())
+    await call.answer()
+
+
+@router.message(Admin.circle_id)
+async def got_circle_id(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").lstrip("#").strip()
+    if not raw.isdigit():
+        await message.answer("Нужен номер числом.")
+        return
+    await state.clear()
+
+    circle = await db.get_circle(int(raw))
+    if circle is None:
+        await message.answer("Нет такого кружка.", reply_markup=back_kb())
+        return
+
+    await message.answer_video_note(circle["file_id"])
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Удалить", callback_data=f"a:c:del:{circle['id']}", style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.PRIMARY)
+    )
+    await message.answer(
+        f"<b>#{circle['id']}</b> · {kb.PREF_TITLE(circle['gender'])} · "
+        f"{circle['duration']} сек\n"
+        f"Статус: {circle['status']} · просмотров: {circle['views']}\n"
+        f"Автор: <code>{circle['uploader_id']}</code>",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data.startswith("a:c:del:"))
+async def cb_circle_delete(call: CallbackQuery) -> None:
+    circle_id = int(call.data.split(":")[3])
+    deleted = await db.delete_circle(circle_id)
+    await call.answer("Удалён" if deleted else "Уже нет", show_alert=True)
+    await _edit(call, f"Кружок #{circle_id} удалён.", back_kb())
+
+
+# --- broadcast -----------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:cast")
+async def cb_cast(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.broadcast)
+    await _edit(
+        call,
+        "Пришли сообщение для рассылки — текст, фото, кружок, что угодно. "
+        "Оно уйдёт копией, без пометки «переслано».",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.broadcast)
+async def got_cast(message: Message, state: FSMContext) -> None:
+    await state.update_data(from_chat=message.chat.id, message_id=message.message_id)
+    total = len(await db.all_user_ids())
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text=f"Отправить {total}", callback_data="a:cast:go", style=kb.SUCCESS
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="Отмена", callback_data="a:home", style=kb.DANGER)
+    )
+    await message.answer(
+        f"Выше — то, что уйдёт {total} пользователям. Отправляем?",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:cast:go")
+async def cb_cast_go(call: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.clear()
+    if "message_id" not in data:
+        await call.answer("Нечего отправлять.", show_alert=True)
+        return
+
+    await call.answer("Пошла рассылка")
+    await _edit(call, "Рассылка идёт…", back_kb())
+    sent, failed = await _broadcast(
+        call.bot, data["from_chat"], data["message_id"], call.message
+    )
+    await _edit(
+        call,
+        f"<b>Рассылка закончена</b>\n\nДоставлено: {sent}\nНе дошло: {failed}",
+        back_kb(),
+    )
+
+
+async def _broadcast(
+    bot: Bot, from_chat: int, message_id: int, panel: Message
+) -> tuple[int, int]:
+    user_ids = await db.all_user_ids()
+    sent = failed = 0
+    for i, user_id in enumerate(user_ids, 1):
+        try:
+            await bot.copy_message(
+                chat_id=user_id, from_chat_id=from_chat, message_id=message_id
+            )
+            sent += 1
+        except TelegramAPIError:  # blocked, deleted, never started the bot
+            failed += 1
+        if i % BROADCAST_PROGRESS_EVERY == 0:
+            with suppress(TelegramAPIError):
+                await panel.edit_text(
+                    f"Рассылка: {i}/{len(user_ids)} · "
+                    f"доставлено {sent}, не дошло {failed}"
+                )
+        await asyncio.sleep(BROADCAST_PAUSE)
+    return sent, failed
+
+
+# --- economy -------------------------------------------------------------
+
+
+@router.callback_query(F.data == "a:econ")
+async def cb_econ(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    b = InlineKeyboardBuilder()
+    for key, title in settings.TITLES.items():
+        b.row(
+            InlineKeyboardButton(
+                text=f"{title}: {settings.get(key)}",
+                callback_data=f"a:econ:{key}",
+                style=kb.PRIMARY,
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        "<b>Экономика</b>\n\nЖми на параметр, чтобы поменять. "
+        "Значения живут в базе и переживают перезапуск.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:econ:"))
+async def cb_econ_key(call: CallbackQuery, state: FSMContext) -> None:
+    key = call.data.split(":")[2]
+    low, high = settings.LIMITS[key]
+    await state.set_state(Admin.setting)
+    await state.update_data(key=key)
+    await _edit(
+        call,
+        f"<b>{settings.TITLES[key]}</b>\nСейчас: {settings.get(key)}\n\n"
+        f"Пришли новое значение ({low}–{high}).",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.setting)
+async def got_setting(message: Message, state: FSMContext) -> None:
+    key = (await state.get_data())["key"]
+    low, high = settings.LIMITS[key]
+    raw = (message.text or "").strip()
+    if not raw.isdigit() or not (low <= int(raw) <= high):
+        await message.answer(f"Нужно число от {low} до {high}.")
+        return
+    await state.clear()
+    await settings.set(key, int(raw))
+    await message.answer(
+        f"{settings.TITLES[key]}: <b>{settings.get(key)}</b>",
+        reply_markup=back_kb(),
+    )
+
+
+# --- payments, backup, maintenance ---------------------------------------
+
+
+@router.callback_query(F.data == "a:pay")
+async def cb_pay(call: CallbackQuery) -> None:
+    rows = await db.recent_payments()
+    if not rows:
+        body = "Платежей пока нет."
+    else:
+        body = "\n\n".join(
+            f"<code>{r['user_id']}</code> — {r['stars']} ⭐ → {r['coins']} 🪙"
+            f"{' · возвращён' if r['refunded'] else ''}\n"
+            f"<code>{r['charge_id']}</code>"
+            for r in rows
+        )
+    await _edit(
+        call,
+        f"<b>Последние платежи</b>\n\n{body}\n\n"
+        "Возврат: <code>/refund charge_id</code>",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:db")
+async def cb_db(call: CallbackQuery) -> None:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Прислать файл", callback_data="a:db:go", style=kb.DANGER
+        )
+    )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.PRIMARY))
+    await _edit(
+        call,
+        "<b>Бэкап базы</b>\n\nВ файле лежат балансы, платежи и file_id всех "
+        "кружочков. Прислать его сюда?",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:db:go")
+async def cb_db_go(call: CallbackQuery) -> None:
+    await call.answer("Отправляю")
+    try:
+        await call.bot.send_document(
+            call.from_user.id, FSInputFile(DB_PATH), disable_content_type_detection=True
+        )
+    except (TelegramAPIError, OSError) as error:
+        await _edit(call, f"Не вышло: {error}", back_kb())
+        return
+    await _edit(call, "Файл отправлен.", back_kb())
+
+
+@router.callback_query(F.data == "a:maint")
+async def cb_maint(call: CallbackQuery, state: FSMContext) -> None:
+    await settings.set("maintenance", 0 if settings.maintenance() else 1)
+    await call.answer("Техработы включены" if settings.maintenance() else "Выключены")
+    await show_home(call, state)
+
+
+# --- commands (kept for muscle memory) -----------------------------------
 
 
 @router.message(Command("stats"))
-async def stats(message: Message) -> None:
-    if not _is_admin(message):
-        return
-    s = await db.global_stats()
+async def stats_cmd(message: Message) -> None:
+    d = await db.dashboard()
     await message.answer(
-        "<b>Статистика</b>\n"
-        f"👤 Пользователей: {s['users']}\n"
-        f"🎞 Кружков: {s['approved']} одобрено · {s['pending']} на проверке\n"
-        f"👀 Просмотров: {s['views']}\n"
-        f"⭐ Продано: {s['stars']}"
+        f"👤 {d['users']} · 🎞 {d['approved']}/{d['pending']} · "
+        f"👀 {d['views']} · ⭐ {d['stars']}"
     )
 
 
 @router.message(Command("give"))
-async def give(message: Message, command: CommandObject) -> None:
-    if not _is_admin(message):
-        return
+async def give_cmd(message: Message, command: CommandObject) -> None:
     parts = (command.args or "").split()
     if len(parts) != 2 or not parts[0].isdigit():
         await message.answer("/give &lt;user_id&gt; &lt;coins&gt;")
         return
-    user_id, amount = int(parts[0]), int(parts[1])
-    await db.add_coins(user_id, amount)
-    balance = (await db.get_user(user_id))["coins"]
-    await message.answer(f"Готово. Баланс {user_id}: {balance} 🪙")
+    await db.add_coins(int(parts[0]), int(parts[1]))
+    text, markup = await user_card(int(parts[0]))
+    await message.answer(text, reply_markup=markup)
 
 
 @router.message(Command("ban", "unban"))
-async def ban(message: Message, command: CommandObject) -> None:
-    if not _is_admin(message):
-        return
+async def ban_cmd(message: Message, command: CommandObject) -> None:
     if not (command.args or "").strip().isdigit():
         await message.answer(f"/{command.command} &lt;user_id&gt;")
         return
     user_id = int(command.args.strip())
-    banned = command.command == "ban"
-    await db.set_banned(user_id, banned)
-    await message.answer(f"{user_id}: {'забанен' if banned else 'разбанен'}")
+    await db.set_banned(user_id, command.command == "ban")
+    text, markup = await user_card(user_id)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.message(Command("refund"))
-async def refund(message: Message, command: CommandObject) -> None:
+async def refund_cmd(message: Message, command: CommandObject) -> None:
     """/refund <telegram_payment_charge_id> — returns Stars to the buyer."""
-    if not _is_admin(message):
-        return
     charge_id = (command.args or "").strip()
     if not charge_id:
         await message.answer("/refund &lt;charge_id&gt;")
@@ -76,8 +714,7 @@ async def refund(message: Message, command: CommandObject) -> None:
 
     try:
         await message.bot.refund_star_payment(
-            user_id=payment["user_id"],
-            telegram_payment_charge_id=charge_id,
+            user_id=payment["user_id"], telegram_payment_charge_id=charge_id
         )
     except TelegramAPIError as error:
         await message.answer(f"Telegram отказал: {error}")

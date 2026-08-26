@@ -6,7 +6,8 @@ from aiogram.types import CallbackQuery
 
 import db
 import texts
-from config import ADMIN_CHAT_ID, ADMIN_IDS, REWARD
+import settings
+from config import ADMIN_CHAT_ID, ADMIN_IDS
 
 router = Router()
 
@@ -37,7 +38,7 @@ async def review(call: CallbackQuery) -> None:
 
     uploader = circle["uploader_id"]
     if status == "approved":
-        reward = REWARD[circle["gender"]]
+        reward = settings.reward(circle["gender"])
         await db.add_coins(uploader, reward)
         balance = (await db.get_user(uploader))["coins"]
         note = texts.approved(reward, balance)

@@ -16,7 +16,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
-from config import MIN_STARS, REWARD, STAR_PACKS, STARS_RATE, WATCH_COST
+import settings
+from config import STAR_PACKS
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -59,13 +60,13 @@ def menu(pref: str, has_coins: bool) -> InlineKeyboardMarkup:
         _coin_button("Заработать", "upload", SUCCESS),
         _coin_button("Купить", "buy", SUCCESS),
     )
-    kb.row(_coin_button(f"Смотреть · {WATCH_COST}", "watch", PRIMARY))
+    kb.row(_coin_button(f'Смотреть · {settings.get("watch_cost")}', "watch", PRIMARY))
     return kb.as_markup()
 
 
 def after_watch(pref: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(_coin_button(f"Ещё · {WATCH_COST}", "watch", PRIMARY))
+    kb.row(_coin_button(f'Ещё · {settings.get("watch_cost")}', "watch", PRIMARY))
     kb.row(
         InlineKeyboardButton(
             text=emoji.label(GENDER_EMOJI[pref]) + PREF_LABEL[pref],
@@ -100,7 +101,7 @@ def upload_gender() -> InlineKeyboardMarkup:
         *[
             InlineKeyboardButton(
                 text=emoji.label(GENDER_EMOJI[g])
-                + f"{'Женский' if g == 'f' else 'Мужской'} · +{REWARD[g]}",
+                + f"{'Женский' if g == 'f' else 'Мужской'} · +{settings.reward(g)}",
                 callback_data=f"ug:{g}",
                 icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
                 style=SUCCESS,
@@ -118,7 +119,7 @@ def buy() -> InlineKeyboardMarkup:
     # renders first) — a plain emoji in the label is the only way round it.
     packs = [
         InlineKeyboardButton(
-            text=f"{stars} ⭐ = {stars * STARS_RATE} {emoji.plain(emoji.COIN)}",
+            text=f'{stars} ⭐ = {stars * settings.get("stars_rate")} {emoji.plain(emoji.COIN)}',
             callback_data=f"pay:{stars}",
             style=SUCCESS,
         )
@@ -154,4 +155,4 @@ def moderation(circle_id: int) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-MIN_STARS_HINT = f"минимум {MIN_STARS} ⭐"
+

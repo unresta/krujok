@@ -4,7 +4,9 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import db
+import settings
 import texts
+from config import ADMIN_IDS
 
 
 class UserMiddleware(BaseMiddleware):
@@ -21,12 +23,21 @@ class UserMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         user = await db.get_user(tg_user.id)
+        is_admin = tg_user.id in ADMIN_IDS
+
         if user["banned"]:
-            if isinstance(event, CallbackQuery):
-                await event.answer(texts.BANNED, show_alert=True)
-            elif isinstance(event, Message):
-                await event.answer(texts.BANNED)
+            await self._refuse(event, texts.BANNED)
+            return None
+        if settings.maintenance() and not is_admin:
+            await self._refuse(event, texts.MAINTENANCE)
             return None
 
         data["user"] = user
         return await handler(event, data)
+
+    @staticmethod
+    async def _refuse(event: TelegramObject, text: str) -> None:
+        if isinstance(event, CallbackQuery):
+            await event.answer(text, show_alert=True)
+        elif isinstance(event, Message):
+            await event.answer(text)

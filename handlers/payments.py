@@ -12,7 +12,8 @@ import db
 import keyboards as kb
 import texts
 import ui
-from config import MAX_STARS, MIN_STARS, STARS_RATE
+import settings
+from config import MAX_STARS
 
 router = Router()
 
@@ -32,15 +33,15 @@ async def buy_menu(call: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "pay:custom")
 async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Buy.waiting_amount)
-    await ui.edit(call, texts.BUY_CUSTOM, kb.buy_cancel())
+    await ui.edit(call, texts.buy_custom(), kb.buy_cancel())
     await call.answer()
 
 
 @router.message(Buy.waiting_amount)
 async def custom_amount(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
-    if not raw.isdigit() or not (MIN_STARS <= int(raw) <= MAX_STARS):
-        await message.answer(texts.BUY_BAD_INPUT, reply_markup=kb.buy_cancel())
+    if not raw.isdigit() or not (settings.get("min_stars") <= int(raw) <= MAX_STARS):
+        await message.answer(texts.buy_bad_input(), reply_markup=kb.buy_cancel())
         return
     await state.clear()
     await send_invoice(message, int(raw))
@@ -55,7 +56,7 @@ async def pay_pack(call: CallbackQuery, state: FSMContext) -> None:
 
 
 async def send_invoice(message: Message, stars: int) -> None:
-    coins = stars * STARS_RATE
+    coins = stars * settings.get("stars_rate")
     await message.answer_invoice(
         title=f"{coins} монеток",
         description=f"{stars} ⭐ → {coins} 🪙 на баланс в боте.",
@@ -76,7 +77,7 @@ async def paid(message: Message, state: FSMContext) -> None:
     await state.clear()
     payment = message.successful_payment
     stars = payment.total_amount
-    coins = stars * STARS_RATE
+    coins = stars * settings.get("stars_rate")
 
     fresh = await db.add_payment(
         payment.telegram_payment_charge_id, message.from_user.id, stars, coins

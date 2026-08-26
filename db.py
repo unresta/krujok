@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS views (
     PRIMARY KEY (user_id, circle_id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS payments (
     charge_id TEXT PRIMARY KEY,
     user_id   INTEGER NOT NULL,
@@ -132,15 +137,25 @@ async def try_spend(user_id: int, amount: int) -> bool:
 
 
 async def add_circle(
-    file_id: str, file_unique_id: str, uploader_id: int, gender: str, duration: int
+    file_id: str,
+    file_unique_id: str,
+    uploader_id: int,
+    gender: str,
+    duration: int,
+    status: str = "pending",
 ) -> int | None:
-    """None means this exact video note is already in the base."""
-    await ensure_user(uploader_id)
+    """None means this exact video note is already in the base.
+
+    uploader_id 0 is the house: circles an admin bulk-loaded, owned by nobody,
+    so they are never hidden from anyone and earn no reward.
+    """
+    if uploader_id:
+        await ensure_user(uploader_id)
     try:
         cur = await conn().execute(
-            "INSERT INTO circles(file_id, file_unique_id, uploader_id, gender, duration)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (file_id, file_unique_id, uploader_id, gender, duration),
+            "INSERT INTO circles(file_id, file_unique_id, uploader_id, gender,"
+            " duration, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (file_id, file_unique_id, uploader_id, gender, duration, status),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -234,6 +249,88 @@ async def global_stats() -> dict:
         return dict(await cur.fetchone())
 
 
+async def next_pending() -> aiosqlite.Row | None:
+    async with conn().execute(
+        "SELECT * FROM circles WHERE status = 'pending' ORDER BY id LIMIT 1"
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def delete_circle(circle_id: int) -> bool:
+    cur = await conn().execute("DELETE FROM circles WHERE id = ?", (circle_id,))
+    await conn().execute("DELETE FROM views WHERE circle_id = ?", (circle_id,))
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def total_circles() -> int:
+    """Every circle ever uploaded — that is the number shown to uploaders."""
+    async with conn().execute("SELECT COUNT(*) FROM circles") as cur:
+        return (await cur.fetchone())[0]
+
+
+async def top_uploaders(limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        """
+        SELECT uploader_id, COUNT(*) AS total,
+               SUM(status = 'approved') AS approved
+        FROM circles WHERE uploader_id != 0
+        GROUP BY uploader_id ORDER BY approved DESC, total DESC LIMIT ?
+        """,
+        (limit,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def all_user_ids() -> list[int]:
+    async with conn().execute(
+        "SELECT id FROM users WHERE banned = 0 ORDER BY id"
+    ) as cur:
+        return [row[0] for row in await cur.fetchall()]
+
+
+async def dashboard() -> dict:
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM users)                                        AS users,
+          (SELECT COUNT(*) FROM users WHERE banned = 1)                       AS banned,
+          (SELECT COUNT(*) FROM users
+             WHERE created_at > strftime('%s','now') - 86400)                 AS users_today,
+          (SELECT COALESCE(SUM(coins),0) FROM users)                          AS coins,
+          (SELECT COUNT(*) FROM circles)                                      AS circles,
+          (SELECT COUNT(*) FROM circles WHERE status='approved')              AS approved,
+          (SELECT COUNT(*) FROM circles WHERE status='pending')               AS pending,
+          (SELECT COUNT(*) FROM circles WHERE status='rejected')              AS rejected,
+          (SELECT COUNT(*) FROM circles WHERE status='approved' AND gender='f') AS female,
+          (SELECT COUNT(*) FROM circles WHERE status='approved' AND gender='m') AS male,
+          (SELECT COUNT(*) FROM views)                                        AS views,
+          (SELECT COUNT(*) FROM views
+             WHERE ts > strftime('%s','now') - 86400)                         AS views_today,
+          (SELECT COALESCE(SUM(stars),0) FROM payments WHERE refunded=0)      AS stars,
+          (SELECT COUNT(*) FROM payments WHERE refunded=0)                    AS payments
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+# --- settings ------------------------------------------------------------
+
+
+async def load_settings() -> dict[str, int]:
+    async with conn().execute("SELECT key, value FROM settings") as cur:
+        return {row["key"]: row["value"] for row in await cur.fetchall()}
+
+
+async def save_setting(key: str, value: int) -> None:
+    await conn().execute(
+        "INSERT INTO settings(key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    await conn().commit()
+
+
 # --- payments ------------------------------------------------------------
 
 
@@ -255,6 +352,13 @@ async def get_payment(charge_id: str) -> aiosqlite.Row | None:
         "SELECT * FROM payments WHERE charge_id = ?", (charge_id,)
     ) as cur:
         return await cur.fetchone()
+
+
+async def recent_payments(limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        "SELECT * FROM payments ORDER BY ts DESC LIMIT ?", (limit,)
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def mark_refunded(charge_id: str) -> None:
