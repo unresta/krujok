@@ -31,6 +31,7 @@ MAX_PENDING = 5  # unmoderated uploads a user may hold at once
 WATCH_COOLDOWN = 1.0  # seconds between "watch" taps
 
 STAR_PACKS = (20, 50, 100, 250)
+WELCOME_BONUS = 6  # coins handed to a newcomer, enough for a few circles
 REF_REWARD = 3  # coins for a referral that made it through the subscription gate
 # What an author earns from their own circles. A paid view costs the viewer
 # WATCH_COST, so keep VIEW_PAYOUT below it or the bot mints coins.

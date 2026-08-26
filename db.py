@@ -247,10 +247,14 @@ async def deduct_clamped(user_id: int, amount: int) -> None:
     await conn().commit()
 
 
-async def accept_rules(user_id: int) -> None:
+async def accept_rules(user_id: int) -> bool:
+    """True only the first time — the welcome bonus rides on this."""
     await ensure_user(user_id)
-    await conn().execute("UPDATE users SET accepted = 1 WHERE id = ?", (user_id,))
+    cur = await conn().execute(
+        "UPDATE users SET accepted = 1 WHERE id = ? AND accepted = 0", (user_id,)
+    )
     await conn().commit()
+    return cur.rowcount > 0
 
 
 async def set_banned(user_id: int, banned: bool) -> None:

@@ -448,15 +448,30 @@ def payout_too_small(available: int) -> str:
 
 
 def welcome() -> str:
+    bonus = settings.get("welcome_bonus")
+    gift = (
+        f"\n\n🎁 За согласие дарим <b>{bonus}</b> монеток на первые просмотры."
+        if bonus
+        else ""
+    )
     return (
         "👋 <b>Добро пожаловать</b>\n\n"
-        f"{rules()}\n\n"
+        f"{rules()}{gift}\n\n"
         "Нажимая кнопку ниже, ты подтверждаешь, что тебе есть 18 лет и что ты "
         "согласен соблюдать правила."
     )
 
 
 ACCEPTED = "Готово. Приятного просмотра 🙂"
+
+
+def welcome_bonus(amount: int) -> str:
+    return (
+        f"🎁 Держи <b>{amount}</b> {coin()} на старт — "
+        f"это {amount // settings.get('watch_cost')} "
+        f"{circles_word(amount // settings.get('watch_cost'))} бесплатно.\n\n"
+        "Кончатся — запиши свой кружок или загляни в «Магазин»."
+    )
 
 def traffer_report(stats: dict, week: dict, day: dict, link: str) -> str:
     """What the person who bought the ad sees: traffic, not the money behind it."""

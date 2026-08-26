@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 import access
 import db
 import keyboards as kb
+import settings
 import texts
 import ui
 
@@ -26,11 +27,17 @@ async def start(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "accept")
 async def accept(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await db.accept_rules(call.from_user.id)
+    first_time = await db.accept_rules(call.from_user.id)
     await access.credit_referral(call.bot, call.from_user.id)
     await call.answer(texts.ACCEPTED)
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(reply_markup=None)
+
+    bonus = settings.get("welcome_bonus")
+    if first_time and bonus:  # granted once, on the flip from 0 to 1
+        await db.add_coins(call.from_user.id, bonus)
+        await call.message.answer(texts.welcome_bonus(bonus))
+
     await ui.render_menu(call.message, call.from_user.id)
 
 
