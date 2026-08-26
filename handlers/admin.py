@@ -672,15 +672,13 @@ async def _link_report(code: str) -> str | None:
 
     spend = total["spend"]
     revenue = settings.revenue_of(total["stars"])
-    per_click = spend // total["hits"] if total["hits"] else 0
     per_user = spend // total["users"] if total["users"] else 0
     per_payer = spend // total["payers"] if total["payers"] else 0
 
     money = [f"Расход: <b>{settings.money(spend)}</b>"] if spend else []
     if spend:
         money += [
-            f"Цена клика: {settings.money(per_click)} · "
-            f"пользователя: {settings.money(per_user)}",
+            f"Цена пользователя: {settings.money(per_user)}",
             f"Цена платящего: {settings.money(per_payer)}"
             if total["payers"]
             else "Цена платящего: —",
@@ -693,24 +691,19 @@ async def _link_report(code: str) -> str | None:
     return (
         f"📊 <b>{total['title'] or code}</b>\n\n"
         "🕓 <b>За всё время</b>\n"
-        f"Переходов: <b>{total['hits']}</b> · в бане: {total['banned']}\n"
-        f"Уникальных пользователей: <b>{total['users']}</b> "
-        f"({_pct(total['users'], total['hits'])} от переходов)\n"
+        f"Новых пользователей: <b>{total['users']}</b> · в бане: {total['banned']}\n"
         f"Прошли ОП: {total['subscribed']} "
-        f"({_pct(total['subscribed'], total['hits'])} от переходов)\n"
+        f"({_pct(total['subscribed'], total['users'])})\n"
         f"Приняли правила: {total['accepted']} "
-        f"({_pct(total['accepted'], total['hits'])})\n"
+        f"({_pct(total['accepted'], total['users'])})\n"
         f"Конверсия в платёж: {_pct(total['payers'], total['users'])} "
         f"({total['payers']} чел)\n\n"
         + "\n".join(money)
-        + "\n\n📅 <b>7 дней</b> · переходов {}, людей {}, ОП {}, платили {} "
-        "на {} ⭐\n".format(
-            week["hits"], week["users"], week["subscribed"], week["payers"],
-            week["stars"],
+        + "\n\n📅 <b>7 дней</b> · людей {}, ОП {}, платили {} на {} ⭐\n".format(
+            week["users"], week["subscribed"], week["payers"], week["stars"]
         )
-        + "📅 <b>Сутки</b> · переходов {}, людей {}, ОП {}, платили {} "
-        "на {} ⭐\n\n".format(
-            day["hits"], day["users"], day["subscribed"], day["payers"], day["stars"],
+        + "📅 <b>Сутки</b> · людей {}, ОП {}, платили {} на {} ⭐\n\n".format(
+            day["users"], day["subscribed"], day["payers"], day["stars"]
         )
         + f"Анкет: {total['profiles']} · кружочков: {total['circles']} · "
         f"просмотров: {total['views']}\n"
