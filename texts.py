@@ -14,6 +14,14 @@ def coin() -> str:
     return emoji.text(emoji.COIN)
 
 
+def reward_line() -> str:
+    """One rate reads as one number; two rates have to be spelled out."""
+    female, male = settings.reward("f"), settings.reward("m")
+    if female == male:
+        return f"+{female}"
+    return f"+{female} за женский, +{male} за мужской"
+
+
 def menu(coins: int, pref: str) -> str:
     return (
         "<b>Кружочки</b>\n\n"
@@ -47,8 +55,7 @@ def faq() -> str:
     return (
         "❓ <b>FAQ</b>\n\n"
         f"<b>Откуда берутся монетки?</b>\n"
-        f"Загрузи свой кружок (+{settings.reward('f')} за женский, "
-        f"+{settings.reward('m')} за мужской после проверки), позови друга "
+        f"Загрузи свой кружок ({reward_line()} после проверки), позови друга "
         f"(+{settings.get('ref_reward')}) или купи за ⭐ в «Магазине».\n\n"
         f"<b>Сколько стоит просмотр?</b>\n"
         f"{settings.get('watch_cost')} монетки за кружок. "
@@ -102,9 +109,7 @@ def not_enough(coins: int) -> str:
     return (
         f"{coin()} Баланс: <b>{coins}</b> — "
         f'на просмотр нужно {settings.get("watch_cost")}.\n\n'
-        f"Загрузи кружок (+{settings.reward('f')} за женский, "
-        f"+{settings.reward('m')} за мужской) "
-        "или купи монетки за ⭐."
+        f"Загрузи кружок ({reward_line()}) или купи монетки за ⭐."
     )
 
 

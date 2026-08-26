@@ -24,7 +24,7 @@ PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "Fal
 
 # --- economy ---
 WATCH_COST = 2
-REWARD = {"f": 5, "m": 3}
+REWARD = {"f": 3, "m": 3}
 MIN_DURATION = 8  # seconds; anything shorter is refused
 STARS_RATE = 3  # coins per star
 MIN_STARS = 20
