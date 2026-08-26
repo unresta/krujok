@@ -1,7 +1,7 @@
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, User
 
 import db
 import keyboards as kb
@@ -13,20 +13,38 @@ router = Router()
 
 
 class Upload(StatesGroup):
-    waiting_video = State()
-    waiting_gender = State()
+    waiting_video = State()  # type already picked
+    waiting_gender = State()  # circle already in hand
 
 
 @router.callback_query(F.data == "upload")
-async def ask_video(call: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Upload.waiting_video)
-    await ui.edit(call, texts.upload_ask(), kb.back())
+async def ask_gender(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Upload.waiting_gender)
+    await ui.edit(call, texts.UPLOAD_PICK_GENDER, kb.upload_gender())
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ug:"))
+async def pick_gender(call: CallbackQuery, state: FSMContext) -> None:
+    gender = call.data.split(":", 1)[1]
+    data = await state.get_data()
+
+    if "file_id" not in data:  # picked the type first, circle comes next
+        await state.set_state(Upload.waiting_video)
+        await state.update_data(gender=gender)
+        await ui.edit(call, texts.upload_ask(gender), kb.back())
+        await call.answer()
+        return
+
+    await state.clear()
+    text = await _submit(call.bot, call.from_user, data, gender)
+    await ui.edit(call, text, kb.back())
     await call.answer()
 
 
 @router.message(F.video_note)
 async def got_video(message: Message, state: FSMContext) -> None:
-    """A circle is accepted at any point — no need to press anything first."""
+    """A circle is accepted at any point — the type is asked for if unknown."""
     note = message.video_note
 
     if await db.pending_count(message.from_user.id) >= MAX_PENDING:
@@ -36,13 +54,22 @@ async def got_video(message: Message, state: FSMContext) -> None:
         await message.answer(texts.too_short(note.duration), reply_markup=kb.back())
         return
 
-    await state.set_state(Upload.waiting_gender)
-    await state.update_data(
-        file_id=note.file_id,
-        file_unique_id=note.file_unique_id,
-        duration=note.duration,
-    )
-    await message.answer(texts.UPLOAD_ASK_GENDER, reply_markup=kb.upload_gender())
+    data = {
+        "file_id": note.file_id,
+        "file_unique_id": note.file_unique_id,
+        "duration": note.duration,
+    }
+    gender = (await state.get_data()).get("gender")
+
+    if gender is None:  # circle arrived out of the blue
+        await state.set_state(Upload.waiting_gender)
+        await state.update_data(**data)
+        await message.answer(texts.UPLOAD_ASK_GENDER, reply_markup=kb.upload_gender())
+        return
+
+    await state.clear()
+    text = await _submit(message.bot, message.from_user, data, gender)
+    await message.answer(text, reply_markup=kb.back())
 
 
 @router.message(Upload.waiting_video)
@@ -50,35 +77,27 @@ async def wrong_content(message: Message) -> None:
     await message.answer(texts.NOT_A_CIRCLE, reply_markup=kb.back())
 
 
-@router.callback_query(Upload.waiting_gender, F.data.startswith("ug:"))
-async def pick_gender(call: CallbackQuery, state: FSMContext) -> None:
-    gender = call.data.split(":", 1)[1]
-    data = await state.get_data()
-    await state.clear()
-
+async def _submit(bot, author: User, data: dict, gender: str) -> str:
+    """Store the circle and drop it into the moderation chat."""
     circle_id = await db.add_circle(
         file_id=data["file_id"],
         file_unique_id=data["file_unique_id"],
-        uploader_id=call.from_user.id,
+        uploader_id=author.id,
         gender=gender,
         duration=data["duration"],
     )
     if circle_id is None:
-        await ui.edit(call, texts.DUPLICATE, kb.back())
-        await call.answer()
-        return
+        return texts.DUPLICATE
 
-    await call.bot.send_video_note(ADMIN_CHAT_ID, data["file_id"])
-    who = call.from_user.username and f"@{call.from_user.username}" or "—"
-    admin_msg = await call.bot.send_message(
+    await bot.send_video_note(ADMIN_CHAT_ID, data["file_id"])
+    who = author.username and f"@{author.username}" or "—"
+    admin_msg = await bot.send_message(
         ADMIN_CHAT_ID,
         f"#на_проверку <b>#{circle_id}</b>\n"
         f"Тип: {kb.PREF_TITLE(gender)} (+{REWARD[gender]} {texts.coin()})\n"
         f"Длина: {data['duration']} сек\n"
-        f"Автор: <code>{call.from_user.id}</code> {who}",
+        f"Автор: <code>{author.id}</code> {who}",
         reply_markup=kb.moderation(circle_id),
     )
     await db.set_admin_msg(circle_id, admin_msg.message_id)
-
-    await ui.edit(call, texts.UPLOAD_SENT, kb.back())
-    await call.answer("Отправлено 🟢")
+    return texts.UPLOAD_SENT

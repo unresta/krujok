@@ -35,12 +35,15 @@ EMPTY = (
 )
 
 
-def upload_ask() -> str:
+UPLOAD_PICK_GENDER = "Какой кружок будешь загружать?"
+
+
+def upload_ask(gender: str) -> str:
+    kind = "женский" if gender == "f" else "мужской"
     return (
-        "🎥 Пришли кружок одним сообщением.\n\n"
+        f"🎥 Пришли {kind} кружок одним сообщением.\n\n"
         f"• минимум {MIN_DURATION} сек\n"
-        f"• +{REWARD['f']} {coin()} за женский, +{REWARD['m']} {coin()} за мужской\n"
-        "• монетки придут после проверки модератором"
+        f"• +{REWARD[gender]} {coin()} после проверки модератором"
     )
 
 
