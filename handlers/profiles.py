@@ -258,6 +258,33 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
     )
 
 
+@router.callback_query(F.data.startswith("pf:card:"))
+async def open_card(call: CallbackQuery) -> None:
+    """«Анкета автора» under a circle — the same card as in the feed."""
+    author_id = int(call.data.split(":")[2])
+    profile = await db.get_profile(author_id)
+    if profile is None or profile["status"] != "approved":
+        await call.answer("У автора нет анкеты.", show_alert=True)
+        return
+    if author_id == call.from_user.id:
+        await call.answer("Это твоя анкета 🙂")
+        return
+
+    await call.answer()
+    circles = len(await db.author_circles(author_id, await db.total_circles_max_id()))
+    await call.bot.send_photo(
+        chat_id=call.from_user.id,
+        photo=profile["photo_id"],
+        caption=texts.profile_card(profile, circles),
+        protect_content=True,
+        reply_markup=kb.profile_card(
+            profile,
+            await db.get_purchase(call.from_user.id, author_id, "content") is not None,
+            await db.get_purchase(call.from_user.id, author_id, "contact") is not None,
+        ),
+    )
+
+
 @router.callback_query(F.data.startswith("pf:buy:"))
 async def buy_content(call: CallbackQuery) -> None:
     author_id = int(call.data.split(":")[2])

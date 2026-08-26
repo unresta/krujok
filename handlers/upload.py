@@ -20,12 +20,29 @@ class Upload(StatesGroup):
 
 @router.message(F.text == kb.BTN_UPLOAD)
 async def upload_button(message: Message, state: FSMContext) -> None:
+    if not await _may_upload(message):
+        return
     await state.set_state(Upload.waiting_gender)
     await message.answer(texts.UPLOAD_PICK_GENDER, reply_markup=kb.upload_gender())
 
 
+async def _may_upload(message: Message, user_id: int | None = None) -> bool:
+    """Circles hang off a profile, so there has to be one to hang them on."""
+    profile = await db.get_profile(user_id or message.from_user.id)
+    if profile is not None and profile["status"] == "approved":
+        return True
+    if profile is None:
+        await message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.my_profile(False))
+    else:
+        await message.answer(texts.upload_profile_pending(profile["status"]))
+    return False
+
+
 @router.callback_query(F.data == "upload")
 async def ask_gender(call: CallbackQuery, state: FSMContext) -> None:
+    if not await _may_upload(call.message, call.from_user.id):
+        await call.answer()
+        return
     await state.set_state(Upload.waiting_gender)
     await ui.edit(call, texts.UPLOAD_PICK_GENDER, kb.upload_gender())
     await call.answer()
@@ -54,6 +71,8 @@ async def got_video(message: Message, state: FSMContext) -> None:
     """A circle is accepted at any point — the type is asked for if unknown."""
     note = message.video_note
 
+    if not await _may_upload(message):
+        return
     if await db.pending_count(message.from_user.id) >= settings.get("max_pending"):
         await message.answer(texts.TOO_MANY_PENDING, reply_markup=kb.back())
         return

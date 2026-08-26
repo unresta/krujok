@@ -59,12 +59,16 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
         return
 
+    author = circle["uploader_id"]
+    linked = author if await db.has_public_profile(author) else None
     try:
         await bot.send_video_note(
             chat_id=user_id,
             video_note=circle["file_id"],
             protect_content=True,  # no forwarding, no saving
-            reply_markup=kb.circle(circle["id"], circle["likes"], circle["dislikes"], 0),
+            reply_markup=kb.circle(
+                circle["id"], circle["likes"], circle["dislikes"], 0, linked
+            ),
         )
     except TelegramAPIError:
         if not free:
@@ -102,9 +106,11 @@ async def react(call: CallbackQuery) -> None:
     vote, likes, dislikes, fresh_like = await db.set_reaction(
         call.from_user.id, circle_id, value
     )
+    author = circle["uploader_id"]
+    linked = author if await db.has_public_profile(author) else None
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
-            reply_markup=kb.circle(circle_id, likes, dislikes, vote)
+            reply_markup=kb.circle(circle_id, likes, dislikes, vote, linked)
         )
     await call.answer("👍" if vote == 1 else "👎" if vote == -1 else "Отменил")
 

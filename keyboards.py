@@ -136,7 +136,13 @@ def main_menu() -> ReplyKeyboardMarkup:
     )
 
 
-def circle(circle_id: int, likes: int, dislikes: int, vote: int) -> InlineKeyboardMarkup:
+def circle(
+    circle_id: int,
+    likes: int,
+    dislikes: int,
+    vote: int,
+    author_id: int = 0,
+) -> InlineKeyboardMarkup:
     """Sits under the circle itself, so reactions travel with the video."""
     b = InlineKeyboardBuilder()
     b.row(
@@ -153,6 +159,12 @@ def circle(circle_id: int, likes: int, dislikes: int, vote: int) -> InlineKeyboa
             style=DANGER if vote == -1 else None,
         ),
     )
+    if author_id:  # only when that author has a profile to open
+        b.row(
+            InlineKeyboardButton(
+                text="Анкета автора", callback_data=f"pf:card:{author_id}", style=PRIMARY
+            )
+        )
     b.row(
         InlineKeyboardButton(
             text="Пожаловаться", callback_data=f"rep:{circle_id}", style=DANGER

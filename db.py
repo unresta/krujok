@@ -695,6 +695,13 @@ async def set_profile_status(user_id: int, status: str) -> None:
     await conn().commit()
 
 
+async def has_public_profile(user_id: int) -> bool:
+    async with conn().execute(
+        "SELECT 1 FROM profiles WHERE user_id = ? AND status = 'approved'", (user_id,)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
 async def next_pending_profile() -> aiosqlite.Row | None:
     async with conn().execute(
         "SELECT * FROM profiles WHERE status = 'pending' ORDER BY created_at LIMIT 1"
@@ -725,6 +732,14 @@ async def pick_profile(viewer_id: int) -> aiosqlite.Row | None:
         {"uid": viewer_id},
     ) as cur:
         return await cur.fetchone()
+
+
+async def approved_circles(author_id: int) -> int:
+    async with conn().execute(
+        "SELECT COUNT(*) FROM circles WHERE uploader_id = ? AND status = 'approved'",
+        (author_id,),
+    ) as cur:
+        return (await cur.fetchone())[0]
 
 
 async def mark_profile_seen(viewer_id: int, author_id: int) -> None:
