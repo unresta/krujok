@@ -41,10 +41,19 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "menu")
-async def menu_cb(call: CallbackQuery, state: FSMContext) -> None:
+async def close_screen(call: CallbackQuery, state: FSMContext) -> None:
+    """«Назад», «Закрыть», «Отмена» — the screen goes away, nothing replaces it.
+
+    The main menu is a reply keyboard that is always on screen, so answering with
+    another message would only add to the pile.
+    """
     await state.clear()
-    await ui.render_menu(call, call.from_user.id)
     await call.answer()
+    try:
+        await call.message.delete()
+    except TelegramAPIError:  # older than 48h, or already gone
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(reply_markup=None)
 
 
 # --- feed ----------------------------------------------------------------

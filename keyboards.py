@@ -461,7 +461,7 @@ def buy() -> InlineKeyboardMarkup:
 
 def buy_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="Отмена", callback_data="buy", style=DANGER))
+    kb.row(InlineKeyboardButton(text="Отмена", callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 

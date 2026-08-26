@@ -46,7 +46,8 @@ async def anything_else(message: Message) -> None:
 async def stale_button(call: CallbackQuery) -> None:
     """Button from a message whose state is gone — never leave a spinner hanging."""
     await call.answer("Кнопка устарела")
-    await ui.render_menu(call, call.from_user.id)
+    with suppress(TelegramAPIError):
+        await call.message.delete()
 
 
 async def main() -> None:
