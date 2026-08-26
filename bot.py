@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, CallbackQuery, Message
 
 import db
+import emoji
 import ui
 from config import BOT_TOKEN
 from handlers import admin, common, moderation, payments, upload, watch
@@ -35,6 +36,8 @@ async def main() -> None:
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
 
     dp.message.middleware(UserMiddleware())
     dp.callback_query.middleware(UserMiddleware())
