@@ -342,6 +342,15 @@ REJECT_REASONS = {
 }
 
 
+def profile_reverted(reason: str = "") -> str:
+    tail = f"\n\nПричина: <b>{reason}</b>" if reason else ""
+    return (
+        "🔴 Правки в анкете отклонены." + tail + "\n\n"
+        "Вернули прошлую версию — она снова показывается. "
+        "Можешь отредактировать заново."
+    )
+
+
 def profile_rejected(reason: str = "") -> str:
     tail = f"\n\nПричина: <b>{reason}</b>" if reason else ""
     return (

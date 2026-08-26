@@ -371,6 +371,19 @@ def profile_review(user_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def profile_decided(user_id: int) -> InlineKeyboardMarkup:
+    """A verdict is never final: the card keeps a way back to the buttons."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Изменить решение",
+            callback_data=f"pm:again:{user_id}",
+            style=PRIMARY,
+        )
+    )
+    return b.as_markup()
+
+
 def refill_profile() -> InlineKeyboardMarkup:
     """Goes with a rejection — the fix is one tap away, not a menu hunt."""
     b = InlineKeyboardBuilder()

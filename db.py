@@ -76,6 +76,20 @@ CREATE TABLE IF NOT EXISTS profiles (
     created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- The last version a moderator approved, kept so that rejecting an edit rolls
+-- the author back instead of wiping a profile that was fine yesterday.
+CREATE TABLE IF NOT EXISTS profile_backup (
+    user_id         INTEGER PRIMARY KEY,
+    photo_id        TEXT    NOT NULL,
+    photo_unique_id TEXT,
+    about           TEXT    NOT NULL DEFAULT '',
+    gender          TEXT    NOT NULL,
+    price_content   INTEGER NOT NULL,
+    price_contact   INTEGER NOT NULL DEFAULT 0,
+    contact_ok      INTEGER NOT NULL DEFAULT 0,
+    username        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS purchases (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     buyer_id      INTEGER NOT NULL,
@@ -952,6 +966,69 @@ async def has_public_profile(user_id: int) -> bool:
         "SELECT 1 FROM profiles WHERE user_id = ? AND status = 'approved'", (user_id,)
     ) as cur:
         return await cur.fetchone() is not None
+
+
+async def backup_profile(user_id: int) -> None:
+    """Snapshot an approved profile, so an edit can be undone."""
+    await conn().execute(
+        """
+        INSERT INTO profile_backup(user_id, photo_id, photo_unique_id, about,
+                                   gender, price_content, price_contact,
+                                   contact_ok, username)
+        SELECT user_id, photo_id, photo_unique_id, about, gender, price_content,
+               price_contact, contact_ok, username
+        FROM profiles WHERE user_id = ?
+        ON CONFLICT(user_id) DO UPDATE SET
+            photo_id = excluded.photo_id,
+            photo_unique_id = excluded.photo_unique_id,
+            about = excluded.about, gender = excluded.gender,
+            price_content = excluded.price_content,
+            price_contact = excluded.price_contact,
+            contact_ok = excluded.contact_ok, username = excluded.username
+        """,
+        (user_id,),
+    )
+    await conn().commit()
+
+
+async def restore_profile(user_id: int) -> bool:
+    """Put the last approved version back and mark it approved again."""
+    async with conn().execute(
+        "SELECT * FROM profile_backup WHERE user_id = ?", (user_id,)
+    ) as cur:
+        old = await cur.fetchone()
+    if old is None:
+        return False
+
+    await conn().execute(
+        """
+        UPDATE profiles SET photo_id = :photo, photo_unique_id = :unique,
+            about = :about, gender = :gender, price_content = :content,
+            price_contact = :contact, contact_ok = :ok, username = :name,
+            status = 'approved'
+        WHERE user_id = :uid
+        """,
+        {
+            "uid": user_id,
+            "photo": old["photo_id"],
+            "unique": old["photo_unique_id"],
+            "about": old["about"],
+            "gender": old["gender"],
+            "content": old["price_content"],
+            "contact": old["price_contact"],
+            "ok": old["contact_ok"],
+            "name": old["username"],
+        },
+    )
+    await conn().commit()
+    return True
+
+
+async def drop_profile_backup(user_id: int) -> None:
+    await conn().execute(
+        "DELETE FROM profile_backup WHERE user_id = ?", (user_id,)
+    )
+    await conn().commit()
 
 
 async def next_pending_profile() -> aiosqlite.Row | None:

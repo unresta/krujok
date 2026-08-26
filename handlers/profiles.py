@@ -246,6 +246,14 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("За что отклоняем?")
         return
 
+    if verdict == "again":  # a verdict can always be revisited
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.profile_review(user_id)
+            )
+        await call.answer("Решай заново")
+        return
+
     if verdict == "back":
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(
@@ -272,6 +280,7 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await db.set_profile_status(user_id, status)
         await db.clear_profile_reports(user_id)
         if verdict == "hide":
+            await db.drop_profile_backup(user_id)  # nothing here is worth restoring
             await _tell_author(call.bot, user_id, "rejected", "жалобы пользователей")
         mark = "🔴 скрыта" if verdict == "hide" else "🟢 оставлена"
         with suppress(TelegramAPIError):
@@ -281,29 +290,53 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer(mark)
         return
 
-    if not await db.review_profile(user_id, status):
-        await call.answer("Уже обработана.", show_alert=True)
-        return
-
-    await _tell_author(call.bot, user_id, status, reason)
-    mark = "🟢 одобрена" if status == "approved" else "🔴 отклонена"
-    if reason:
-        mark += f" · {reason}"
+    mark = await _decide(call.bot, user_id, status, reason)
     with suppress(TelegramAPIError):
         await call.message.edit_caption(
-            caption=f"{call.message.html_text}\n\n<b>{mark}</b>", reply_markup=None
+            caption=f"{call.message.html_text}\n\n<b>{mark}</b>",
+            reply_markup=kb.profile_decided(user_id),
         )
     await call.answer(mark)
 
 
+async def _decide(bot, user_id: int, status: str, reason: str) -> str:
+    """Apply a verdict, whatever the profile's current state.
+
+    Turning down an edit restores the version that was approved before it —
+    a bad photo today should not cost the author a profile that was fine.
+    """
+    if status == "approved":
+        await db.set_profile_status(user_id, "approved")
+        await db.backup_profile(user_id)
+        await _tell_author(bot, user_id, "approved")
+        return "🟢 одобрена"
+
+    profile = await db.get_profile(user_id)
+    pending_edit = profile is not None and profile["status"] == "pending"
+
+    # Only an edit waiting for review rolls back; turning down a live profile
+    # means taking it down, not restoring the same thing.
+    if pending_edit and await db.restore_profile(user_id):
+        await _tell_author(bot, user_id, "reverted", reason)
+        mark = "🔴 правки отклонены, вернули прошлую версию"
+    else:
+        await db.set_profile_status(user_id, "rejected")
+        await db.drop_profile_backup(user_id)
+        await _tell_author(bot, user_id, "rejected", reason)
+        mark = "🔴 отклонена"
+    return f"{mark} · {reason}" if reason else mark
+
+
 async def _tell_author(bot, user_id: int, status: str, reason: str = "") -> None:
-    approved = status == "approved"
+    if status == "approved":
+        text, markup = texts.PROFILE_APPROVED, None
+    elif status == "reverted":
+        text, markup = texts.profile_reverted(reason), kb.refill_profile()
+    else:
+        text, markup = texts.profile_rejected(reason), kb.refill_profile()
+
     with suppress(TelegramAPIError):
-        await bot.send_message(
-            user_id,
-            texts.PROFILE_APPROVED if approved else texts.profile_rejected(reason),
-            reply_markup=None if approved else kb.refill_profile(),
-        )
+        await bot.send_message(user_id, text, reply_markup=markup)
 
 
 @router.message(Review.reason, ~F.text.in_(kb.MENU_BUTTONS))
@@ -317,16 +350,14 @@ async def got_reason(message: Message, state: FSMContext) -> None:
     await state.clear()
     user_id = data["user_id"]
 
-    if not await db.review_profile(user_id, "rejected"):
-        await message.answer("Анкету уже обработали.")
-        return
-
-    await _tell_author(message.bot, user_id, "rejected", reason)
+    mark = await _decide(message.bot, user_id, "rejected", reason)
     with suppress(TelegramAPIError):
         await message.bot.edit_message_reply_markup(
-            chat_id=message.chat.id, message_id=data["card"], reply_markup=None
+            chat_id=message.chat.id,
+            message_id=data["card"],
+            reply_markup=kb.profile_decided(user_id),
         )
-    await message.answer(f"🔴 Отклонена: {reason}")
+    await message.answer(mark)
 
 
 # --- browsing and buying -------------------------------------------------
