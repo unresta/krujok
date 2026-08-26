@@ -9,6 +9,8 @@ BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 ADMIN_CHAT_ID: int = int(os.getenv("ADMIN_CHAT_ID", "0"))
 # Complaints go here instead, when set — otherwise they join the moderation chat.
 REPORTS_CHAT: str = os.getenv("REPORTS_CHAT", "")
+# Author profiles awaiting review; empty falls back to the moderation chat too.
+PROFILES_CHAT: str = os.getenv("PROFILES_CHAT", "")
 # Personal ids allowed to run /stats and /refund.
 ADMIN_IDS: set[int] = {
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x

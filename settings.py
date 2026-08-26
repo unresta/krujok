@@ -32,6 +32,7 @@ DEFAULTS: dict[str, int] = {
 TEXT_DEFAULTS: dict[str, str] = {
     "channel": config.CHANNEL,  # @name or -100… ; empty disables the gate
     "reports_chat": config.REPORTS_CHAT,  # empty falls back to ADMIN_CHAT_ID
+    "profiles_chat": config.PROFILES_CHAT,
 }
 
 TITLES: dict[str, str] = {
@@ -103,6 +104,11 @@ def stars_for(coins: int) -> int:
 def reports_chat() -> int | str:
     """Where complaints land: their own chat if set, the moderation one if not."""
     return _texts["reports_chat"].strip() or config.ADMIN_CHAT_ID
+
+
+def profiles_chat() -> int | str:
+    """Where profiles go for review: their own chat, or the moderation one."""
+    return _texts["profiles_chat"].strip() or config.ADMIN_CHAT_ID
 
 
 def maintenance() -> bool:

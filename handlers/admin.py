@@ -52,6 +52,7 @@ class Admin(StatesGroup):
     circle_id = State()
     channel = State()
     reports_chat = State()
+    profiles_chat = State()
 
 
 # --- home ----------------------------------------------------------------
@@ -435,7 +436,69 @@ async def cb_reports_show(call: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "a:anketas")
-async def cb_anketas(call: CallbackQuery) -> None:
+async def cb_anketas(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    chat = settings.profiles_chat()
+    waiting = await db.pending_profiles()
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Чат анкет", callback_data="a:anketas:chat", style=kb.PRIMARY
+        )
+    )
+    if waiting:
+        b.row(
+            InlineKeyboardButton(
+                text="Показать следующую",
+                callback_data="a:anketas:next",
+                style=kb.SUCCESS,
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        f"<b>Анкеты</b>\n\nЧат: <code>{chat}</code>\n"
+        f"{await _chat_status(call.bot, chat)}\n\n"
+        f"На проверке: {waiting}",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:anketas:chat")
+async def cb_anketas_chat(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.profiles_chat)
+    await _edit(
+        call,
+        "Пришли id чата для анкет (<code>-100…</code>) или <code>@username</code>.\n"
+        "Бот должен быть в этом чате. <code>-</code> — вернуть анкеты в чат "
+        "модерации.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.profiles_chat, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_profiles_chat(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw == "-":
+        raw = ""
+    elif not (raw.startswith("@") or raw.lstrip("-").isdigit()):
+        await message.answer("Нужен id, @username или «-».")
+        return
+
+    await state.clear()
+    await settings.set_text("profiles_chat", raw)
+    chat = settings.profiles_chat()
+    await message.answer(
+        f"Чат анкет: <code>{chat}</code>\n{await _chat_status(message.bot, chat)}",
+        reply_markup=back_kb(),
+    )
+
+
+@router.callback_query(F.data == "a:anketas:next")
+async def cb_anketas_next(call: CallbackQuery) -> None:
     profile = await db.next_pending_profile()
     if profile is None:
         await call.answer("Анкет на проверке нет 🟢", show_alert=True)

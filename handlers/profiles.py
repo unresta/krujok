@@ -177,9 +177,10 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
     )
     await message.answer(texts.PROFILE_SENT, reply_markup=kb.back())
 
+    chat = settings.profiles_chat()
     try:
         card = await message.bot.send_photo(
-            ADMIN_CHAT_ID,
+            chat,
             data["photo_id"],
             caption=(
                 f"#анкета от <code>{author.id}</code>"
@@ -195,7 +196,9 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
     except TelegramAPIError as error:
         # The profile is saved and shows up in the panel's queue regardless —
         # only the card is missing, and silence here is what hides that.
-        logger.error("profile card for %s not delivered: %s", author.id, error)
+        logger.error(
+            "profile card for %s not delivered to %s: %s", author.id, chat, error
+        )
 
 
 # --- moderation ----------------------------------------------------------
@@ -206,6 +209,7 @@ async def review(call: CallbackQuery) -> None:
     if not (
         call.from_user.id in ADMIN_IDS
         or call.message.chat.id == ADMIN_CHAT_ID
+        or str(call.message.chat.id) == str(settings.profiles_chat())
         or str(call.message.chat.id) == str(settings.reports_chat())
     ):
         await call.answer("Нет прав.", show_alert=True)
