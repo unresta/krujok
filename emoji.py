@@ -17,12 +17,14 @@ MALE = "5834515786588229330"
 ANY = "5280816565657300091"
 FILM = "5341715473882955310"
 
+# The placeholder inside <tg-emoji> must be a real emoji or Telegram answers
+# ENTITY_TEXT_INVALID — ♀ ♂ 🎞 default to text presentation, so they carry U+FE0F.
 FALLBACK = {
     COIN: "🪙",
-    FEMALE: "♀",
-    MALE: "♂",
+    FEMALE: "♀️",
+    MALE: "♂️",
     ANY: "🎲",
-    FILM: "🎞",
+    FILM: "🎞️",
 }
 
 
