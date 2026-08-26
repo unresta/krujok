@@ -301,6 +301,32 @@ def profile_bad_price() -> str:
     )
 
 
+def profile_changes(old, new: dict) -> list[str]:
+    """What the author actually touched — the moderator reads only that."""
+    if old is None:
+        return []
+
+    changes = []
+    if old["photo_unique_id"] != new.get("photo_unique_id"):
+        changes.append("фото")
+    if (old["about"] or "") != new.get("about", ""):
+        changes.append("описание")
+    if old["gender"] != new["gender"]:
+        changes.append("кто")
+    if old["price_content"] != new["price_content"]:
+        changes.append(
+            f"цена кружочков {old['price_content']} → {new['price_content']}"
+        )
+
+    was = old["price_contact"] if old["contact_ok"] else 0
+    now = new.get("price_contact", 0) if new.get("contact_ok") else 0
+    if was != now:
+        changes.append(
+            f"личка {was or 'не продавалась'} → {now or 'не продаётся'}"
+        )
+    return changes
+
+
 PROFILE_SENT = (
     "✅ Анкета отправлена на проверку. Как только модератор её одобрит, "
     "её начнут показывать другим."

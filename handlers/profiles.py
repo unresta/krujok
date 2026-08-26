@@ -68,7 +68,10 @@ async def edit_profile(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(Anketa.photo, F.photo)
 async def got_photo(message: Message, state: FSMContext) -> None:
-    await state.update_data(photo_id=message.photo[-1].file_id)
+    photo = message.photo[-1]
+    await state.update_data(
+        photo_id=photo.file_id, photo_unique_id=photo.file_unique_id
+    )
     await state.set_state(Anketa.about)
     await message.answer(texts.profile_about(), reply_markup=kb.back())
 
@@ -169,9 +172,13 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
 
+    previous = await db.get_profile(author.id)  # read before overwriting it
+    changes = texts.profile_changes(previous, data)
+
     await db.save_profile(
         user_id=author.id,
         photo_id=data["photo_id"],
+        photo_unique_id=data.get("photo_unique_id"),
         about=data.get("about", ""),
         gender=data["gender"],
         price_content=data["price_content"],
@@ -187,9 +194,17 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
             chat,
             data["photo_id"],
             caption=(
-                f"#анкета от <code>{author.id}</code>"
+                ("#анкета_изменена" if previous else "#анкета")
+                + f" от <code>{author.id}</code>"
                 f"{' @' + author.username if author.username else ''}\n"
-                f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
+                + (
+                    f"♻️ Поменялось: <b>{', '.join(changes)}</b>\n"
+                    if changes
+                    else "♻️ Прислана заново без правок\n"
+                    if previous
+                    else ""
+                )
+                + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
                 f"Кружочки: {data['price_content']} · "
                 f"личка: {data.get('price_contact') or 'нет'}\n\n"
                 f"{data.get('about') or 'Без описания'}"

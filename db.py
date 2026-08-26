@@ -60,8 +60,9 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
-    user_id       INTEGER PRIMARY KEY,
-    photo_id      TEXT    NOT NULL,
+    user_id         INTEGER PRIMARY KEY,
+    photo_id        TEXT  NOT NULL,
+    photo_unique_id TEXT,
     about         TEXT    NOT NULL DEFAULT '',
     gender        TEXT    NOT NULL,
     price_content INTEGER NOT NULL,
@@ -165,6 +166,9 @@ MIGRATIONS = {
         "accepted": "INTEGER NOT NULL DEFAULT 0",
         "source": "TEXT",  # campaign code the user arrived with
         "subscribed": "INTEGER NOT NULL DEFAULT 0",  # passed the channel gate
+    },
+    "profiles": {
+        "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
     },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
@@ -878,17 +882,21 @@ async def save_profile(
     price_contact: int,
     contact_ok: bool,
     username: str | None,
+    photo_unique_id: str | None = None,
 ) -> None:
     """An edited profile goes back to moderation — the photo changed too."""
     await ensure_user(user_id)
     await conn().execute(
         """
-        INSERT INTO profiles(user_id, photo_id, about, gender, price_content,
-                             price_contact, contact_ok, username, status)
-        VALUES (:uid, :photo, :about, :gender, :content, :contact, :ok, :name,
-                'pending')
+        INSERT INTO profiles(user_id, photo_id, photo_unique_id, about, gender,
+                             price_content, price_contact, contact_ok, username,
+                             status)
+        VALUES (:uid, :photo, :unique, :about, :gender, :content, :contact, :ok,
+                :name, 'pending')
         ON CONFLICT(user_id) DO UPDATE SET
-            photo_id = excluded.photo_id, about = excluded.about,
+            photo_id = excluded.photo_id,
+            photo_unique_id = excluded.photo_unique_id,
+            about = excluded.about,
             gender = excluded.gender, price_content = excluded.price_content,
             price_contact = excluded.price_contact,
             contact_ok = excluded.contact_ok, username = excluded.username,
@@ -897,6 +905,7 @@ async def save_profile(
         {
             "uid": user_id,
             "photo": photo_id,
+            "unique": photo_unique_id,
             "about": about,
             "gender": gender,
             "content": price_content,
