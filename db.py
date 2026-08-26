@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import time
 
 import aiosqlite
@@ -117,6 +118,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
     code       TEXT PRIMARY KEY,          -- what goes after ?start=
     title      TEXT NOT NULL DEFAULT '',
     hits       INTEGER NOT NULL DEFAULT 0, -- every /start, repeats included
+    spend      INTEGER NOT NULL DEFAULT 0,
+    token      TEXT,                      -- shared with whoever bought the ad
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
@@ -165,6 +168,7 @@ MIGRATIONS = {
     },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
+        "token": "TEXT",  # lets the buyer of the ad watch their own link
     },
     "circles": {
         "likes": "INTEGER NOT NULL DEFAULT 0",
@@ -337,12 +341,50 @@ async def referral_totals() -> tuple[int, int]:
 async def create_campaign(code: str, title: str = "") -> bool:
     try:
         await conn().execute(
-            "INSERT INTO campaigns(code, title) VALUES (?, ?)", (code, title)
+            "INSERT INTO campaigns(code, title, token) VALUES (?, ?, ?)",
+            (code, title, secrets.token_hex(4)),
         )
     except aiosqlite.IntegrityError:
         return False
     await conn().commit()
     return True
+
+
+async def campaign_token(code: str) -> str | None:
+    """Mints one for links that predate tokens, so every link has a watcher."""
+    async with conn().execute(
+        "SELECT token FROM campaigns WHERE code = ?", (code,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    if row["token"]:
+        return row["token"]
+
+    token = secrets.token_hex(4)
+    await conn().execute(
+        "UPDATE campaigns SET token = ? WHERE code = ?", (token, code)
+    )
+    await conn().commit()
+    return token
+
+
+async def new_campaign_token(code: str) -> str | None:
+    """Rotate it — the old command stops working immediately."""
+    token = secrets.token_hex(4)
+    cur = await conn().execute(
+        "UPDATE campaigns SET token = ? WHERE code = ?", (token, code)
+    )
+    await conn().commit()
+    return token if cur.rowcount else None
+
+
+async def campaign_by_token(token: str) -> str | None:
+    async with conn().execute(
+        "SELECT code FROM campaigns WHERE token = ?", (token,)
+    ) as cur:
+        row = await cur.fetchone()
+    return row["code"] if row else None
 
 
 async def touch_campaign(code: str, user_id: int) -> None:

@@ -56,6 +56,23 @@ async def close_screen(call: CallbackQuery, state: FSMContext) -> None:
             await call.message.edit_reply_markup(reply_markup=None)
 
 
+@router.message(F.text.startswith("/stat_"))
+async def traffer_stats(message: Message) -> None:
+    """Read-only report for whoever bought the ad; no money figures at all."""
+    token = message.text.removeprefix("/stat_").strip().lower()
+    code = await db.campaign_by_token(token)
+    if code is None:
+        await message.answer(texts.TRAFFER_UNKNOWN)
+        return
+
+    stats = await db.campaign_stats(code)
+    week = await db.campaign_stats(code, 7 * 86400)
+    day = await db.campaign_stats(code, 86400)
+    await message.answer(
+        texts.traffer_report(stats, week, day, access.campaign_link(code))
+    )
+
+
 # --- feed ----------------------------------------------------------------
 
 

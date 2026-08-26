@@ -32,7 +32,11 @@ class UserMiddleware(BaseMiddleware):
 
         # Telegram has already taken the stars: the coins must be credited even
         # for a banned user, during maintenance, and without a subscription.
-        if isinstance(event, Message) and event.successful_payment is not None:
+        # The traffic buyer's report is the same: they are not here to use the bot.
+        if isinstance(event, Message) and (
+            event.successful_payment is not None
+            or (event.text or "").startswith("/stat_")
+        ):
             data["user"] = user
             return await handler(event, data)
 

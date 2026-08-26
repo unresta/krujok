@@ -458,6 +458,32 @@ def welcome() -> str:
 
 ACCEPTED = "Готово. Приятного просмотра 🙂"
 
+def traffer_report(stats: dict, week: dict, day: dict, link: str) -> str:
+    """What the person who bought the ad sees: traffic, not the money behind it."""
+    def pct(part: int, whole: int) -> str:
+        return f"{part * 100 / whole:.1f}%" if whole else "—"
+
+    return (
+        f"📊 <b>{stats['title'] or stats['code']}</b>\n\n"
+        "🕓 <b>За всё время</b>\n"
+        f"Переходов: <b>{stats['hits']}</b>\n"
+        f"Уникальных пользователей: <b>{stats['users']}</b> "
+        f"({pct(stats['users'], stats['hits'])} от переходов)\n"
+        f"Прошли подписку: {stats['subscribed']} "
+        f"({pct(stats['subscribed'], stats['hits'])})\n"
+        f"Приняли правила: {stats['accepted']}\n"
+        f"Покупали монетки: {stats['payers']} "
+        f"({pct(stats['payers'], stats['users'])} от людей)\n\n"
+        f"📅 7 дней · переходов {week['hits']}, людей {week['users']}, "
+        f"подписок {week['subscribed']}\n"
+        f"📅 Сутки · переходов {day['hits']}, людей {day['users']}, "
+        f"подписок {day['subscribed']}\n\n"
+        f"<code>{link}</code>"
+    )
+
+
+TRAFFER_UNKNOWN = "Команда не подходит — проверь её у того, кто выдал ссылку."
+
 BANNED = "Доступ закрыт."
 MAINTENANCE = "🔧 Бот на техработах. Загляни чуть позже."
 SUBSCRIBE = (

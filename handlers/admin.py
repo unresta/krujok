@@ -55,6 +55,7 @@ class Admin(StatesGroup):
     reports_chat = State()
     campaign = State()
     spend = State()
+    delete_link = State()
     profiles_chat = State()
 
 
@@ -647,8 +648,11 @@ def _link_kb(code: str, link: str) -> InlineKeyboardMarkup:
     )
     b.row(
         InlineKeyboardButton(
+            text="Команда трафферу", callback_data=f"a:link:token:{code}", style=kb.PRIMARY
+        ),
+        InlineKeyboardButton(
             text="Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
-        )
+        ),
     )
     b.row(InlineKeyboardButton(text="К ссылкам", callback_data="a:links", style=kb.DANGER))
     return b.as_markup()
@@ -714,6 +718,53 @@ async def _link_report(code: str) -> str | None:
     )
 
 
+@router.callback_query(F.data.startswith("a:link:token:"))
+async def cb_link_token(call: CallbackQuery) -> None:
+    code = call.data.split(":", 3)[3]
+    token = await db.campaign_token(code)
+    if token is None:
+        await call.answer("Ссылки больше нет.", show_alert=True)
+        return
+
+    command = f"/stat_{token}"
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Скопировать команду", copy_text=CopyTextButton(text=command)
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Новый токен", callback_data=f"a:link:retoken:{code}", style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="К ссылке", callback_data=f"a:link:{code}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Команда для траффера · {code}</b>\n\n"
+        f"<code>{command}</code>\n\n"
+        "Отдай её тому, кто льёт трафик: он увидит переходы, людей, ОП и "
+        "покупки по своей ссылке — без расхода, выручки и остальной кухни.\n"
+        "«Новый токен» мгновенно ломает старую команду.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:link:retoken:"))
+async def cb_link_retoken(call: CallbackQuery) -> None:
+    code = call.data.split(":", 3)[3]
+    await db.new_campaign_token(code)
+    await call.answer("Токен обновлён")
+    await cb_link_token(
+        call.model_copy(update={"data": f"a:link:token:{code}"})
+    )
+
+
 @router.callback_query(F.data.startswith("a:link:spend:"))
 async def cb_link_spend(call: CallbackQuery, state: FSMContext) -> None:
     code = call.data.split(":", 3)[3]
@@ -751,12 +802,65 @@ async def got_spend(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(F.data.startswith("a:link:del:"))
-async def cb_link_delete(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data.startswith("a:link:del2:"))
+async def cb_link_delete_confirm(call: CallbackQuery, state: FSMContext) -> None:
     code = call.data.split(":", 3)[3]
+    await state.set_state(Admin.delete_link)
+    await state.update_data(code=code)
+    await _edit(
+        call,
+        f"Последний шаг: пришли код <code>{code}</code> сообщением, "
+        "чтобы удалить ссылку.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.delete_link, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_delete_link(message: Message, state: FSMContext) -> None:
+    code = (await state.get_data())["code"]
+    if (message.text or "").strip().lower() != code:
+        await message.answer(f"Не совпало. Нужно ровно <code>{code}</code>.")
+        return
+
+    await state.clear()
     await db.delete_campaign(code)
-    await call.answer("Ссылка удалена")
-    await cb_links(call, state)
+    await message.answer(
+        f"Ссылка <code>{code}</code> удалена. Статистика по ней больше не "
+        "собирается, но люди, пришедшие по ней, остаются помеченными.",
+        reply_markup=back_kb(),
+    )
+
+
+@router.callback_query(F.data.startswith("a:link:del:"))
+async def cb_link_delete(call: CallbackQuery) -> None:
+    """First of three steps — deleting a link by a misclick is too easy."""
+    code = call.data.split(":", 3)[3]
+    stats = await db.campaign_stats(code)
+    if stats is None:
+        await call.answer("Ссылки уже нет.", show_alert=True)
+        return
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Да, удалить", callback_data=f"a:link:del2:{code}", style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Отмена", callback_data=f"a:link:{code}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Удалить ссылку {code}?</b>\n\n"
+        f"По ней {stats['hits']} переходов и {stats['users']} человек. "
+        "Отчёт исчезнет, метки у людей останутся.\n\n"
+        "После подтверждения попрошу набрать код руками.",
+        b.as_markup(),
+    )
+    await call.answer()
 
 
 @router.callback_query(F.data.startswith("a:link:"))
