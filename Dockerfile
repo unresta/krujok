@@ -12,8 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# The database lives on a volume, so `docker compose down` never eats balances.
+# Starts as root only to take ownership of the mounted data directory, then the
+# entrypoint drops to this user for the bot itself.
 RUN useradd --create-home --uid 10001 bot && mkdir -p /app/data && chown -R bot /app
-USER bot
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "-u", "bot.py"]
