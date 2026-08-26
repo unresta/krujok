@@ -29,6 +29,7 @@ DEFAULTS: dict[str, int] = {
 # Free-form values live apart: the settings table holds integers.
 TEXT_DEFAULTS: dict[str, str] = {
     "channel": config.CHANNEL,  # @name or -100… ; empty disables the gate
+    "reports_chat": config.REPORTS_CHAT,  # empty falls back to ADMIN_CHAT_ID
 }
 
 TITLES: dict[str, str] = {
@@ -84,6 +85,11 @@ def reward(gender: str, duration: int | None = None) -> int:
     """Full price by default; a circle under min_duration is worth less."""
     short = duration is not None and duration < _values["min_duration"]
     return _values[f"reward_{gender}{'_short' if short else ''}"]
+
+
+def reports_chat() -> int | str:
+    """Where complaints land: their own chat if set, the moderation one if not."""
+    return _texts["reports_chat"].strip() or config.ADMIN_CHAT_ID
 
 
 def maintenance() -> bool:

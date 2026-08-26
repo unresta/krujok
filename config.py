@@ -7,6 +7,8 @@ load_dotenv()
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 # Chat where every upload lands for moderation (bot must be admin there).
 ADMIN_CHAT_ID: int = int(os.getenv("ADMIN_CHAT_ID", "0"))
+# Complaints go here instead, when set — otherwise they join the moderation chat.
+REPORTS_CHAT: str = os.getenv("REPORTS_CHAT", "")
 # Personal ids allowed to run /stats and /refund.
 ADMIN_IDS: set[int] = {
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x

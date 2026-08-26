@@ -1,3 +1,4 @@
+import logging
 import time
 from contextlib import suppress
 
@@ -10,7 +11,9 @@ import db
 import keyboards as kb
 import settings
 import texts
-from config import ADMIN_CHAT_ID, WATCH_COOLDOWN
+from config import ADMIN_CHAT_ID, ADMIN_IDS, WATCH_COOLDOWN
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -127,23 +130,38 @@ async def report(call: CallbackQuery) -> None:
     await call.answer(texts.REPORT_SENT, show_alert=True)
 
     # Enough complaints and the circle leaves rotation before a human looks.
-    if count >= settings.get("reports_to_hide") and circle["status"] == "approved":
+    hidden = count >= settings.get("reports_to_hide")
+    if hidden and circle["status"] == "approved":
         await db.set_status(circle_id, "rejected")
 
-    with suppress(TelegramAPIError):
-        await call.bot.send_video_note(ADMIN_CHAT_ID, circle["file_id"])
+    chat = settings.reports_chat()
+    try:
+        await call.bot.send_video_note(chat, circle["file_id"])
         await call.bot.send_message(
-            ADMIN_CHAT_ID,
+            chat,
             f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
             f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
             f"Автор: <code>{circle['uploader_id']}</code>\n"
-            f"Статус: {'скрыт автоматически' if count >= settings.get('reports_to_hide') else circle['status']}",
+            f"Статус: {'скрыт автоматически' if hidden else circle['status']}",
             reply_markup=kb.report_review(circle_id),
         )
+    except TelegramAPIError as error:
+        # The complaint is already in the base; only the card failed to land.
+        logger.error("report card for #%s not delivered to %s: %s", circle_id, chat, error)
 
 
 @router.callback_query(F.data.startswith("rp:"))
 async def review_report(call: CallbackQuery) -> None:
+    # The verdict buttons live in a group chat, so anyone could otherwise guess
+    # the callback data and delete circles from their own chat with the bot.
+    if not (
+        call.from_user.id in ADMIN_IDS
+        or str(call.message.chat.id) == str(settings.reports_chat())
+        or call.message.chat.id == ADMIN_CHAT_ID
+    ):
+        await call.answer("Нет прав.", show_alert=True)
+        return
+
     _, action, raw_id = call.data.split(":")
     circle_id = int(raw_id)
     circle = await db.get_circle(circle_id)

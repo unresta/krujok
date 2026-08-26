@@ -51,6 +51,7 @@ class Admin(StatesGroup):
     setting = State()
     circle_id = State()
     channel = State()
+    reports_chat = State()
 
 
 # --- home ----------------------------------------------------------------
@@ -315,7 +316,79 @@ async def cb_channel_off(call: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "a:reports")
-async def cb_reports(call: CallbackQuery) -> None:
+async def cb_reports(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    rows = await db.reported_circles()
+    chat = settings.reports_chat()
+    status = await _chat_status(call.bot, chat)
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Чат жалоб", callback_data="a:reports:chat", style=kb.PRIMARY
+        )
+    )
+    if rows:
+        b.row(
+            InlineKeyboardButton(
+                text=f"Показать {min(len(rows), 5)}",
+                callback_data="a:reports:show",
+                style=kb.DANGER,
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        f"<b>Жалобы</b>\n\nЧат: <code>{chat}</code>\n{status}\n\n"
+        f"Открытых жалоб: {len(rows)}",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+async def _chat_status(bot: Bot, chat: int | str) -> str:
+    try:
+        member = await bot.get_chat_member(chat, (await bot.me()).id)
+    except TelegramAPIError as error:
+        return f"🔴 Бот не может писать туда: {error}"
+    if member.status not in {"administrator", "creator", "member"}:
+        return "🔴 Бот не состоит в чате."
+    return "🟢 Бот на месте, карточки жалоб дойдут."
+
+
+@router.callback_query(F.data == "a:reports:chat")
+async def cb_reports_chat(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.reports_chat)
+    await _edit(
+        call,
+        "Пришли id чата жалоб (<code>-100…</code>) или <code>@username</code>.\n"
+        "Бот должен быть в этом чате. Пустая строка — вернуть жалобы в "
+        "чат модерации: пришли <code>-</code>.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.reports_chat, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_reports_chat(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw == "-":
+        raw = ""
+    elif not (raw.startswith("@") or raw.lstrip("-").isdigit()):
+        await message.answer("Нужен id, @username или «-».")
+        return
+
+    await state.clear()
+    await settings.set_text("reports_chat", raw)
+    chat = settings.reports_chat()
+    await message.answer(
+        f"Чат жалоб: <code>{chat}</code>\n{await _chat_status(message.bot, chat)}",
+        reply_markup=back_kb(),
+    )
+
+
+@router.callback_query(F.data == "a:reports:show")
+async def cb_reports_show(call: CallbackQuery) -> None:
     rows = await db.reported_circles()
     if not rows:
         await call.answer("Жалоб нет 🟢", show_alert=True)
