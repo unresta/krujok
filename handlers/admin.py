@@ -54,6 +54,7 @@ class Admin(StatesGroup):
     channel = State()
     reports_chat = State()
     campaign = State()
+    spend = State()
     profiles_chat = State()
 
 
@@ -593,7 +594,8 @@ async def cb_links(call: CallbackQuery, state: FSMContext) -> None:
         "<b>Рекламные ссылки</b>\n\n"
         f"Ссылок: {len(rows)} · пришло с них: {total_users}\n\n"
         "Каждая ссылка — это <code>?start=код</code>. Первая ссылка, по которой "
-        "пришёл человек, закрепляется за ним навсегда.",
+        "пришёл человек, закрепляется за ним навсегда.\n"
+        "Отчёт по одной: <code>/link_код</code>.",
         b.as_markup(),
     )
     await call.answer()
@@ -637,14 +639,116 @@ def _link_kb(code: str, link: str) -> InlineKeyboardMarkup:
     )
     b.row(
         InlineKeyboardButton(
-            text="Статистика", callback_data=f"a:link:{code}", style=kb.PRIMARY
+            text="Расход", callback_data=f"a:link:spend:{code}", style=kb.PRIMARY
         ),
         InlineKeyboardButton(
-            text="Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
+            text="Обновить", callback_data=f"a:link:{code}", style=kb.PRIMARY
         ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
+        )
     )
     b.row(InlineKeyboardButton(text="К ссылкам", callback_data="a:links", style=kb.DANGER))
     return b.as_markup()
+
+
+def _pct(part: int, whole: int) -> str:
+    return f"{part * 100 / whole:.1f}%" if whole else "—"
+
+
+async def _link_report(code: str) -> str | None:
+    """All time, then the last week and day — a link that died should show it."""
+    total = await db.campaign_stats(code)
+    if total is None:
+        return None
+    week = await db.campaign_stats(code, 7 * 86400)
+    day = await db.campaign_stats(code, 86400)
+
+    spend = total["spend"]
+    revenue = settings.revenue_of(total["stars"])
+    per_click = spend // total["hits"] if total["hits"] else 0
+    per_user = spend // total["users"] if total["users"] else 0
+    per_payer = spend // total["payers"] if total["payers"] else 0
+
+    money = [f"Расход: <b>{settings.money(spend)}</b>"] if spend else []
+    if spend:
+        money += [
+            f"Цена клика: {settings.money(per_click)} · "
+            f"пользователя: {settings.money(per_user)}",
+            f"Цена платящего: {settings.money(per_payer)}"
+            if total["payers"]
+            else "Цена платящего: —",
+        ]
+    money.append(
+        f"Выручка: <b>{settings.money(revenue)}</b> ({total['stars']} ⭐)"
+        + (f" · {_pct(revenue, spend)} от расхода" if spend else "")
+    )
+
+    return (
+        f"📊 <b>{total['title'] or code}</b>\n\n"
+        "🕓 <b>За всё время</b>\n"
+        f"Переходов: <b>{total['hits']}</b> · в бане: {total['banned']}\n"
+        f"Уникальных пользователей: <b>{total['users']}</b> "
+        f"({_pct(total['users'], total['hits'])} от переходов)\n"
+        f"Прошли ОП: {total['subscribed']} "
+        f"({_pct(total['subscribed'], total['hits'])} от переходов)\n"
+        f"Приняли правила: {total['accepted']} "
+        f"({_pct(total['accepted'], total['hits'])})\n"
+        f"Конверсия в платёж: {_pct(total['payers'], total['users'])} "
+        f"({total['payers']} чел)\n\n"
+        + "\n".join(money)
+        + "\n\n📅 <b>7 дней</b> · переходов {}, людей {}, ОП {}, платили {} "
+        "на {} ⭐\n".format(
+            week["hits"], week["users"], week["subscribed"], week["payers"],
+            week["stars"],
+        )
+        + "📅 <b>Сутки</b> · переходов {}, людей {}, ОП {}, платили {} "
+        "на {} ⭐\n\n".format(
+            day["hits"], day["users"], day["subscribed"], day["payers"], day["stars"],
+        )
+        + f"Анкет: {total['profiles']} · кружочков: {total['circles']} · "
+        f"просмотров: {total['views']}\n"
+        f"Потрачено монеток на анкеты: {total['spent_coins']}"
+    )
+
+
+@router.callback_query(F.data.startswith("a:link:spend:"))
+async def cb_link_spend(call: CallbackQuery, state: FSMContext) -> None:
+    code = call.data.split(":", 3)[3]
+    await state.set_state(Admin.spend)
+    await state.update_data(code=code)
+    await _edit(
+        call,
+        f"Сколько потрачено на <code>{code}</code>? "
+        "Пришли сумму, например <code>10737.20</code>.\n"
+        "Это общий расход по ссылке, а не добавка к прошлому.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.spend, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_spend(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip().replace(",", ".").replace(" ", "")
+    try:
+        minor = round(float(raw) * 100)
+    except ValueError:
+        await message.answer("Нужна сумма числом, например 10737.20")
+        return
+    if minor < 0:
+        await message.answer("Расход не бывает отрицательным.")
+        return
+
+    code = (await state.get_data())["code"]
+    await state.clear()
+    await db.set_campaign_spend(code, minor)
+    report = await _link_report(code)
+    await message.answer(
+        report or "Ссылки больше нет.",
+        reply_markup=_link_kb(code, access.campaign_link(code)),
+    )
 
 
 @router.callback_query(F.data.startswith("a:link:del:"))
@@ -658,30 +762,28 @@ async def cb_link_delete(call: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("a:link:"))
 async def cb_link(call: CallbackQuery) -> None:
     code = call.data.split(":", 2)[2]
-    stats = await db.campaign_stats(code)
-    if stats is None:
+    report = await _link_report(code)
+    if report is None:
         await call.answer("Ссылки больше нет.", show_alert=True)
         return
 
     link = access.campaign_link(code)
-    conversion = (
-        f"{stats['accepted'] * 100 // stats['users']}%" if stats["users"] else "—"
-    )
-    await _edit(
-        call,
-        f"<b>{stats['title'] or code}</b>\n"
-        f"<code>{link}</code>\n\n"
-        f"Переходов: <b>{stats['hits']}</b>\n"
-        f"Пришло людей: <b>{stats['users']}</b> (за сутки +{stats['today']})\n"
-        f"Приняли правила: {stats['accepted']} ({conversion})\n"
-        f"Забанено: {stats['banned']}\n\n"
-        f"Анкет: {stats['profiles']} · кружочков: {stats['circles']}\n"
-        f"Просмотров: {stats['views']}\n"
-        f"Платили: {stats['payers']} чел на {stats['stars']} ⭐\n"
-        f"Потрачено монеток на анкеты: {stats['spent']}",
-        _link_kb(code, link),
-    )
+    await _edit(call, f"{report}\n\n<code>{link}</code>", _link_kb(code, link))
     await call.answer()
+
+
+@router.message(F.text.startswith("/link_"))
+async def link_cmd(message: Message) -> None:
+    """/link_код — the report without walking the panel."""
+    code = message.text.removeprefix("/link_").strip().lower()
+    report = await _link_report(code)
+    if report is None:
+        await message.answer("Такой ссылки нет.")
+        return
+    link = access.campaign_link(code)
+    await message.answer(
+        f"{report}\n\n<code>{link}</code>", reply_markup=_link_kb(code, link)
+    )
 
 
 # --- moderation queue ----------------------------------------------------

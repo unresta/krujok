@@ -62,6 +62,7 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
 
     if member.status in MEMBER_STATUSES:
         _confirmed[user_id] = time.monotonic() + SUB_CACHE
+        await db.mark_subscribed(user_id)  # at most once per cache period
         return True
     logger.info("gate: %s is %s in %s, blocked", user_id, member.status, channel)
     _confirmed.pop(user_id, None)

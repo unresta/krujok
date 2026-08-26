@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import aiosqlite
 
 from config import DB_PATH
@@ -118,6 +120,13 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+CREATE TABLE IF NOT EXISTS campaign_hits (
+    code    TEXT    NOT NULL,
+    user_id INTEGER NOT NULL,
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_hits_code ON campaign_hits(code, ts);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -152,6 +161,10 @@ MIGRATIONS = {
         "earned": "INTEGER NOT NULL DEFAULT 0",
         "accepted": "INTEGER NOT NULL DEFAULT 0",
         "source": "TEXT",  # campaign code the user arrived with
+        "subscribed": "INTEGER NOT NULL DEFAULT 0",  # passed the channel gate
+    },
+    "campaigns": {
+        "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
     },
     "circles": {
         "likes": "INTEGER NOT NULL DEFAULT 0",
@@ -338,10 +351,28 @@ async def touch_campaign(code: str, user_id: int) -> None:
     await conn().execute(
         "UPDATE campaigns SET hits = hits + 1 WHERE code = ?", (code,)
     )
+    await conn().execute(
+        "INSERT INTO campaign_hits(code, user_id) VALUES (?, ?)", (code, user_id)
+    )
     await ensure_user(user_id)
     await conn().execute(
         "UPDATE users SET source = ? WHERE id = ? AND source IS NULL",
         (code, user_id),
+    )
+    await conn().commit()
+
+
+async def set_campaign_spend(code: str, spend: int) -> None:
+    """Spend is kept in minor units — kopecks, cents — never in floats."""
+    await conn().execute(
+        "UPDATE campaigns SET spend = ? WHERE code = ?", (spend, code)
+    )
+    await conn().commit()
+
+
+async def mark_subscribed(user_id: int) -> None:
+    await conn().execute(
+        "UPDATE users SET subscribed = 1 WHERE id = ? AND subscribed = 0", (user_id,)
     )
     await conn().commit()
 
@@ -363,7 +394,12 @@ async def campaigns() -> list[aiosqlite.Row]:
         return list(await cur.fetchall())
 
 
-async def campaign_stats(code: str) -> dict | None:
+async def campaign_stats(code: str, window: int = 0) -> dict | None:
+    """Funnel for one link. `window` in seconds limits it to a recent slice.
+
+    A slice counts people who arrived inside the window, so it answers "is this
+    link still working", not "what did the old crowd do lately".
+    """
     async with conn().execute(
         "SELECT * FROM campaigns WHERE code = ?", (code,)
     ) as cur:
@@ -371,34 +407,42 @@ async def campaign_stats(code: str) -> dict | None:
     if row is None:
         return None
 
+    since = 0 if not window else int(time.time()) - window
     async with conn().execute(
         """
         SELECT
-          (SELECT COUNT(*) FROM users WHERE source = :c)                    AS users,
-          (SELECT COUNT(*) FROM users WHERE source = :c AND accepted = 1)   AS accepted,
-          (SELECT COUNT(*) FROM users WHERE source = :c AND banned = 1)     AS banned,
-          (SELECT COUNT(*) FROM users WHERE source = :c
-             AND created_at > strftime('%s','now') - 86400)                 AS today,
+          (SELECT COUNT(*) FROM campaign_hits WHERE code = :c AND ts >= :s)  AS hits,
+          (SELECT COUNT(*) FROM users
+             WHERE source = :c AND created_at >= :s)                         AS users,
+          (SELECT COUNT(*) FROM users
+             WHERE source = :c AND created_at >= :s AND subscribed = 1)      AS subscribed,
+          (SELECT COUNT(*) FROM users
+             WHERE source = :c AND created_at >= :s AND accepted = 1)        AS accepted,
+          (SELECT COUNT(*) FROM users
+             WHERE source = :c AND created_at >= :s AND banned = 1)          AS banned,
           (SELECT COUNT(*) FROM profiles p JOIN users u ON u.id = p.user_id
-             WHERE u.source = :c AND p.status = 'approved')                 AS profiles,
+             WHERE u.source = :c AND u.created_at >= :s
+               AND p.status = 'approved')                                    AS profiles,
           (SELECT COUNT(*) FROM circles ci JOIN users u ON u.id = ci.uploader_id
-             WHERE u.source = :c AND ci.status = 'approved')                AS circles,
+             WHERE u.source = :c AND u.created_at >= :s
+               AND ci.status = 'approved')                                   AS circles,
           (SELECT COUNT(*) FROM views v JOIN users u ON u.id = v.user_id
-             WHERE u.source = :c)                                           AS views,
+             WHERE u.source = :c AND u.created_at >= :s)                     AS views,
           (SELECT COUNT(DISTINCT pay.user_id) FROM payments pay
              JOIN users u ON u.id = pay.user_id
-             WHERE u.source = :c AND pay.refunded = 0)                      AS payers,
+             WHERE u.source = :c AND pay.refunded = 0 AND pay.ts >= :s)      AS payers,
           (SELECT COALESCE(SUM(pay.stars),0) FROM payments pay
              JOIN users u ON u.id = pay.user_id
-             WHERE u.source = :c AND pay.refunded = 0)                      AS stars,
+             WHERE u.source = :c AND pay.refunded = 0 AND pay.ts >= :s)      AS stars,
           (SELECT COALESCE(SUM(pur.price),0) FROM purchases pur
-             JOIN users u ON u.id = pur.buyer_id WHERE u.source = :c)       AS spent
+             JOIN users u ON u.id = pur.buyer_id
+             WHERE u.source = :c AND pur.ts >= :s)                           AS spent_coins
         """,
-        {"c": code},
+        {"c": code, "s": since},
     ) as cur:
         stats = dict(await cur.fetchone())
 
-    stats.update(code=row["code"], title=row["title"], hits=row["hits"])
+    stats.update(code=row["code"], title=row["title"], spend=row["spend"])
     return stats
 
 

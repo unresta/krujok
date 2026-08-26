@@ -25,6 +25,7 @@ DEFAULTS: dict[str, int] = {
     "price_max": config.PRICE_MAX,
     "payout_min": config.PAYOUT_MIN,
     "payout_rate": config.PAYOUT_RATE,
+    "star_price": config.STAR_PRICE,
     "maintenance": 0,
 }
 
@@ -33,6 +34,7 @@ TEXT_DEFAULTS: dict[str, str] = {
     "channel": config.CHANNEL,  # @name or -100… ; empty disables the gate
     "reports_chat": config.REPORTS_CHAT,  # empty falls back to ADMIN_CHAT_ID
     "profiles_chat": config.PROFILES_CHAT,
+    "currency": config.CURRENCY,
 }
 
 TITLES: dict[str, str] = {
@@ -52,6 +54,7 @@ TITLES: dict[str, str] = {
     "price_max": "Макс. цена анкеты",
     "payout_min": "Минимум вывода",
     "payout_rate": "Монеток за 1 ⭐ (вывод)",
+    "star_price": "Цена 1 ⭐ в копейках",
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -71,6 +74,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "price_max": (1, 100_000),
     "payout_min": (1, 1_000_000),
     "payout_rate": (1, 1000),
+    "star_price": (1, 1_000_000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)
@@ -104,6 +108,16 @@ def stars_for(coins: int) -> int:
 def reports_chat() -> int | str:
     """Where complaints land: their own chat if set, the moderation one if not."""
     return _texts["reports_chat"].strip() or config.ADMIN_CHAT_ID
+
+
+def money(minor: int) -> str:
+    """Minor units to something a human reads: 1073720 -> «10737.20 ₽»."""
+    return f"{minor // 100}.{minor % 100:02d} {_texts['currency']}"
+
+
+def revenue_of(stars: int) -> int:
+    """What those stars are worth, in minor units."""
+    return stars * _values["star_price"]
 
 
 def profiles_chat() -> int | str:

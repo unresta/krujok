@@ -46,6 +46,10 @@ PAYOUT_MIN = 1000  # coins
 PAYOUT_RATE = 3  # coins per star when cashing out
 ABOUT_MAX = 300  # characters in a profile description
 
+# --- ad accounting ---
+CURRENCY = "₽"
+STAR_PRICE = 130  # what one ⭐ is worth to you, in minor units (1.30 ₽)
+
 # Channel users must join before they can use the bot; empty turns the gate off.
 # The bot has to be an administrator there to see who is a member.
 CHANNEL: str = os.getenv("CHANNEL", "")
