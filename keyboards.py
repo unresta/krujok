@@ -31,6 +31,12 @@ DANGER = "danger"
 
 GENDER_EMOJI = {"f": emoji.FEMALE, "m": emoji.MALE, "any": emoji.ANY}
 PREF_LABEL = {"f": "женские", "m": "мужские", "any": "любые"}
+# A profile is a person, so it says «Девушка», not «женские».
+PERSON_LABEL = {"f": "Девушка", "m": "Парень"}
+
+
+def PERSON_TITLE(gender: str) -> str:
+    return f"{emoji.text(GENDER_EMOJI[gender])} {PERSON_LABEL[gender]}"
 
 
 def PREF_TITLE(pref: str) -> str:
@@ -215,6 +221,18 @@ def referrals(link: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def accept() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Мне есть 18, согласен с правилами",
+            callback_data="accept",
+            style=SUCCESS,
+        )
+    )
+    return b.as_markup()
+
+
 def rules() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
@@ -291,7 +309,7 @@ def profile_gender() -> InlineKeyboardMarkup:
     b.row(
         *[
             InlineKeyboardButton(
-                text=emoji.label(GENDER_EMOJI[g]) + ("Женские" if g == "f" else "Мужские"),
+                text=emoji.label(GENDER_EMOJI[g]) + PERSON_LABEL[g],
                 callback_data=f"pg:{g}",
                 icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
                 style=SUCCESS,
@@ -415,25 +433,6 @@ def no_coins() -> InlineKeyboardMarkup:
 def back() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="Закрыть", callback_data="menu", style=DANGER))
-    return kb.as_markup()
-
-
-def upload_gender() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.row(
-        *[
-            InlineKeyboardButton(
-                text=emoji.label(GENDER_EMOJI[g])
-                + f"{'Женский' if g == 'f' else 'Мужской'} · "
-                + f"+{settings.reward(g)}",
-                callback_data=f"ug:{g}",
-                icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[g]),
-                style=SUCCESS,
-            )
-            for g in ("f", "m")
-        ]
-    )
-    kb.row(InlineKeyboardButton(text="Отмена", callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 

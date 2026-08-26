@@ -1,4 +1,7 @@
+from contextlib import suppress
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -18,6 +21,17 @@ async def start(message: Message, state: FSMContext) -> None:
     # Getting here means the gate let the user through, so the inviter is due.
     await access.credit_referral(message.bot, message.from_user.id)
     await ui.render_menu(message, message.from_user.id)
+
+
+@router.callback_query(F.data == "accept")
+async def accept(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await db.accept_rules(call.from_user.id)
+    await access.credit_referral(call.bot, call.from_user.id)
+    await call.answer(texts.ACCEPTED)
+    with suppress(TelegramAPIError):
+        await call.message.edit_reply_markup(reply_markup=None)
+    await ui.render_menu(call.message, call.from_user.id)
 
 
 @router.message(Command("menu", "cancel"))

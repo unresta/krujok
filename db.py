@@ -143,6 +143,7 @@ MIGRATIONS = {
         "ref_by": "INTEGER",
         "ref_credited": "INTEGER NOT NULL DEFAULT 0",
         "earned": "INTEGER NOT NULL DEFAULT 0",
+        "accepted": "INTEGER NOT NULL DEFAULT 0",
     },
     "circles": {
         "likes": "INTEGER NOT NULL DEFAULT 0",
@@ -218,6 +219,12 @@ async def deduct_clamped(user_id: int, amount: int) -> None:
     await conn().execute(
         "UPDATE users SET coins = MAX(0, coins - ?) WHERE id = ?", (amount, user_id)
     )
+    await conn().commit()
+
+
+async def accept_rules(user_id: int) -> None:
+    await ensure_user(user_id)
+    await conn().execute("UPDATE users SET accepted = 1 WHERE id = ?", (user_id,))
     await conn().commit()
 
 
@@ -472,6 +479,36 @@ async def wipe_circles() -> int:
     await conn().execute("DELETE FROM sqlite_sequence WHERE name = 'circles'")
     await conn().commit()
     return total
+
+
+async def wipe_house_circles() -> int:
+    """Remove the seed circles the admin bulk-loaded, leaving users' own alone."""
+    async with conn().execute(
+        "SELECT COUNT(*) FROM circles WHERE uploader_id = 0"
+    ) as cur:
+        total = (await cur.fetchone())[0]
+    await conn().execute(
+        "DELETE FROM views WHERE circle_id IN"
+        " (SELECT id FROM circles WHERE uploader_id = 0)"
+    )
+    await conn().execute(
+        "DELETE FROM reactions WHERE circle_id IN"
+        " (SELECT id FROM circles WHERE uploader_id = 0)"
+    )
+    await conn().execute(
+        "DELETE FROM reports WHERE circle_id IN"
+        " (SELECT id FROM circles WHERE uploader_id = 0)"
+    )
+    await conn().execute("DELETE FROM circles WHERE uploader_id = 0")
+    await conn().commit()
+    return total
+
+
+async def house_circles() -> int:
+    async with conn().execute(
+        "SELECT COUNT(*) FROM circles WHERE uploader_id = 0"
+    ) as cur:
+        return (await cur.fetchone())[0]
 
 
 async def total_circles() -> int:

@@ -203,7 +203,8 @@ async def cb_stats(call: CallbackQuery) -> None:
         f"Пользователи: {d['users']} (за сутки +{d['users_today']}, "
         f"забанено {d['banned']})\n"
         f"Монеток на руках: {d['coins']}\n\n"
-        f"Кружки: {d['circles']} всего\n"
+        f"Кружки: {d['circles']} всего "
+        f"(из них залито админом: {await db.house_circles()})\n"
         f"• одобрено {d['approved']} — ♀ {d['female']} / ♂ {d['male']}\n"
         f"• на проверке {d['pending']}, отклонено {d['rejected']}"
         + (f", прочее {house}\n" if house else "\n")
@@ -510,7 +511,7 @@ async def cb_anketas_next(call: CallbackQuery) -> None:
         caption=(
             f"#анкета от <code>{profile['user_id']}</code>"
             f"{' @' + profile['username'] if profile['username'] else ''}\n"
-            f"Тип: {kb.PREF_TITLE(profile['gender'])}\n"
+            f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
             f"Кружочки: {profile['price_content']} · "
             f"личка: {profile['price_contact'] or 'нет'}\n\n"
             f"{profile['about'] or 'Без описания'}"
@@ -969,6 +970,40 @@ async def wipe_cmd(message: Message) -> None:
         "Отменить будет нельзя.",
         reply_markup=b.as_markup(),
     )
+
+
+@router.message(Command("wipe_house"))
+async def wipe_house_cmd(message: Message) -> None:
+    """Drops only the seed circles the admin bulk-loaded (uploader_id = 0)."""
+    house = await db.house_circles()
+    if not house:
+        await message.answer("Загруженных админом кружков в базе нет.")
+        return
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text=f"Удалить {house}", callback_data="a:wipehouse:go", style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="Отмена", callback_data="a:home", style=kb.PRIMARY)
+    )
+    await message.answer(
+        f"<b>Удалить кружочки, залитые админом?</b>\n\n"
+        f"Под нож пойдут {house} шт — те, что попали в базу через «Массовую "
+        "загрузку». Кружочки пользователей и всё остальное останутся.\n\n"
+        "Отменить будет нельзя.",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:wipehouse:go")
+async def cb_wipe_house(call: CallbackQuery) -> None:
+    total = await db.wipe_house_circles()
+    logger.warning("house circles wiped by %s (%s)", call.from_user.id, total)
+    await call.answer("Готово", show_alert=True)
+    await _edit(call, f"Удалено кружочков дома: <b>{total}</b>.", back_kb())
 
 
 @router.callback_query(F.data == "a:wipe:go")

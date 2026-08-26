@@ -70,7 +70,6 @@ async def send_invoice(message: Message, stars: int) -> None:
         payload=f"coins:{stars}",
         currency="XTR",  # Telegram Stars
         prices=[LabeledPrice(label=f"{coins} 🪙", amount=stars)],
-        protect_content=True,
     )
 
 

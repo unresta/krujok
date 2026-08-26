@@ -7,7 +7,7 @@ known after emoji.resolve() has run against Telegram.
 import emoji
 import settings
 from config import ABOUT_MAX
-from keyboards import PREF_TITLE
+from keyboards import PERSON_TITLE, PREF_TITLE
 
 
 def coin() -> str:
@@ -114,8 +114,6 @@ EMPTY = (
 )
 
 
-UPLOAD_PICK_GENDER = "Какой кружок будешь загружать?"
-
 UPLOAD_NEEDS_PROFILE = (
     "🎬 Сначала анкета.\n\n"
     "Кружочки показываются вместе с анкетой автора: зритель может её открыть и "
@@ -150,7 +148,6 @@ def too_short(duration: int) -> str:
 
 DUPLICATE = "Такой кружок уже есть в базе."
 TOO_MANY_PENDING = "У тебя уже несколько кружков на проверке. Дождись решения."
-UPLOAD_ASK_GENDER = "Какой это кружок?"
 
 
 def upload_sent(circle_id: int, reward: int) -> str:
@@ -257,7 +254,7 @@ def profile_about() -> str:
     )
 
 
-PROFILE_GENDER = "Чьи кружочки ты выкладываешь?"
+PROFILE_GENDER = "Кто ты?"
 
 
 def profile_price_content() -> str:
@@ -308,7 +305,7 @@ PROFILE_EMPTY = "Анкет пока нет. Загляни позже."
 PROFILE_NONE_YET = "У тебя ещё нет анкеты."
 
 
-def profile_status(profile) -> str:
+def profile_status(profile) -> str:  # noqa: D401 — the author's own view
     label = {
         "pending": "🕒 на проверке",
         "approved": "🟢 показывается",
@@ -335,7 +332,7 @@ def profile_card(profile, circles: int) -> str:
         else "не продаётся"
     )
     return (
-        f"<b>{PREF_TITLE(profile['gender'])}</b>\n\n"
+        f"<b>{PERSON_TITLE(profile['gender'])}</b>\n\n"
         f"{emoji.text(emoji.ABOUT)} {profile['about'] or 'Без описания'}\n\n"
         f"{emoji.text(emoji.CIRCLE_COUNT)} Кружочков у автора: <b>{circles}</b>\n"
         f"{emoji.text(emoji.PRICE)} Доступ ко всем: "
@@ -431,6 +428,17 @@ def payout_too_small(available: int) -> str:
         f"Доступно: {available}."
     )
 
+
+def welcome() -> str:
+    return (
+        "👋 <b>Добро пожаловать</b>\n\n"
+        f"{rules()}\n\n"
+        "Нажимая кнопку ниже, ты подтверждаешь, что тебе есть 18 лет и что ты "
+        "согласен соблюдать правила."
+    )
+
+
+ACCEPTED = "Готово. Приятного просмотра 🙂"
 
 BANNED = "Доступ закрыт."
 MAINTENANCE = "🔧 Бот на техработах. Загляни чуть позже."

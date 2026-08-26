@@ -14,16 +14,17 @@ router = Router()
 
 
 class Upload(StatesGroup):
-    waiting_video = State()  # type already picked
-    waiting_gender = State()  # circle already in hand
+    waiting_video = State()
 
 
 @router.message(F.text == kb.BTN_UPLOAD)
 async def upload_button(message: Message, state: FSMContext) -> None:
     if not await _may_upload(message):
         return
-    await state.set_state(Upload.waiting_gender)
-    await message.answer(texts.UPLOAD_PICK_GENDER, reply_markup=kb.upload_gender())
+    profile = await db.get_profile(message.from_user.id)
+    await state.set_state(Upload.waiting_video)
+    await state.update_data(gender=profile["gender"])
+    await message.answer(texts.upload_ask(profile["gender"]), reply_markup=kb.back())
 
 
 async def _may_upload(message: Message, user_id: int | None = None) -> bool:
@@ -39,36 +40,20 @@ async def _may_upload(message: Message, user_id: int | None = None) -> bool:
 
 
 @router.callback_query(F.data == "upload")
-async def ask_gender(call: CallbackQuery, state: FSMContext) -> None:
+async def ask_video(call: CallbackQuery, state: FSMContext) -> None:
     if not await _may_upload(call.message, call.from_user.id):
         await call.answer()
         return
-    await state.set_state(Upload.waiting_gender)
-    await ui.edit(call, texts.UPLOAD_PICK_GENDER, kb.upload_gender())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("ug:"))
-async def pick_gender(call: CallbackQuery, state: FSMContext) -> None:
-    gender = call.data.split(":", 1)[1]
-    data = await state.get_data()
-
-    if "file_id" not in data:  # picked the type first, circle comes next
-        await state.set_state(Upload.waiting_video)
-        await state.update_data(gender=gender)
-        await ui.edit(call, texts.upload_ask(gender), kb.back())
-        await call.answer()
-        return
-
-    await state.clear()
-    text = await _submit(call.bot, call.from_user, data, gender)
-    await ui.edit(call, text, kb.back())
+    profile = await db.get_profile(call.from_user.id)
+    await state.set_state(Upload.waiting_video)
+    await state.update_data(gender=profile["gender"])
+    await ui.edit(call, texts.upload_ask(profile["gender"]), kb.back())
     await call.answer()
 
 
 @router.message(F.video_note)
 async def got_video(message: Message, state: FSMContext) -> None:
-    """A circle is accepted at any point — the type is asked for if unknown."""
+    """A circle is accepted at any point; its type comes from the profile."""
     note = message.video_note
 
     if not await _may_upload(message):
@@ -85,13 +70,11 @@ async def got_video(message: Message, state: FSMContext) -> None:
         "file_unique_id": note.file_unique_id,
         "duration": note.duration,
     }
+    # The type comes from the profile: an author does not change sex per circle.
     gender = (await state.get_data()).get("gender")
-
-    if gender is None:  # circle arrived out of the blue
-        await state.set_state(Upload.waiting_gender)
-        await state.update_data(**data)
-        await message.answer(texts.UPLOAD_ASK_GENDER, reply_markup=kb.upload_gender())
-        return
+    if gender is None:
+        profile = await db.get_profile(message.from_user.id)
+        gender = profile["gender"]
 
     await state.clear()
     text = await _submit(message.bot, message.from_user, data, gender)

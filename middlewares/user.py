@@ -5,12 +5,13 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import access
 import db
+import keyboards as kb
 import settings
 import texts
 from config import ADMIN_IDS
 
 # The gate itself has to stay reachable, or the button that opens it is dead.
-GATE_EXEMPT_CALLBACKS = {"sub:check"}
+GATE_EXEMPT_CALLBACKS = {"sub:check", "accept"}
 
 
 class UserMiddleware(BaseMiddleware):
@@ -54,6 +55,11 @@ class UserMiddleware(BaseMiddleware):
             await self._gate(event, data["bot"])
             return None
 
+        # Age and the rules are confirmed once, before anything else is shown.
+        if not user["accepted"] and not self._exempt(event):
+            await self._welcome(event)
+            return None
+
         data["user"] = user
         return await handler(event, data)
 
@@ -72,6 +78,15 @@ class UserMiddleware(BaseMiddleware):
             await event.message.answer(texts.SUBSCRIBE, reply_markup=markup)
         elif isinstance(event, Message):
             await event.answer(texts.SUBSCRIBE, reply_markup=markup)
+
+    @staticmethod
+    async def _welcome(event: TelegramObject) -> None:
+        markup = kb.accept()
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+            await event.message.answer(texts.welcome(), reply_markup=markup)
+        elif isinstance(event, Message):
+            await event.answer(texts.welcome(), reply_markup=markup)
 
     @staticmethod
     async def _refuse(event: TelegramObject, text: str) -> None:

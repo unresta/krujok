@@ -185,7 +185,7 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
             caption=(
                 f"#анкета от <code>{author.id}</code>"
                 f"{' @' + author.username if author.username else ''}\n"
-                f"Тип: {kb.PREF_TITLE(data['gender'])}\n"
+                f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
                 f"Кружочки: {data['price_content']} · "
                 f"личка: {data.get('price_contact') or 'нет'}\n\n"
                 f"{data.get('about') or 'Без описания'}"
@@ -285,7 +285,6 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         chat_id=viewer_id,
         photo=profile["photo_id"],
         caption=texts.profile_card(profile, profile["circles"]),
-        protect_content=True,
         reply_markup=kb.profile_card(profile, bought_content, bought_contact),
     )
     await db.mark_profile_seen(viewer_id, author)
@@ -309,7 +308,6 @@ async def open_card(call: CallbackQuery) -> None:
         chat_id=call.from_user.id,
         photo=profile["photo_id"],
         caption=texts.profile_card(profile, circles),
-        protect_content=True,
         reply_markup=kb.profile_card(
             profile,
             await db.get_purchase(call.from_user.id, author_id, "content") is not None,
