@@ -16,7 +16,13 @@ DEFAULTS: dict[str, int] = {
     "min_stars": config.MIN_STARS,
     "min_duration": config.MIN_DURATION,
     "max_pending": config.MAX_PENDING,
+    "ref_reward": config.REF_REWARD,
     "maintenance": 0,
+}
+
+# Free-form values live apart: the settings table holds integers.
+TEXT_DEFAULTS: dict[str, str] = {
+    "channel": config.CHANNEL,  # @name or -100… ; empty disables the gate
 }
 
 TITLES: dict[str, str] = {
@@ -27,6 +33,7 @@ TITLES: dict[str, str] = {
     "min_stars": "Минимум ⭐ за раз",
     "min_duration": "Мин. длина, сек",
     "max_pending": "Кружков на проверке",
+    "ref_reward": "За реферала",
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -37,14 +44,18 @@ LIMITS: dict[str, tuple[int, int]] = {
     "min_stars": (1, 10_000),
     "min_duration": (1, 60),
     "max_pending": (1, 100),
+    "ref_reward": (0, 1000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)
+_texts: dict[str, str] = dict(TEXT_DEFAULTS)
 
 
 async def load() -> None:
     _values.update(DEFAULTS)
     _values.update(await db.load_settings())
+    _texts.update(TEXT_DEFAULTS)
+    _texts.update(await db.load_text_settings())
 
 
 def get(key: str) -> int:
@@ -62,3 +73,12 @@ def maintenance() -> bool:
 async def set(key: str, value: int) -> None:
     _values[key] = value
     await db.save_setting(key, value)
+
+
+def get_text(key: str) -> str:
+    return _texts[key]
+
+
+async def set_text(key: str, value: str) -> None:
+    _texts[key] = value
+    await db.save_text_setting(key, value)

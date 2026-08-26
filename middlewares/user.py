@@ -3,10 +3,14 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+import access
 import db
 import settings
 import texts
 from config import ADMIN_IDS
+
+# The gate itself has to stay reachable, or the button that opens it is dead.
+GATE_EXEMPT_CALLBACKS = {"sub:check"}
 
 
 class UserMiddleware(BaseMiddleware):
@@ -32,8 +36,36 @@ class UserMiddleware(BaseMiddleware):
             await self._refuse(event, texts.MAINTENANCE)
             return None
 
+        # A referral is recorded before the gate and paid after it.
+        if isinstance(event, Message) and (event.text or "").startswith("/start "):
+            await access.remember_referrer(
+                tg_user.id, event.text.split(maxsplit=1)[1]
+            )
+
+        if not self._exempt(event) and not await access.is_subscribed(
+            data["bot"], tg_user.id
+        ):
+            await self._gate(event, data["bot"])
+            return None
+
         data["user"] = user
         return await handler(event, data)
+
+    @staticmethod
+    def _exempt(event: TelegramObject) -> bool:
+        return (
+            isinstance(event, CallbackQuery)
+            and event.data in GATE_EXEMPT_CALLBACKS
+        )
+
+    @staticmethod
+    async def _gate(event: TelegramObject, bot) -> None:
+        markup = await access.gate_keyboard(bot)
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+            await event.message.answer(texts.SUBSCRIBE, reply_markup=markup)
+        elif isinstance(event, Message):
+            await event.answer(texts.SUBSCRIBE, reply_markup=markup)
 
     @staticmethod
     async def _refuse(event: TelegramObject, text: str) -> None:

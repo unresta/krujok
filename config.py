@@ -27,6 +27,12 @@ MAX_PENDING = 5  # unmoderated uploads a user may hold at once
 WATCH_COOLDOWN = 1.0  # seconds between "watch" taps
 
 STAR_PACKS = (20, 50, 100, 250)
+REF_REWARD = 3  # coins for a referral that made it through the subscription gate
+
+# Channel users must join before they can use the bot; empty turns the gate off.
+# The bot has to be an administrator there to see who is a member.
+CHANNEL: str = os.getenv("CHANNEL", "")
+SUB_CACHE = 300.0  # seconds a confirmed subscription is trusted without asking
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing, fill .env")

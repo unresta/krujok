@@ -24,6 +24,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import access
 import db
 import keyboards as kb
 import settings
@@ -49,6 +50,7 @@ class Admin(StatesGroup):
     broadcast = State()
     setting = State()
     circle_id = State()
+    channel = State()
 
 
 # --- home ----------------------------------------------------------------
@@ -80,6 +82,11 @@ def home_kb(maintenance: bool, pending: int) -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(text="Платежи", callback_data="a:pay", style=kb.PRIMARY),
         InlineKeyboardButton(text="Топ авторов", callback_data="a:top", style=kb.PRIMARY),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Подписка на канал", callback_data="a:chan", style=kb.PRIMARY
+        )
     )
     b.row(
         InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
@@ -153,6 +160,7 @@ async def cb_close(call: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "a:stats")
 async def cb_stats(call: CallbackQuery) -> None:
     d = await db.dashboard()
+    invited, confirmed = await db.referral_totals()
     house = d["circles"] - d["approved"] - d["pending"] - d["rejected"]
     await _edit(
         call,
@@ -165,7 +173,8 @@ async def cb_stats(call: CallbackQuery) -> None:
         f"• на проверке {d['pending']}, отклонено {d['rejected']}"
         + (f", прочее {house}\n" if house else "\n")
         + f"\nПросмотры: {d['views']} (за сутки +{d['views_today']})\n"
-        f"Платежи: {d['payments']} шт, {d['stars']} ⭐",
+        f"Платежи: {d['payments']} шт, {d['stars']} ⭐\n"
+        f"Рефералы: {confirmed} подтверждено из {invited}",
         back_kb(),
     )
     await call.answer()
@@ -184,6 +193,94 @@ async def cb_top(call: CallbackQuery) -> None:
         )
     await _edit(call, f"<b>Топ авторов</b>\n\n{body}", back_kb())
     await call.answer()
+
+
+# --- forced subscription -------------------------------------------------
+
+
+@router.callback_query(F.data == "a:chan")
+async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    channel = settings.get_text("channel").strip()
+    invited, confirmed = await db.referral_totals()
+
+    if channel:
+        status = await _channel_status(call.bot, channel)
+        body = f"Канал: <code>{channel}</code>\n{status}"
+    else:
+        body = "Подписка выключена — бот пускает всех."
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Изменить канал", callback_data="a:chan:set", style=kb.PRIMARY
+        )
+    )
+    if channel:
+        b.row(
+            InlineKeyboardButton(
+                text="Выключить подписку", callback_data="a:chan:off", style=kb.DANGER
+            )
+        )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        f"<b>Обязательная подписка</b>\n\n{body}\n\n"
+        f"👥 Рефералы: {confirmed} подтверждено из {invited} приглашённых, "
+        f"по {settings.get('ref_reward')} монеток за каждого "
+        "(меняется в «Экономике»).",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+async def _channel_status(bot: Bot, channel: str) -> str:
+    """The gate is only real if the bot can see the member list."""
+    try:
+        me = await bot.get_chat_member(channel, (await bot.me()).id)
+    except TelegramAPIError as error:
+        return f"🔴 Бот не видит канал: {error}\nПодписка не проверяется."
+    if me.status not in {"administrator", "creator"}:
+        return "🔴 Бот не админ канала — проверить подписку он не сможет."
+    return "🟢 Бот админ канала, подписка проверяется."
+
+
+@router.callback_query(F.data == "a:chan:set")
+async def cb_channel_set(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.channel)
+    await _edit(
+        call,
+        "Пришли <code>@username</code> канала или его id вида "
+        "<code>-100…</code>.\nБот должен быть админом там.",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.channel)
+async def got_channel(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw.startswith("https://t.me/"):
+        raw = "@" + raw.removeprefix("https://t.me/").strip("/")
+    if not (raw.startswith("@") or raw.lstrip("-").isdigit()):
+        await message.answer("Нужен @username или числовой id.")
+        return
+
+    await state.clear()
+    await settings.set_text("channel", raw)
+    access.drop_link_cache()
+    await message.answer(
+        f"Канал: <code>{raw}</code>\n{await _channel_status(message.bot, raw)}",
+        reply_markup=back_kb(),
+    )
+
+
+@router.callback_query(F.data == "a:chan:off")
+async def cb_channel_off(call: CallbackQuery, state: FSMContext) -> None:
+    await settings.set_text("channel", "")
+    access.drop_link_cache()
+    await call.answer("Подписка выключена")
+    await cb_channel(call, state)
 
 
 # --- moderation queue ----------------------------------------------------
@@ -449,6 +546,7 @@ async def got_user_id(message: Message, state: FSMContext) -> None:
 async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     user = await db.get_user(user_id)
     stats = await db.user_stats(user_id)
+    ref_done, ref_wait = await db.referral_counts(user_id)
     text = (
         f"<b>Пользователь</b> <code>{user_id}</code>\n\n"
         f"🪙 Баланс: <b>{user['coins']}</b>\n"
@@ -456,7 +554,10 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         f"Статус: {'🔴 забанен' if user['banned'] else '🟢 активен'}\n\n"
         f"👀 Просмотрено: {stats['watched']}\n"
         f"📤 Загружено: {stats['approved']} одобрено · {stats['pending']} ждут · "
-        f"{stats['rejected']} отказ"
+        f"{stats['rejected']} отказ\n"
+        f"👥 Пригласил: {ref_done}"
+        + (f" (ждут подписки: {ref_wait})" if ref_wait else "")
+        + (f"\nПришёл от: <code>{user['ref_by']}</code>" if user["ref_by"] else "")
     )
     b = InlineKeyboardBuilder()
     b.row(

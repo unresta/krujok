@@ -104,15 +104,25 @@ def paid(stars: int, coins_added: int, coins: int) -> str:
     )
 
 
-def profile(coins: int, s: dict) -> str:
+def profile(coins: int, s: dict, ref_done: int, ref_wait: int, link: str) -> str:
+    reward = settings.get("ref_reward")
+    waiting = f" · ждут подписки: {ref_wait}" if ref_wait else ""
     return (
         "<b>Профиль</b>\n\n"
         f"{coin()} Баланс: <b>{coins}</b>\n"
         f"👀 Просмотрено: {s['watched']}\n"
         f"📤 Загружено: {s['approved']} одобрено · "
-        f"{s['pending']} на проверке · {s['rejected']} отклонено"
+        f"{s['pending']} на проверке · {s['rejected']} отклонено\n\n"
+        f"👥 Приглашено: <b>{ref_done}</b>{waiting}\n"
+        f"За друга, который подпишется на канал, — <b>+{reward}</b> {coin()}\n"
+        f"<code>{link}</code>"
     )
 
 
 BANNED = "Доступ закрыт."
 MAINTENANCE = "🔧 Бот на техработах. Загляни чуть позже."
+SUBSCRIBE = (
+    "📢 Бот работает только для подписчиков канала.\n\n"
+    "Подпишись и нажми «Я подписался»."
+)
+SUBSCRIBE_MISSING = "Подписки не вижу. Подпишись на канал и нажми ещё раз."

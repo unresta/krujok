@@ -14,12 +14,21 @@ from aiogram.types import (
     Message,
 )
 
+import access
 import db
 import emoji
 import settings
 import ui
 from config import ADMIN_IDS, BOT_TOKEN
-from handlers import admin, common, moderation, payments, upload, watch
+from handlers import (
+    admin,
+    common,
+    moderation,
+    payments,
+    subscribe,
+    upload,
+    watch,
+)
 from middlewares.user import UserMiddleware
 
 fallback = Router()
@@ -47,6 +56,7 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
 
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
+    access.bot_username = (await bot.me()).username  # referral links need it
 
     dp.message.middleware(UserMiddleware())
     dp.callback_query.middleware(UserMiddleware())
@@ -54,6 +64,7 @@ async def main() -> None:
     dp.include_routers(
         admin.router,
         moderation.router,
+        subscribe.router,
         common.router,
         payments.router,
         upload.router,

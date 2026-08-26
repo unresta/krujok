@@ -12,7 +12,11 @@ Icons are premium custom emoji (`icon_custom_emoji_id`), one per button, always
 rendered before the label. See emoji.py for the Fragment/Premium requirement.
 """
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
@@ -77,6 +81,25 @@ def after_watch(pref: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Хватит", callback_data="menu", style=DANGER),
     )
     return kb.as_markup()
+
+
+def profile(link: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Позвать друга",
+            url=f"https://t.me/share/url?url={link}&text="
+            "Кружочки без лишних слов",
+            style=PRIMARY,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Скопировать ссылку", copy_text=CopyTextButton(text=link)
+        )
+    )
+    b.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
+    return b.as_markup()
 
 
 def no_coins() -> InlineKeyboardMarkup:

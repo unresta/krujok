@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS settings (
     value INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings_text (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS payments (
     charge_id TEXT PRIMARY KEY,
     user_id   INTEGER NOT NULL,
@@ -54,7 +59,19 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 """
 
+REFERRAL_WINDOW = 600  # seconds after signup during which a link still counts
+
 _db: aiosqlite.Connection | None = None
+
+
+# Columns added after the first release; ALTER is the only way in for an
+# existing bot.db, since CREATE TABLE IF NOT EXISTS leaves old tables alone.
+MIGRATIONS = {
+    "users": {
+        "ref_by": "INTEGER",
+        "ref_credited": "INTEGER NOT NULL DEFAULT 0",
+    }
+}
 
 
 async def connect() -> None:
@@ -62,7 +79,17 @@ async def connect() -> None:
     _db = await aiosqlite.connect(DB_PATH)
     _db.row_factory = aiosqlite.Row
     await _db.executescript(SCHEMA)
+    await _migrate()
     await _db.commit()
+
+
+async def _migrate() -> None:
+    for table, columns in MIGRATIONS.items():
+        async with _db.execute(f"PRAGMA table_info({table})") as cur:
+            existing = {row["name"] for row in await cur.fetchall()}
+        for name, spec in columns.items():
+            if name not in existing:
+                await _db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
 
 
 async def close() -> None:
@@ -131,6 +158,69 @@ async def try_spend(user_id: int, amount: int) -> bool:
     )
     await conn().commit()
     return cur.rowcount > 0
+
+
+# --- referrals -----------------------------------------------------------
+
+
+async def set_referrer(user_id: int, referrer_id: int) -> bool:
+    """Attach an inviter — only to a user who has none and never earned yet.
+
+    Whoever came first keeps the invite: the WHERE clause makes a second /start
+    with somebody else's link a no-op.
+    """
+    if user_id == referrer_id:
+        return False
+    await ensure_user(user_id)
+    await ensure_user(referrer_id)
+    cur = await conn().execute(
+        "UPDATE users SET ref_by = ? WHERE id = ? AND ref_by IS NULL"
+        " AND ref_credited = 0"
+        # Only a freshly created account counts, otherwise an old user could be
+        # walked through somebody's link to farm the reward.
+        " AND created_at > strftime('%s','now') - ?",
+        (referrer_id, user_id, REFERRAL_WINDOW),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def take_referral(user_id: int) -> int | None:
+    """Claim the reward for this user once, returning whom to pay."""
+    cur = await conn().execute(
+        "UPDATE users SET ref_credited = 1 WHERE id = ? AND ref_by IS NOT NULL"
+        " AND ref_credited = 0",
+        (user_id,),
+    )
+    await conn().commit()
+    if cur.rowcount == 0:
+        return None
+    async with conn().execute(
+        "SELECT ref_by FROM users WHERE id = ?", (user_id,)
+    ) as inner:
+        row = await inner.fetchone()
+    return row["ref_by"] if row else None
+
+
+async def referral_counts(user_id: int) -> tuple[int, int]:
+    """(invited and confirmed, invited but not through the gate yet)"""
+    async with conn().execute(
+        "SELECT SUM(ref_credited = 1) AS done, SUM(ref_credited = 0) AS waiting"
+        " FROM users WHERE ref_by = ?",
+        (user_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    return row["done"] or 0, row["waiting"] or 0
+
+
+async def referral_totals() -> tuple[int, int]:
+    async with conn().execute(
+        "SELECT COUNT(*) AS invited,"
+        " COALESCE(SUM(ref_credited), 0) AS confirmed"
+        " FROM users WHERE ref_by IS NOT NULL"
+    ) as cur:
+        row = await cur.fetchone()
+    return row["invited"], row["confirmed"]
 
 
 # --- circles -------------------------------------------------------------
@@ -340,6 +430,20 @@ async def dashboard() -> dict:
 async def load_settings() -> dict[str, int]:
     async with conn().execute("SELECT key, value FROM settings") as cur:
         return {row["key"]: row["value"] for row in await cur.fetchall()}
+
+
+async def load_text_settings() -> dict[str, str]:
+    async with conn().execute("SELECT key, value FROM settings_text") as cur:
+        return {row["key"]: row["value"] for row in await cur.fetchall()}
+
+
+async def save_text_setting(key: str, value: str) -> None:
+    await conn().execute(
+        "INSERT INTO settings_text(key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    await conn().commit()
 
 
 async def save_setting(key: str, value: int) -> None:
