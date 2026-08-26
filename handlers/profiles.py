@@ -177,20 +177,25 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
     )
     await message.answer(texts.PROFILE_SENT, reply_markup=kb.back())
 
-    card = await message.bot.send_photo(
-        ADMIN_CHAT_ID,
-        data["photo_id"],
-        caption=(
-            f"#анкета от <code>{author.id}</code>"
-            f"{' @' + author.username if author.username else ''}\n"
-            f"Тип: {kb.PREF_TITLE(data['gender'])}\n"
-            f"Кружочки: {data['price_content']} · "
-            f"личка: {data.get('price_contact') or 'нет'}\n\n"
-            f"{data.get('about') or 'Без описания'}"
-        ),
-        reply_markup=kb.profile_review(author.id),
-    )
-    await db.set_profile_admin_msg(author.id, card.message_id)
+    try:
+        card = await message.bot.send_photo(
+            ADMIN_CHAT_ID,
+            data["photo_id"],
+            caption=(
+                f"#анкета от <code>{author.id}</code>"
+                f"{' @' + author.username if author.username else ''}\n"
+                f"Тип: {kb.PREF_TITLE(data['gender'])}\n"
+                f"Кружочки: {data['price_content']} · "
+                f"личка: {data.get('price_contact') or 'нет'}\n\n"
+                f"{data.get('about') or 'Без описания'}"
+            ),
+            reply_markup=kb.profile_review(author.id),
+        )
+        await db.set_profile_admin_msg(author.id, card.message_id)
+    except TelegramAPIError as error:
+        # The profile is saved and shows up in the panel's queue regardless —
+        # only the card is missing, and silence here is what hides that.
+        logger.error("profile card for %s not delivered: %s", author.id, error)
 
 
 # --- moderation ----------------------------------------------------------
