@@ -148,6 +148,7 @@ def circle(
     dislikes: int,
     vote: int,
     author_id: int = 0,
+    archive: bool = False,
 ) -> InlineKeyboardMarkup:
     """Sits under the circle itself, so reactions travel with the video."""
     b = InlineKeyboardBuilder()
@@ -170,6 +171,10 @@ def circle(
             InlineKeyboardButton(
                 text="Анкета автора", callback_data=f"pf:card:{author_id}", style=PRIMARY
             )
+        )
+    elif archive:  # the bot's own seed content: no author to show
+        b.row(
+            InlineKeyboardButton(text="Архив · без автора", callback_data="arch")
         )
     b.row(
         InlineKeyboardButton(

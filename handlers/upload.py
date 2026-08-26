@@ -99,7 +99,9 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
         return texts.DUPLICATE
 
     reward = settings.reward(gender)
-    await bot.send_video_note(ADMIN_CHAT_ID, data["file_id"])
+    await bot.send_video_note(
+        ADMIN_CHAT_ID, data["file_id"], protect_content=True
+    )
     who = author.username and f"@{author.username}" or "—"
     admin_msg = await bot.send_message(
         ADMIN_CHAT_ID,

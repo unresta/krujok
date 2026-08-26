@@ -181,6 +181,11 @@ def circles_word(count: int) -> str:
 CIRCLE_REMOVED = "🔴 Твой кружок удалён по жалобам."
 
 
+ARCHIVE_NOTE = (
+    "Это кружок из архива бота — он без автора, анкеты у него нет."
+)
+
+
 def earned_toast(amount: int) -> str:
     return f"Твой кружок посмотрели: +{amount}"
 

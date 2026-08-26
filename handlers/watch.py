@@ -60,14 +60,19 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         return
 
     author = circle["uploader_id"]
-    linked = author if await db.has_public_profile(author) else None
+    linked = author if author and await db.has_public_profile(author) else 0
     try:
         await bot.send_video_note(
             chat_id=user_id,
             video_note=circle["file_id"],
             protect_content=True,  # no forwarding, no saving
             reply_markup=kb.circle(
-                circle["id"], circle["likes"], circle["dislikes"], 0, linked
+                circle["id"],
+                circle["likes"],
+                circle["dislikes"],
+                0,
+                linked,
+                archive=not author,
             ),
         )
     except TelegramAPIError:
@@ -88,6 +93,11 @@ async def _pay_author(bot, circle, amount: int, note) -> None:
     await db.pay_author(circle["id"], author, amount)
     with suppress(TelegramAPIError):  # author may have blocked the bot
         await bot.send_message(author, note(amount))
+
+
+@router.callback_query(F.data == "arch")
+async def archive_note(call: CallbackQuery) -> None:
+    await call.answer(texts.ARCHIVE_NOTE, show_alert=True)
 
 
 @router.callback_query(F.data.startswith("lk:"))
@@ -112,10 +122,12 @@ async def react(call: CallbackQuery) -> None:
         call.from_user.id, circle_id, value
     )
     author = circle["uploader_id"]
-    linked = author if await db.has_public_profile(author) else None
+    linked = author if author and await db.has_public_profile(author) else 0
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
-            reply_markup=kb.circle(circle_id, likes, dislikes, vote, linked)
+            reply_markup=kb.circle(
+                circle_id, likes, dislikes, vote, linked, archive=not author
+            )
         )
     await call.answer("👍" if vote == 1 else "👎" if vote == -1 else "Отменил")
 
@@ -153,7 +165,9 @@ async def report(call: CallbackQuery) -> None:
 
     chat = settings.reports_chat()
     try:
-        await call.bot.send_video_note(chat, circle["file_id"])
+        await call.bot.send_video_note(
+            chat, circle["file_id"], protect_content=True
+        )
         await call.bot.send_message(
             chat,
             f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"

@@ -424,7 +424,9 @@ async def cb_reports_show(call: CallbackQuery) -> None:
 
     for circle in rows[:5]:  # a screenful, the rest stay in the queue
         with suppress(TelegramAPIError):
-            await call.bot.send_video_note(call.from_user.id, circle["file_id"])
+            await call.bot.send_video_note(
+                call.from_user.id, circle["file_id"], protect_content=True
+            )
             await call.bot.send_message(
                 call.from_user.id,
                 f"#жалоба <b>#{circle['id']}</b> — {circle['complaints']} шт\n"
@@ -566,7 +568,9 @@ async def cb_queue(call: CallbackQuery) -> None:
         await call.answer("Очередь пуста 🟢", show_alert=True)
         return
 
-    await call.bot.send_video_note(call.from_user.id, circle["file_id"])
+    await call.bot.send_video_note(
+        call.from_user.id, circle["file_id"], protect_content=True
+    )
     await call.bot.send_message(
         call.from_user.id,
         f"<b>#{circle['id']}</b> · {kb.PREF_TITLE(circle['gender'])} · "
@@ -930,7 +934,7 @@ async def got_circle_id(message: Message, state: FSMContext) -> None:
         await message.answer("Нет такого кружка.", reply_markup=back_kb())
         return
 
-    await message.answer_video_note(circle["file_id"])
+    await message.answer_video_note(circle["file_id"], protect_content=True)
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
