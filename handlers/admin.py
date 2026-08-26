@@ -39,6 +39,7 @@ router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
 BROADCAST_PAUSE = 0.05  # ~20 messages per second, below Telegram's limit
 BROADCAST_PROGRESS_EVERY = 25
 BULK_EDIT_EVERY = 2.0  # seconds; Telegram rate-limits edits of one message
+BULK_SETTLE = 1.5  # redraw this long after the last circle of a burst
 
 
 class Admin(StatesGroup):
@@ -254,6 +255,7 @@ class BulkSession:
         self.added = 0
         self.lock = asyncio.Lock()
         self.last_edit = 0.0
+        self.settle: asyncio.Task | None = None
 
 
 _sessions: dict[int, BulkSession] = {}
@@ -326,8 +328,25 @@ async def bulk_receive(message: Message, state: FSMContext) -> None:
 
     if stale:
         await _bulk_refresh(message.bot, session)
+    _schedule_settle(message.bot, session)  # a flood can outrun every timed edit
     with suppress(TelegramAPIError):  # a tick per circle, so the flood stays readable
         await message.react([ReactionTypeEmoji(emoji="👍" if circle_id else "🤔")])
+
+
+def _schedule_settle(bot: Bot, session: BulkSession) -> None:
+    """Redraw once the circles stop coming, so the last number is never stale."""
+    if session.settle is not None:
+        session.settle.cancel()
+    session.settle = asyncio.create_task(_settle(bot, session))
+
+
+async def _settle(bot: Bot, session: BulkSession) -> None:
+    with suppress(asyncio.CancelledError):
+        await asyncio.sleep(BULK_SETTLE)
+        async with session.lock:
+            session.added = await db.total_circles() - session.start_total
+            session.last_edit = asyncio.get_running_loop().time()
+        await _bulk_refresh(bot, session)
 
 
 async def _bulk_refresh(bot: Bot, session: BulkSession) -> None:
@@ -346,6 +365,8 @@ async def _bulk_refresh(bot: Bot, session: BulkSession) -> None:
 async def cb_bulk_done(call: CallbackQuery, state: FSMContext) -> None:
     session = _sessions.pop(call.from_user.id, None)
     await state.clear()
+    if session is not None and session.settle is not None:
+        session.settle.cancel()
     if session is None:
         await show_home(call, state)
         await call.answer()
