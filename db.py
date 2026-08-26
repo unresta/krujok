@@ -175,6 +175,13 @@ async def get_circle(circle_id: int) -> aiosqlite.Row | None:
         return await cur.fetchone()
 
 
+async def circle_by_unique(file_unique_id: str) -> aiosqlite.Row | None:
+    async with conn().execute(
+        "SELECT * FROM circles WHERE file_unique_id = ?", (file_unique_id,)
+    ) as cur:
+        return await cur.fetchone()
+
+
 async def review_circle(circle_id: int, status: str, admin_id: int) -> bool:
     """Flip a pending circle. False if somebody reviewed it first."""
     cur = await conn().execute(

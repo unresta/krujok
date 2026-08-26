@@ -276,6 +276,12 @@ async def cb_bulk_gender(call: CallbackQuery, state: FSMContext) -> None:
         start=await db.total_circles(),
     )
     await _edit(call, _bulk_text(gender, 0, 0), _bulk_done_kb())
+    with suppress(TelegramAPIError):  # keeps «Готово» one tap away under a flood
+        await call.bot.pin_chat_message(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            disable_notification=True,
+        )
     await call.answer()
 
 
@@ -318,7 +324,9 @@ async def bulk_receive(message: Message, state: FSMContext) -> None:
         )
         session.received += 1
         session.added = await db.total_circles() - session.start_total
+        original = None
         if circle_id is None:
+            original = await db.circle_by_unique(note.file_unique_id)
             logger.info("bulk: duplicate %s skipped", note.file_unique_id)
 
         now = asyncio.get_running_loop().time()
@@ -331,6 +339,13 @@ async def bulk_receive(message: Message, state: FSMContext) -> None:
     _schedule_settle(message.bot, session)  # a flood can outrun every timed edit
     with suppress(TelegramAPIError):  # a tick per circle, so the flood stays readable
         await message.react([ReactionTypeEmoji(emoji="👍" if circle_id else "🤔")])
+    if circle_id is None:  # marked on the message itself, findable after the run
+        with suppress(TelegramAPIError):
+            await message.reply(
+                f"🤔 Дубль — уже в базе как <b>#{original['id']}</b>"
+                if original
+                else "🤔 Дубль — такой кружок уже есть."
+            )
 
 
 def _schedule_settle(bot: Bot, session: BulkSession) -> None:
@@ -375,6 +390,10 @@ async def cb_bulk_done(call: CallbackQuery, state: FSMContext) -> None:
     async with session.lock:  # let the last circles land before counting
         session.added = await db.total_circles() - session.start_total
     total = await db.total_circles()
+    with suppress(TelegramAPIError):
+        await call.bot.unpin_chat_message(
+            chat_id=session.panel_chat, message_id=session.panel_id
+        )
     await _edit(
         call,
         f"<b>Загрузка закончена</b>\n\n"
