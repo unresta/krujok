@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import secrets
 import time
 
@@ -589,7 +590,17 @@ async def pending_count(user_id: int) -> int:
         return (await cur.fetchone())[0]
 
 
-async def pick_circle(user_id: int, pref: str) -> aiosqlite.Row | None:
+PICK_CANDIDATES = 40  # drawn at random, then weighted — SQLite has no log()
+
+
+async def pick_circle(
+    user_id: int, pref: str, like_boost: int = 0
+) -> aiosqlite.Row | None:
+    """One unseen circle, favouring the ones people liked.
+
+    A liked circle is shown to more viewers, which is the whole reward for
+    making a good one: reach, not coins.
+    """
     gender_clause = "" if pref == "any" else "AND gender = :pref"
     async with conn().execute(
         f"""
@@ -598,11 +609,19 @@ async def pick_circle(user_id: int, pref: str) -> aiosqlite.Row | None:
           AND uploader_id != :uid
           {gender_clause}
           AND id NOT IN (SELECT circle_id FROM views WHERE user_id = :uid)
-        ORDER BY RANDOM() LIMIT 1
+        ORDER BY RANDOM() LIMIT :limit
         """,
-        {"uid": user_id, "pref": pref},
+        {"uid": user_id, "pref": pref, "limit": PICK_CANDIDATES},
     ) as cur:
-        return await cur.fetchone()
+        rows = list(await cur.fetchall())
+
+    if not rows:
+        return None
+    if not like_boost:
+        return rows[0]
+
+    weights = [1 + max(0, r["likes"] - r["dislikes"]) * like_boost for r in rows]
+    return random.choices(rows, weights=weights, k=1)[0]
 
 
 async def mark_viewed(user_id: int, circle_id: int) -> None:

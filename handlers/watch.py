@@ -48,7 +48,9 @@ async def serve(bot, user_id: int, origin: Message) -> None:
     cost = settings.get("watch_cost")
 
 
-    circle = await db.pick_circle(user_id, user["pref"])
+    circle = await db.pick_circle(
+        user_id, user["pref"], settings.get("like_boost")
+    )
     if circle is None:
         await origin.answer(texts.EMPTY, reply_markup=kb.no_coins())
         return

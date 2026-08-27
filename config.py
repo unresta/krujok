@@ -24,7 +24,9 @@ PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "Fal
 
 # --- economy ---
 WATCH_COST = 2
-REWARD = {"f": 3, "m": 3}
+# Uploading pays nothing: a circle is a shop window for the author's profile,
+# and the only way to earn coins is selling access to it.
+REWARD = {"f": 0, "m": 0}
 MIN_DURATION = 8  # seconds; anything shorter is refused
 STARS_RATE = 3  # coins per star
 MIN_STARS = 20
@@ -36,10 +38,9 @@ STAR_PACKS = (20, 50, 100, 250)
 WELCOME_BONUS = 6  # coins handed to a newcomer, enough for a few circles
 SUB_BONUS = 4  # paid once, when the channel subscription is first confirmed
 REF_REWARD = 3  # coins for a referral that made it through the subscription gate
-# What an author earns from their own circles. A paid view costs the viewer
-# WATCH_COST, so keep VIEW_PAYOUT below it or the bot mints coins.
-VIEW_PAYOUT = 1
-LIKE_BONUS = 1
+VIEW_PAYOUT = 0  # views and likes buy reach, not coins
+LIKE_BONUS = 0
+LIKE_BOOST = 1  # how much one net like weighs when picking what to show
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
 
 # --- author profiles and payouts ---
