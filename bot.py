@@ -17,6 +17,7 @@ from aiogram.types import (
 import access
 import db
 import emoji
+import pushes
 import settings
 import ui
 from config import ADMIN_IDS, BOT_TOKEN
@@ -89,10 +90,12 @@ async def main() -> None:
                 scope=BotCommandScopeChat(chat_id=admin_id),
             )
 
+    reminders = asyncio.create_task(pushes.run(bot))
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
+        reminders.cancel()
         await db.close()
         await bot.session.close()
 

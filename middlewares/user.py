@@ -67,6 +67,7 @@ class UserMiddleware(BaseMiddleware):
             await self._welcome(event)
             return None
 
+        await db.touch_seen(tg_user.id)
         data["user"] = user
         return await handler(event, data)
 

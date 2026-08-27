@@ -185,6 +185,18 @@ def circle(
     return b.as_markup()
 
 
+def push(free: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Смотреть бесплатно" if free else "Смотреть кружки",
+            callback_data="watch",
+            style=SUCCESS,
+        )
+    )
+    return b.as_markup()
+
+
 def feed(pref: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])

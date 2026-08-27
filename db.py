@@ -181,6 +181,9 @@ MIGRATIONS = {
         "accepted": "INTEGER NOT NULL DEFAULT 0",
         "source": "TEXT",  # campaign code the user arrived with
         "subscribed": "INTEGER NOT NULL DEFAULT 0",  # passed the channel gate
+        "last_seen": "INTEGER NOT NULL DEFAULT 0",
+        "last_push": "INTEGER NOT NULL DEFAULT 0",
+        "free_views": "INTEGER NOT NULL DEFAULT 0",  # circles owed, not coins
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -290,6 +293,52 @@ async def try_spend(user_id: int, amount: int) -> bool:
     cur = await conn().execute(
         "UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?",
         (amount, user_id, amount),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def touch_seen(user_id: int, stale: int = 300) -> None:
+    """Activity stamp for the reminder job; skipped unless it is already old."""
+    await conn().execute(
+        "UPDATE users SET last_seen = strftime('%s','now') WHERE id = ?"
+        " AND last_seen < strftime('%s','now') - ?",
+        (user_id, stale),
+    )
+    await conn().commit()
+
+
+async def idle_users(idle: int, cooldown: int, limit: int) -> list[int]:
+    """Who went quiet long enough, and was not nudged recently."""
+    async with conn().execute(
+        """
+        SELECT id FROM users
+        WHERE banned = 0 AND accepted = 1
+          AND last_seen > 0
+          AND last_seen < strftime('%s','now') - :idle
+          AND last_push < strftime('%s','now') - :cooldown
+        ORDER BY RANDOM() LIMIT :limit
+        """,
+        {"idle": idle, "cooldown": cooldown, "limit": limit},
+    ) as cur:
+        return [row[0] for row in await cur.fetchall()]
+
+
+async def mark_pushed(user_id: int, free_views: int) -> None:
+    await conn().execute(
+        "UPDATE users SET last_push = strftime('%s','now'),"
+        " free_views = free_views + ? WHERE id = ?",
+        (free_views, user_id),
+    )
+    await conn().commit()
+
+
+async def use_free_view(user_id: int) -> bool:
+    """Spend one owed circle. False when there is none."""
+    cur = await conn().execute(
+        "UPDATE users SET free_views = free_views - 1"
+        " WHERE id = ? AND free_views > 0",
+        (user_id,),
     )
     await conn().commit()
     return cur.rowcount > 0

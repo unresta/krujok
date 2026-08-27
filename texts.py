@@ -127,6 +127,34 @@ def not_enough(coins: int) -> str:
     )
 
 
+def _push_new(free: int) -> str:
+    return (
+        "<b>В боте пополнились новые кружки! Время смотреть!</b>\n\n"
+        f"Жми кнопку — {free} {circles_word(free)} бесплатно 👀"
+    )
+
+
+def _push_missed(free: int) -> str:
+    return (
+        "<b>Тебя давно не было — а тут уже новые лица.</b>\n\n"
+        f"Держи {free} {circles_word(free)} за счёт заведения 👀"
+    )
+
+
+def _push_waiting(free: int) -> str:
+    return (
+        "<b>Кто-то записал кружок, пока тебя не было.</b>\n\n"
+        f"Первые {free} {circles_word(free)} — бесплатно, дальше как обычно 👀"
+    )
+
+
+PUSH_TEXTS = (_push_new, _push_missed, _push_waiting)
+
+
+def free_view_left(left: int) -> str:
+    return f"Бесплатный просмотр. Осталось таких: {left}"
+
+
 EMPTY = (
     "Свежих кружочков этого типа пока нет — ты посмотрел все.\n"
     "Загляни позже или смени тип."

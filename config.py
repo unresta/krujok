@@ -41,6 +41,17 @@ REF_REWARD = 3  # coins for a referral that made it through the subscription gat
 VIEW_PAYOUT = 0  # views and likes buy reach, not coins
 LIKE_BONUS = 0
 LIKE_BOOST = 1  # how much one net like weighs when picking what to show
+# --- re-engagement pushes ---
+PUSH_ENABLED = 1
+PUSH_IDLE_HOURS = 20  # silence before someone is worth a nudge
+PUSH_COOLDOWN_HOURS = 48  # never nudge the same person more often
+PUSH_BATCH = 40  # per tick, so a big base is spread over hours
+PUSH_FREE_VIEWS = 1  # circles handed out with the reminder
+PUSH_HOUR_FROM = 11  # local hours the nudge is allowed in
+PUSH_HOUR_TO = 22
+PUSH_TZ_OFFSET = 3  # hours east of UTC used for those bounds
+PUSH_TICK = 900.0  # seconds between sweeps
+
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
 
 # --- author profiles and payouts ---

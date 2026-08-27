@@ -55,8 +55,11 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         await origin.answer(texts.EMPTY, reply_markup=kb.no_coins())
         return
 
-    # Buying an author's profile makes their circles free for that viewer.
+    # Buying an author's profile makes their circles free for that viewer, and a
+    # reminder may have left a free one owed; coins are the last resort.
     free = await db.has_content_access(user_id, circle["uploader_id"], circle["id"])
+    on_the_house = not free and await db.use_free_view(user_id)
+    free = free or on_the_house
     if not free and not await db.try_spend(user_id, cost):  # raced with another tap
         await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
         return
@@ -78,7 +81,9 @@ async def serve(bot, user_id: int, origin: Message) -> None:
             ),
         )
     except TelegramAPIError:
-        if not free:
+        if on_the_house:
+            await db.mark_pushed(user_id, 1)  # give the free circle back
+        elif not free:
             await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
         await origin.answer("Не удалось отправить кружок, монетки вернул.")
         return

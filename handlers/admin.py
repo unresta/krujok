@@ -27,6 +27,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
 import db
+import pushes
 import keyboards as kb
 import settings
 from config import ADMIN_IDS, DB_PATH
@@ -118,6 +119,11 @@ def home_kb(
         InlineKeyboardButton(
             text="Ссылки", callback_data="a:links", style=kb.PRIMARY
         ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Напоминания", callback_data="a:push", style=kb.PRIMARY
+        )
     )
     b.row(
         InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
@@ -564,6 +570,72 @@ async def cb_payouts(call: CallbackQuery) -> None:
                 reply_markup=kb.payout_review(payout["id"]),
             )
     await call.answer()
+
+
+@router.callback_query(F.data == "a:push")
+async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    on = bool(settings.get("push_enabled"))
+    waiting = len(
+        await db.idle_users(
+            settings.get("push_idle_hours") * 3600,
+            settings.get("push_cooldown_hours") * 3600,
+            1000,
+        )
+    )
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Выключить" if on else "Включить",
+            callback_data="a:push:toggle",
+            style=kb.DANGER if on else kb.SUCCESS,
+        ),
+        InlineKeyboardButton(
+            text="Отправить сейчас", callback_data="a:push:now", style=kb.PRIMARY
+        ),
+    )
+    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    await _edit(
+        call,
+        "<b>Напоминания</b>\n\n"
+        f"Статус: {'🟢 включены' if on else '🔴 выключены'}\n"
+        f"Молчал дольше: {settings.get('push_idle_hours')} ч\n"
+        f"Не чаще раза в: {settings.get('push_cooldown_hours')} ч\n"
+        f"За проход: до {settings.get('push_batch')} человек, раз в 15 минут\n"
+        f"В подарок: {settings.get('push_free_views')} кружочков\n"
+        f"Часы: {settings.get('push_hour_from')}:00–"
+        f"{settings.get('push_hour_to')}:00 (UTC+{settings.get('push_tz_offset')})\n"
+        f"Сейчас {'внутри' if pushes.within_hours() else 'вне'} этого окна\n\n"
+        f"Ждут напоминания: <b>{waiting}</b>\n\n"
+        "Цифры правятся в «Экономике».",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:push:toggle")
+async def cb_push_toggle(call: CallbackQuery, state: FSMContext) -> None:
+    await settings.set("push_enabled", 0 if settings.get("push_enabled") else 1)
+    await call.answer("Включено" if settings.get("push_enabled") else "Выключено")
+    await cb_push(call, state)
+
+
+@router.callback_query(F.data == "a:push:now")
+async def cb_push_now(call: CallbackQuery) -> None:
+    await call.answer("Пошла рассылка")
+    sent, failed = await pushes.sweep(call.bot)
+    await _edit(
+        call,
+        f"<b>Напоминания отправлены</b>\n\nДоставлено: {sent}\nНе дошло: {failed}"
+        + (
+            "\n\nПусто: либо напоминания выключены, либо сейчас вне разрешённых "
+            "часов, либо некому — все были в боте недавно."
+            if not sent and not failed
+            else ""
+        ),
+        back_kb(),
+    )
 
 
 # --- ad links ------------------------------------------------------------
