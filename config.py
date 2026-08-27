@@ -62,6 +62,12 @@ PAYOUT_MIN = 1000  # coins
 PAYOUT_RATE = 3  # coins per star when cashing out
 ABOUT_MAX = 300  # characters in a profile description
 
+# --- legal ---
+# Both documents have to be reachable from every screen where money changes
+# hands: card acquirers check for them, Stars alone never needed it.
+TERMS_URL = "https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15"
+PRIVACY_URL = "https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-08-12-99"
+
 # --- ad accounting ---
 CURRENCY = "₽"
 STAR_PRICE = 130  # what one ⭐ is worth to you, in minor units (1.30 ₽)

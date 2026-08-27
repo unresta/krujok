@@ -23,7 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
 import settings
-from config import STAR_PACKS
+from config import PRIVACY_URL, STAR_PACKS, TERMS_URL
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -59,6 +59,18 @@ def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardBut
         callback_data=callback_data,
         icon_custom_emoji_id=emoji.icon(emoji.COIN),
         style=style,
+    )
+
+
+# --- legal documents -----------------------------------------------------
+
+# One row, plain links, always last: the offer and the privacy policy have to be
+# one tap from consent and from checkout, without earning a place in the menu.
+# Left unstyled on purpose — colour here would compete with the screen's action.
+def _legal_row(b: InlineKeyboardBuilder) -> None:
+    b.row(
+        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
+        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
     )
 
 
@@ -242,11 +254,12 @@ def accept() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Мне есть 18, согласен с правилами",
+            text="Мне есть 18, принимаю условия",
             callback_data="accept",
             style=SUCCESS,
         )
     )
+    _legal_row(b)  # the documents that button accepts, readable before the tap
     return b.as_markup()
 
 
@@ -255,6 +268,7 @@ def rules() -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(text="Прочитать FAQ", callback_data="faq", style=PRIMARY)
     )
+    _legal_row(b)
     return b.as_markup()
 
 
@@ -265,6 +279,7 @@ def faq() -> InlineKeyboardMarkup:
             text="Прочитать Правила", callback_data="rules", style=PRIMARY
         )
     )
+    _legal_row(b)
     return b.as_markup()
 
 
@@ -406,6 +421,7 @@ def profile_intro() -> InlineKeyboardMarkup:
         )
     )
     b.row(InlineKeyboardButton(text="Закрыть", callback_data="menu", style=DANGER))
+    _legal_row(b)  # an author agrees to the same offer, and it pays them
     return b.as_markup()
 
 
@@ -536,12 +552,14 @@ def buy() -> InlineKeyboardMarkup:
         )
     )
     kb.row(InlineKeyboardButton(text="Назад", callback_data="menu", style=DANGER))
+    _legal_row(kb)  # terms of the purchase, one tap before paying for it
     return kb.as_markup()
 
 
 def buy_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="Отмена", callback_data="menu", style=DANGER))
+    _legal_row(kb)
     return kb.as_markup()
 
 
