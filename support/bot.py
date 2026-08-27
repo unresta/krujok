@@ -16,11 +16,11 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeChat
 
-import cards
 import db
 import mainbase
 import settings
 import texts
+import topics
 from config import ADMIN_IDS, BOT_TOKEN, SLA_TICK
 from handlers import admin, reply, user
 from middlewares.user import BlockMiddleware
@@ -48,7 +48,12 @@ async def sla_sweep(bot: Bot) -> int:
             await bot.send_message(
                 chat,
                 texts.sla_ping(ticket),
-                reply_to_message_id=ticket["admin_msg_id"] or None,
+                # In a forum the nudge belongs in that ticket's topic; the reply
+                # is only needed when there is no topic to put it in.
+                reply_to_message_id=(
+                    None if ticket["chat_thread_id"] else ticket["admin_msg_id"] or None
+                ),
+                message_thread_id=ticket["chat_thread_id"],
             )
             sent += 1
         except TelegramAPIError as error:
@@ -74,6 +79,10 @@ async def main() -> None:
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Whether every ticket gets its own thread in the user's chat is a BotFather
+    # switch on this bot, readable only through getMe — so ask once, at startup.
+    await topics.probe(bot)
 
     dp.message.middleware(BlockMiddleware())
     dp.callback_query.middleware(BlockMiddleware())
@@ -101,6 +110,8 @@ async def main() -> None:
 
     if not settings.support_chat():
         logger.warning("support chat is not set — cards will have nowhere to go")
+    elif await topics.chat_supported(bot, settings.support_chat()):
+        logger.info("support chat is a forum — every ticket gets its own topic")
 
     sla = asyncio.create_task(sla_loop(bot))
     try:

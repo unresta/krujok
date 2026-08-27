@@ -14,7 +14,8 @@ import logging
 from contextlib import suppress
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message
 
 import cards
@@ -27,6 +28,14 @@ from config import ADMIN_IDS, THREAD_LIMIT
 logger = logging.getLogger(__name__)
 
 router = Router()
+# Group traffic, plus an admin's own DM — cards land there when no chat is set.
+# The filter matters because a private-chat topic looks identical on the wire (a
+# message with message_thread_id), so without it a user writing inside their own
+# ticket topic would be swallowed here instead of reaching handlers.user.
+router.message.filter(
+    F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP})
+    | F.from_user.id.in_(ADMIN_IDS)
+)
 
 
 def _in_support_chat(chat_id: int) -> bool:
@@ -37,33 +46,43 @@ def _in_support_chat(chat_id: int) -> bool:
     return chat_id in ADMIN_IDS
 
 
-async def _deliver(bot: Bot, user_id: int, text: str) -> bool:
-    try:
-        await bot.send_message(user_id, text)
-        return True
-    except TelegramForbiddenError:  # blocked the bot
-        return False
-    except TelegramAPIError as error:
-        logger.warning("reply to %s failed: %s", user_id, error)
-        return False
+async def _deliver(bot: Bot, ticket, text: str) -> bool:
+    """Answer inside the ticket's own topic, wherever the user has one."""
+    return await cards.to_user(bot, ticket, text)
 
 
 # --- the reply itself ----------------------------------------------------
 
 
-@router.message(F.reply_to_message)
+@router.message(F.reply_to_message | F.message_thread_id)
 async def reply_to_card(message: Message) -> None:
-    """A reply in the support chat becomes the answer the user receives."""
+    """A moderator's message in the support chat becomes the user's answer.
+
+    Two ways to aim it. Inside a ticket's topic the thread already says which
+    ticket is meant, so a plain message is enough — that is the point of the
+    forum layout. Outside one, a reply to the card is still how it works, and
+    stays the only way for tickets opened before topics existed.
+    """
     if not _in_support_chat(message.chat.id):
         return
 
-    ticket = await db.ticket_by_admin_msg(message.reply_to_message.message_id)
+    ticket = None
+    if message.message_thread_id:
+        ticket = await db.ticket_by_chat_thread(message.message_thread_id)
+    replied = message.reply_to_message
+    if ticket is None and replied is not None:
+        ticket = await db.ticket_by_admin_msg(replied.message_id)
+
     if ticket is None:
-        # Not a card. Moderators chat here too, so this stays silent unless the
-        # reply was aimed at the bot's own message and clearly meant for a user.
-        if message.reply_to_message.from_user and message.reply_to_message.from_user.is_bot:
+        # Not a card and not a ticket topic. Moderators talk here too, so this
+        # stays silent unless they clearly aimed at one of the bot's messages.
+        if replied is not None and replied.from_user and replied.from_user.is_bot:
             with suppress(TelegramAPIError):
                 await message.reply(texts.NOT_A_TICKET)
+        return
+
+    # The bot's own card and its notes live in the topic too — never echo those.
+    if message.from_user is None or message.from_user.is_bot:
         return
 
     if ticket["status"] == "closed":
@@ -88,12 +107,16 @@ async def reply_to_card(message: Message) -> None:
     delivered = True
     if body:
         delivered = await _deliver(
-            message.bot, ticket["user_id"], texts.admin_reply(ticket["id"], body)
+            message.bot, ticket, texts.admin_reply(ticket["id"], body)
         )
     if file_id and file_type in cards.ATTACHMENT_SENDERS and delivered:
         send = getattr(message.bot, cards.ATTACHMENT_SENDERS[file_type])
         with suppress(TelegramAPIError):
-            await send(ticket["user_id"], file_id)
+            await send(
+                ticket["user_id"],
+                file_id,
+                message_thread_id=cards.user_thread_of(ticket),
+            )
 
     with suppress(TelegramAPIError):
         await message.reply(texts.REPLY_SENT if delivered else texts.REPLY_BLOCKED)
@@ -146,8 +169,7 @@ async def _take(call: CallbackQuery, ticket_id: int) -> None:
         return
     await call.answer("Взято в работу 🔵")
     await cards.refresh(call.bot, ticket_id)
-    with suppress(TelegramAPIError):
-        await call.bot.send_message(taken["user_id"], texts.taken_notice(ticket_id))
+    await cards.to_user(call.bot, taken, texts.taken_notice(ticket_id))
 
 
 async def _close(call: CallbackQuery, ticket_id: int) -> None:
@@ -160,12 +182,12 @@ async def _close(call: CallbackQuery, ticket_id: int) -> None:
     await call.answer("Закрыто ⚪")
     await cards.refresh(call.bot, ticket_id)
     # The rating question is the last thing the user gets, and only once.
-    with suppress(TelegramAPIError):
-        await call.bot.send_message(
-            closed["user_id"],
-            texts.closed_notice(ticket_id),
-            reply_markup=kb.rate(ticket_id),
-        )
+    await cards.to_user(
+        call.bot,
+        closed,
+        texts.closed_notice(ticket_id),
+        reply_markup=kb.rate(ticket_id),
+    )
 
 
 async def _thread(call: CallbackQuery, ticket_id: int) -> None:
@@ -203,7 +225,7 @@ async def _send_canned(call: CallbackQuery, ticket_id: int, canned_id: int) -> N
     )
     await db.canned_used(canned_id)
     delivered = await _deliver(
-        call.bot, ticket["user_id"], texts.admin_reply(ticket_id, template["body"])
+        call.bot, ticket, texts.admin_reply(ticket_id, template["body"])
     )
     await call.answer(texts.REPLY_SENT if delivered else texts.REPLY_BLOCKED, show_alert=not delivered)
     with suppress(TelegramAPIError):
@@ -232,10 +254,19 @@ async def _resend(call: CallbackQuery, ticket_id: int) -> None:
         )
     blocked = await db.is_blocked(ticket["user_id"])
     with suppress(TelegramAPIError):
-        card = await call.message.answer(
+        # Sent explicitly rather than via call.message.answer(): the button may
+        # have been pressed on the queue screen in a DM, and the card belongs in
+        # this ticket's own topic, not wherever the tap happened.
+        card = await call.bot.send_message(
+            call.message.chat.id,
             await cards.card_text(ticket, body, label),
             reply_markup=kb.card(
                 ticket_id, ticket["status"], bool(ticket["taken_by"]), blocked
+            ),
+            message_thread_id=(
+                ticket["chat_thread_id"]
+                if str(call.message.chat.id) == str(settings.support_chat())
+                else None
             ),
         )
         # The newest card becomes the reply anchor, or answers would go nowhere.

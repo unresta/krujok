@@ -143,9 +143,16 @@ async def got_text(message: Message, state: FSMContext) -> None:
     await db.add_message(
         ticket_id, message.from_user.id, body, file_id=file_id, file_type=file_type
     )
-    await message.answer(texts.created(ticket_id), reply_markup=kb.main_menu())
 
+    # Topics first: the confirmation is the ticket's opening message and belongs
+    # inside its thread, not above it in the general feed.
     ticket = await db.get_ticket(ticket_id)
+    ticket = await cards.open_topics(message.bot, ticket)
+
+    if not await cards.to_user(
+        message.bot, ticket, texts.created(ticket_id), reply_markup=kb.main_menu()
+    ):
+        return  # blocked the bot between sending and now; the card is pointless
     await cards.send_card(message.bot, ticket, body, file_id, file_type)
 
 
@@ -154,7 +161,7 @@ async def _append(message: Message, ticket, body: str, file_id, file_type) -> No
     await db.add_message(
         ticket["id"], message.from_user.id, body, file_id=file_id, file_type=file_type
     )
-    await message.answer(texts.added(ticket["id"]))
+    await cards.to_user(message.bot, ticket, texts.added(ticket["id"]))
     await cards.post_followup(message.bot, ticket, body, file_id, file_type)
 
 
@@ -217,7 +224,9 @@ async def self_close(call: CallbackQuery, state: FSMContext) -> None:
     with suppress(TelegramAPIError):
         await call.message.delete()
     # No rating prompt: nobody answered, so there is nothing to rate.
-    await call.message.answer(texts.self_closed(ticket_id), reply_markup=kb.main_menu())
+    await cards.to_user(
+        call.bot, closed, texts.self_closed(ticket_id), reply_markup=kb.main_menu()
+    )
     await cards.refresh(call.bot, ticket_id)
     await cards.post_self_closed(call.bot, closed)
 
@@ -264,8 +273,22 @@ async def anything_else(message: Message, state: FSMContext) -> None:
     bot's fallback.
     """
     await state.clear()
-    open_ticket = await db.open_ticket_of(message.from_user.id)
-    if open_ticket is None:
+
+    # Written inside a ticket's topic? Then that ticket is meant, whatever else
+    # is open — the thread the user chose is a clearer signal than recency.
+    ticket = None
+    if message.message_thread_id:
+        ticket = await db.ticket_by_user_thread(message.message_thread_id)
+    if ticket is None:
+        ticket = await db.open_ticket_of(message.from_user.id)
+    elif ticket["status"] == "closed":
+        # Writing in an old, closed topic — say so instead of silently reopening.
+        await cards.to_user(
+            message.bot, ticket, texts.thread_closed(ticket["id"])
+        )
+        return
+
+    if ticket is None:
         await message.answer(texts.START, reply_markup=kb.main_menu())
         return
 
@@ -278,7 +301,7 @@ async def anything_else(message: Message, state: FSMContext) -> None:
         await message.answer(texts.TEXT_TOO_LONG)
         return
 
-    await _append(message, open_ticket, body, file_id, file_type)
+    await _append(message, ticket, body, file_id, file_type)
 
 
 async def _edit(call: CallbackQuery, text: str, markup=None) -> None:

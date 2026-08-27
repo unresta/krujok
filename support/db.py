@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     rating       INTEGER,             -- 1 or -1, set by the user after closing
     first_reply  INTEGER,             -- when an admin answered first, for the SLA
     closed_by    INTEGER,             -- who closed it; equals user_id when self-closed
+    user_thread_id INTEGER,           -- topic in the user's own chat, when enabled
+    chat_thread_id INTEGER,           -- topic in the operators' chat, when a forum
     pinged_at    INTEGER NOT NULL DEFAULT 0,  -- last SLA nudge, so it repeats slowly
     ts           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     last_ts      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -81,6 +83,8 @@ MIGRATIONS: dict[str, dict[str, str]] = {
     "tickets": {
         "pinged_at": "INTEGER NOT NULL DEFAULT 0",
         "closed_by": "INTEGER",
+        "user_thread_id": "INTEGER",
+        "chat_thread_id": "INTEGER",
     },
 }
 
@@ -95,6 +99,7 @@ async def connect() -> None:
     _db.row_factory = aiosqlite.Row
     await _db.executescript(SCHEMA)
     await _migrate()
+    await _post_migrate()
     await _db.commit()
 
 
@@ -105,6 +110,19 @@ async def _migrate() -> None:
         for name, spec in columns.items():
             if name not in existing:
                 await _db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
+
+
+# Indexes over migrated columns have to wait for the ALTERs above: SCHEMA runs
+# first, and on an existing database that column does not exist yet — putting
+# this index up there makes connect() fail with "no such column".
+POST_MIGRATE = """
+CREATE INDEX IF NOT EXISTS idx_tickets_thread ON tickets(chat_thread_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_uthread ON tickets(user_thread_id);
+"""
+
+
+async def _post_migrate() -> None:
+    await _db.executescript(POST_MIGRATE)
 
 
 async def close() -> None:
@@ -159,6 +177,37 @@ async def set_admin_msg(ticket_id: int, msg_id: int) -> None:
         "UPDATE tickets SET admin_msg_id = ? WHERE id = ?", (msg_id, ticket_id)
     )
     await conn().commit()
+
+
+async def set_threads(
+    ticket_id: int, user_thread: int | None, chat_thread: int | None
+) -> None:
+    """Remember the ticket's topics. Either side may legitimately be None."""
+    await conn().execute(
+        "UPDATE tickets SET user_thread_id = ?, chat_thread_id = ? WHERE id = ?",
+        (user_thread, chat_thread, ticket_id),
+    )
+    await conn().commit()
+
+
+async def ticket_by_chat_thread(thread_id: int) -> aiosqlite.Row | None:
+    """Anything a moderator writes inside a ticket's topic belongs to it.
+
+    This is what makes replying optional in a forum: the topic itself says which
+    ticket is meant.
+    """
+    async with conn().execute(
+        "SELECT * FROM tickets WHERE chat_thread_id = ?", (thread_id,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def ticket_by_user_thread(thread_id: int) -> aiosqlite.Row | None:
+    """Same on the user's side: the topic they wrote in picks the ticket."""
+    async with conn().execute(
+        "SELECT * FROM tickets WHERE user_thread_id = ?", (thread_id,)
+    ) as cur:
+        return await cur.fetchone()
 
 
 async def add_message(

@@ -175,6 +175,14 @@ def self_closed(ticket_id: int) -> str:
 SELF_CLOSE_ALREADY = "Это обращение уже закрыто."
 
 
+def thread_closed(ticket_id: int) -> str:
+    """The user wrote into the topic of a ticket that is already closed."""
+    return (
+        f"Обращение <b>#{ticket_id}</b> закрыто, сюда мы уже не смотрим.\n\n"
+        "Если вопрос вернулся — нажми «Новое обращение», откроем свежее."
+    )
+
+
 def self_closed_notice(ticket_id: int) -> str:
     """Posted into the support chat, so nobody keeps working on it."""
     return f"✅ Юзер сам закрыл обращение <b>#{ticket_id}</b> — вопрос решился."
@@ -394,7 +402,14 @@ ATTACHMENT_LABEL = {
 # --- admin panel ---------------------------------------------------------
 
 
-def panel(s: dict, chat: str, chat_status: str, main_ok: bool) -> str:
+def panel(
+    s: dict,
+    chat: str,
+    chat_status: str,
+    main_ok: bool,
+    topics_private: bool = False,
+    topics_chat: bool = False,
+) -> str:
     rated = s["good"] + s["bad"]
     share = f"{s['good'] * 100 // rated}% 👍" if rated else "—"
     return (
@@ -406,7 +421,9 @@ def panel(s: dict, chat: str, chat_status: str, main_ok: bool) -> str:
         f"⏱ Среднее время ответа: <b>{duration(s['avg_reply'])}</b>\n"
         f"👍 Оценки: {share} ({s['good']}/{rated or 0})\n\n"
         f"Чат: <code>{chat}</code>\n{chat_status}\n"
-        f"Основная база: {'🟢 читается' if main_ok else '🔴 недоступна'}"
+        f"Основная база: {'🟢 читается' if main_ok else '🔴 недоступна'}\n"
+        f"Топики: у юзера {'🟢' if topics_private else '🔴'} · "
+        f"в чате {'🟢' if topics_chat else '🔴'}"
     )
 
 

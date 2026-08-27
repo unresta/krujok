@@ -22,6 +22,7 @@ import keyboards as kb
 import mainbase
 import settings
 import texts
+import topics
 from config import ADMIN_IDS, LIST_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,8 @@ async def panel_text(bot: Bot) -> str:
         str(settings.support_chat() or "—"),
         await _chat_status(bot, settings.support_chat()),
         mainbase.available(),
+        topics.private_enabled(),
+        await topics.chat_supported(bot, settings.support_chat()),
     )
 
 
@@ -236,6 +239,7 @@ async def got_chat(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     await settings.set_text("chat", raw)
+    topics.forget_chat()  # the new chat may be a forum where the old one was not
     chat = settings.support_chat()
     await message.answer(
         f"Чат поддержки: <code>{chat or '—'}</code>\n"
