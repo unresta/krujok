@@ -384,6 +384,19 @@ def profile_decided(user_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def profile_intro() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Соглашаюсь, настроить профиль",
+            callback_data="pf:start",
+            style=SUCCESS,
+        )
+    )
+    b.row(InlineKeyboardButton(text="Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
 def refill_profile() -> InlineKeyboardMarkup:
     """Goes with a rejection — the fix is one tap away, not a menu hunt."""
     b = InlineKeyboardBuilder()

@@ -49,8 +49,8 @@ class Anketa(StatesGroup):
 async def my_profile(message: Message, state: FSMContext) -> None:
     await state.clear()
     profile = await db.get_profile(message.from_user.id)
-    if profile is None:
-        await message.answer(texts.PROFILE_NONE_YET, reply_markup=kb.my_profile(False))
+    if profile is None:  # no profile yet — pitch it instead of stating the fact
+        await message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
         return
     await message.answer_photo(
         profile["photo_id"],
@@ -61,7 +61,17 @@ async def my_profile(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "pf:edit")
 async def edit_profile(call: CallbackQuery, state: FSMContext) -> None:
+    """Every road into the form goes through the pitch and its agreement."""
+    await state.clear()
+    await call.message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
+    await call.answer()
+
+
+@router.callback_query(F.data == "pf:start")
+async def start_profile(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Anketa.photo)
+    with suppress(TelegramAPIError):
+        await call.message.edit_reply_markup(reply_markup=None)
     await call.message.answer(texts.PROFILE_PHOTO, reply_markup=kb.back())
     await call.answer()
 
