@@ -604,9 +604,7 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         f"Не чаще раза в: {settings.get('push_cooldown_hours')} ч\n"
         f"За проход: до {settings.get('push_batch')} человек, раз в 15 минут\n"
         f"В подарок: {settings.get('push_free_views')} кружочков\n"
-        f"Часы: {settings.get('push_hour_from')}:00–"
-        f"{settings.get('push_hour_to')}:00 (UTC+{settings.get('push_tz_offset')})\n"
-        f"Сейчас {'внутри' if pushes.within_hours() else 'вне'} этого окна\n\n"
+        f"Круглые сутки, без перерыва\n\n"
         f"Ждут напоминания: <b>{waiting}</b>\n\n"
         "Цифры правятся в «Экономике».",
         b.as_markup(),
@@ -629,8 +627,8 @@ async def cb_push_now(call: CallbackQuery) -> None:
         call,
         f"<b>Напоминания отправлены</b>\n\nДоставлено: {sent}\nНе дошло: {failed}"
         + (
-            "\n\nПусто: либо напоминания выключены, либо сейчас вне разрешённых "
-            "часов, либо некому — все были в боте недавно."
+            "\n\nПусто: либо напоминания выключены, либо некому — все были "
+            "в боте недавно."
             if not sent and not failed
             else ""
         ),

@@ -4,15 +4,11 @@ A user who watched a few circles and drifted away comes back for a free one.
 The sweep runs on a timer, picks people who have been quiet long enough and were
 not nudged recently, and hands each a circle on the house — the reminder is
 worth sending only if there is something behind the button.
-
-Quiet hours are respected: a bot that pings at four in the morning gets blocked,
-not opened.
 """
 
 import asyncio
 import logging
 import random
-import time
 from contextlib import suppress
 
 from aiogram import Bot
@@ -28,16 +24,9 @@ logger = logging.getLogger(__name__)
 SEND_PAUSE = 0.05  # ~20 per second, same ceiling as the broadcast
 
 
-def within_hours() -> bool:
-    """True when local time is inside the allowed window."""
-    hour = time.gmtime(time.time() + settings.get("push_tz_offset") * 3600).tm_hour
-    start, end = settings.get("push_hour_from"), settings.get("push_hour_to")
-    return start <= hour <= end if start <= end else hour >= start or hour <= end
-
-
 async def sweep(bot: Bot) -> tuple[int, int]:
     """One pass. Returns (delivered, failed)."""
-    if not settings.get("push_enabled") or not within_hours():
+    if not settings.get("push_enabled"):
         return 0, 0
 
     user_ids = await db.idle_users(

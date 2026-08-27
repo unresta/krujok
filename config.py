@@ -47,9 +47,6 @@ PUSH_IDLE_HOURS = 20  # silence before someone is worth a nudge
 PUSH_COOLDOWN_HOURS = 48  # never nudge the same person more often
 PUSH_BATCH = 40  # per tick, so a big base is spread over hours
 PUSH_FREE_VIEWS = 1  # circles handed out with the reminder
-PUSH_HOUR_FROM = 11  # local hours the nudge is allowed in
-PUSH_HOUR_TO = 22
-PUSH_TZ_OFFSET = 3  # hours east of UTC used for those bounds
 PUSH_TICK = 900.0  # seconds between sweeps
 
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
