@@ -11,7 +11,6 @@ import db
 DEFAULTS: dict[str, int] = {
     "sla_hours": config.SLA_HOURS,
     "sla_repeat_hours": config.SLA_REPEAT_HOURS,
-    "tickets_per_day": config.TICKETS_PER_DAY,
 }
 
 TEXT_DEFAULTS: dict[str, str] = {
@@ -21,13 +20,11 @@ TEXT_DEFAULTS: dict[str, str] = {
 TITLES: dict[str, str] = {
     "sla_hours": "Напомнить через, ч",
     "sla_repeat_hours": "Повторять не чаще, ч",
-    "tickets_per_day": "Обращений в сутки",
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
     "sla_hours": (1, 168),
     "sla_repeat_hours": (1, 168),
-    "tickets_per_day": (1, 100),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

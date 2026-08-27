@@ -26,7 +26,6 @@ MAIN_DB_PATH: str = os.getenv("MAIN_DB_PATH", "")
 
 # --- limits ---
 TEXT_MAX = 1000  # characters in one ticket message
-TICKETS_PER_DAY = 5  # new tickets one user may open in 24h
 THREAD_LIMIT = 50  # messages kept on screen when showing a whole thread
 LIST_LIMIT = 10  # tickets per screen in "my tickets" and the admin queue
 

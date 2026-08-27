@@ -20,7 +20,6 @@ from aiogram.types import CallbackQuery, Message
 import cards
 import db
 import keyboards as kb
-import settings
 import texts
 from config import LIST_LIMIT, TEXT_MAX, THREAD_LIMIT
 
@@ -68,9 +67,6 @@ async def new_ticket(message: Message, state: FSMContext) -> None:
             texts.already_open(open_ticket["id"]),
             reply_markup=kb.already_open(open_ticket["id"]),
         )
-        return
-    if await db.tickets_today(message.from_user.id) >= settings.get("tickets_per_day"):
-        await message.answer(texts.too_many(), reply_markup=kb.close())
         return
     await message.answer(texts.CHOOSE_TOPIC, reply_markup=kb.topics())
 
@@ -128,10 +124,8 @@ async def got_text(message: Message, state: FSMContext) -> None:
     topic = (await state.get_data()).get("topic", "other")
     await state.clear()
 
-    # Re-checked here, not only on the button: the form may have sat open a while.
-    if await db.tickets_today(message.from_user.id) >= settings.get("tickets_per_day"):
-        await message.answer(texts.too_many(), reply_markup=kb.close())
-        return
+    # Re-checked here, not only on the button: the form may have sat open a while,
+    # and a ticket opened meanwhile is the one this message belongs to.
     existing = await db.open_ticket_of(message.from_user.id)
     if existing is not None:
         await _append(message, existing, body, file_id, file_type)

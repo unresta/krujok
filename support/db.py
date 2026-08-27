@@ -327,7 +327,12 @@ async def user_tickets(user_id: int, limit: int = 10) -> list[aiosqlite.Row]:
 
 
 async def tickets_today(user_id: int) -> int:
-    """Antispam: how many this user opened in the last 24 hours."""
+    """How many this user opened in the last 24 hours.
+
+    Nothing gates on this any more — the per-day cap is gone. Kept because it is
+    the honest answer to "is this person flooding us", which an operator looking
+    at a card still wants.
+    """
     async with conn().execute(
         "SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?"
         " AND ts > strftime('%s','now') - 86400",

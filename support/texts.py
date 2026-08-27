@@ -8,7 +8,6 @@ Only after that screen does the form open.
 
 import time
 
-import settings
 from config import TEXT_MAX
 
 # code -> (button label, card label). The code goes into tickets.topic.
@@ -144,15 +143,6 @@ def created(ticket_id: int) -> str:
 
 def added(ticket_id: int) -> str:
     return f"➕ Добавлено к обращению <b>#{ticket_id}</b>."
-
-
-def too_many() -> str:
-    # Read at call time: an admin can change the limit from the panel, and a
-    # frozen constant here would keep quoting the old number.
-    return (
-        f"На сегодня лимит — {settings.get('tickets_per_day')} обращений.\n"
-        "Если вопрос ещё открыт, напиши в существующее: оно ждёт ответа."
-    )
 
 
 def already_open(ticket_id: int) -> str:
