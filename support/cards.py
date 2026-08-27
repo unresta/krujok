@@ -6,6 +6,7 @@ admin handler redraws it after every verdict, and the SLA job pings it. Keeping
 """
 
 import logging
+from contextlib import suppress
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
@@ -109,8 +110,25 @@ async def post_followup(bot: Bot, ticket, body: str, file_id: str | None, file_t
         await _send_attachment(bot, chat, file_id, file_type, note.message_id)
 
 
+async def post_self_closed(bot: Bot, ticket) -> None:
+    """Tell the chat the user closed it themselves.
+
+    The redrawn card already says so, but a moderator who is mid-reply is
+    looking at the chat, not re-reading the card — so this lands as a reply
+    under it, where they will actually see it.
+    """
+    chat = settings.support_chat()
+    if not chat or not ticket["admin_msg_id"]:
+        return
+    with suppress(TelegramAPIError):
+        await bot.send_message(
+            chat,
+            texts.self_closed_notice(ticket["id"]),
+            reply_to_message_id=ticket["admin_msg_id"],
+        )
+
+
 async def refresh(bot: Bot, ticket_id: int) -> None:
-    """Redraw a card after a verdict, so its buttons match the real status."""
     ticket = await db.get_ticket(ticket_id)
     if ticket is None or not ticket["admin_msg_id"]:
         return

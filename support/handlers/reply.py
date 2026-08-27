@@ -151,7 +151,7 @@ async def _take(call: CallbackQuery, ticket_id: int) -> None:
 
 
 async def _close(call: CallbackQuery, ticket_id: int) -> None:
-    closed = await db.close_ticket(ticket_id)
+    closed = await db.close_ticket(ticket_id, closed_by=call.from_user.id)
     if closed is None:
         await call.answer("Уже закрыто.", show_alert=True)
         await cards.refresh(call.bot, ticket_id)

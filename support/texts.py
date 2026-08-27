@@ -158,9 +158,26 @@ def too_many() -> str:
 def already_open(ticket_id: int) -> str:
     return (
         f"У тебя уже открыто обращение <b>#{ticket_id}</b>.\n\n"
-        "Просто напиши сюда — сообщение добавится к нему. "
-        "Новое можно создать, когда закроем это."
+        "Просто напиши сюда — сообщение добавится к нему.\n"
+        "Если вопрос уже решился, закрой его — и можно создать новое."
     )
+
+
+def self_closed(ticket_id: int) -> str:
+    """Confirmation for a user who closed their own ticket."""
+    return (
+        f"⚪ Обращение <b>#{ticket_id}</b> закрыто.\n\n"
+        "Спасибо, что сказал — теперь мы не будем тратить на него время.\n"
+        "Понадобится помощь — создавай новое, лимит освободился."
+    )
+
+
+SELF_CLOSE_ALREADY = "Это обращение уже закрыто."
+
+
+def self_closed_notice(ticket_id: int) -> str:
+    """Posted into the support chat, so nobody keeps working on it."""
+    return f"✅ Юзер сам закрыл обращение <b>#{ticket_id}</b> — вопрос решился."
 
 
 BLOCKED = "Доступ к поддержке закрыт."
@@ -277,12 +294,21 @@ def card(ticket: dict, text: str, extra: dict | None, attachment: str | None = N
     )
     if ticket["taken_by"]:
         head += f"\nВзял: <code>{ticket['taken_by']}</code>"
+    # Worth stating outright: a moderator who sees this can stop digging.
+    if _self_closed(ticket):
+        head += "\n<b>✅ Юзер закрыл сам — вопрос решился</b>"
 
     body = f"\n{'─' * 24}\n{text}" if text else ""
     if attachment:
         body += f"\n\n📎 <i>{attachment}</i>"
 
     return head + body + _extra_block(extra)
+
+
+def _self_closed(ticket) -> bool:
+    """True when the person who closed it is the person who opened it."""
+    closed_by = ticket["closed_by"] if "closed_by" in ticket.keys() else None
+    return ticket["status"] == "closed" and closed_by == ticket["user_id"]
 
 
 def _extra_block(extra: dict | None) -> str:

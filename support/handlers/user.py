@@ -65,7 +65,8 @@ async def new_ticket(message: Message, state: FSMContext) -> None:
     open_ticket = await db.open_ticket_of(message.from_user.id)
     if open_ticket is not None:
         await message.answer(
-            texts.already_open(open_ticket["id"]), reply_markup=kb.close()
+            texts.already_open(open_ticket["id"]),
+            reply_markup=kb.already_open(open_ticket["id"]),
         )
         return
     if await db.tickets_today(message.from_user.id) >= settings.get("tickets_per_day"):
@@ -184,8 +185,41 @@ async def show_thread(call: CallbackQuery) -> None:
         await call.answer("Обращение не найдено.", show_alert=True)
         return
     messages = await db.thread(ticket_id, THREAD_LIMIT)
-    await _edit(call, texts.thread_view(ticket, messages), kb.thread_back())
+    await _edit(call, texts.thread_view(ticket, messages), kb.thread_back(ticket))
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("done:"))
+async def self_close(call: CallbackQuery, state: FSMContext) -> None:
+    """The user resolves their own ticket.
+
+    Worth allowing: a question that answered itself otherwise sits in the queue
+    until a moderator reads it, and the one-open-ticket limit keeps the user from
+    asking anything else in the meantime. Closing is also the only action here
+    that is safe to hand over — it frees the queue, and a new ticket is one tap
+    away if the problem comes back.
+    """
+    await state.clear()
+    ticket_id = int(call.data.split(":")[1])
+    ticket = await db.get_ticket(ticket_id)
+    if ticket is None or ticket["user_id"] != call.from_user.id:
+        await call.answer("Обращение не найдено.", show_alert=True)
+        return
+
+    closed = await db.close_ticket(ticket_id, closed_by=call.from_user.id)
+    if closed is None:  # a moderator closed it a moment earlier
+        await call.answer(texts.SELF_CLOSE_ALREADY, show_alert=True)
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(reply_markup=None)
+        return
+
+    await call.answer("Закрыто ⚪")
+    with suppress(TelegramAPIError):
+        await call.message.delete()
+    # No rating prompt: nobody answered, so there is nothing to rate.
+    await call.message.answer(texts.self_closed(ticket_id), reply_markup=kb.main_menu())
+    await cards.refresh(call.bot, ticket_id)
+    await cards.post_self_closed(call.bot, closed)
 
 
 @router.callback_query(F.data.startswith("r:"))

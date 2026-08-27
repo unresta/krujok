@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     admin_msg_id INTEGER,            -- card in the support chat; the reply anchor
     rating       INTEGER,             -- 1 or -1, set by the user after closing
     first_reply  INTEGER,             -- when an admin answered first, for the SLA
+    closed_by    INTEGER,             -- who closed it; equals user_id when self-closed
     pinged_at    INTEGER NOT NULL DEFAULT 0,  -- last SLA nudge, so it repeats slowly
     ts           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     last_ts      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS settings_text (
 MIGRATIONS: dict[str, dict[str, str]] = {
     "tickets": {
         "pinged_at": "INTEGER NOT NULL DEFAULT 0",
+        "closed_by": "INTEGER",
     },
 }
 
@@ -215,12 +217,17 @@ async def take_ticket(ticket_id: int, admin_id: int) -> aiosqlite.Row | None:
     return await get_ticket(ticket_id)
 
 
-async def close_ticket(ticket_id: int) -> aiosqlite.Row | None:
-    """None when it was closed already, so two admins cannot both notify."""
+async def close_ticket(ticket_id: int, closed_by: int | None = None) -> aiosqlite.Row | None:
+    """None when it was closed already, so two closers cannot both notify.
+
+    `closed_by` is the id of whoever closed it — an admin, or the user
+    themselves. The card shows which, so a moderator is not left wondering why a
+    ticket resolved itself.
+    """
     cur = await conn().execute(
-        "UPDATE tickets SET status = 'closed', closed_at = strftime('%s','now')"
-        " WHERE id = ? AND status != 'closed'",
-        (ticket_id,),
+        "UPDATE tickets SET status = 'closed', closed_at = strftime('%s','now'),"
+        " closed_by = ? WHERE id = ? AND status != 'closed'",
+        (closed_by, ticket_id),
     )
     await conn().commit()
     if cur.rowcount == 0:

@@ -85,6 +85,29 @@ def close() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def already_open(ticket_id: int) -> InlineKeyboardMarkup:
+    """Shown when a new ticket is refused because one is still open.
+
+    Closing it is what unblocks a new one, so the way out belongs on this very
+    screen instead of sending the user hunting through «Мои обращения».
+    """
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Открыть переписку", callback_data=f"my:{ticket_id}", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Вопрос решён, закрыть",
+            callback_data=f"done:{ticket_id}",
+            style=SUCCESS,
+        )
+    )
+    b.row(InlineKeyboardButton(text="Закрыть", callback_data="close", style=DANGER))
+    return b.as_markup()
+
+
 def my_tickets(rows: list) -> InlineKeyboardMarkup:
     """One button per ticket — tapping it shows the thread."""
     b = InlineKeyboardBuilder()
@@ -100,8 +123,22 @@ def my_tickets(rows: list) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def thread_back() -> InlineKeyboardMarkup:
+def thread_back(ticket=None) -> InlineKeyboardMarkup:
+    """A user looking at their own thread can resolve it from here.
+
+    The button only exists while the ticket is open, and it is not styled
+    `danger`: closing your own solved question is a normal, harmless action, not
+    a destructive one.
+    """
     b = InlineKeyboardBuilder()
+    if ticket is not None and ticket["status"] != "closed":
+        b.row(
+            InlineKeyboardButton(
+                text="Вопрос решён, закрыть",
+                callback_data=f"done:{ticket['id']}",
+                style=SUCCESS,
+            )
+        )
     b.row(
         InlineKeyboardButton(text="К списку", callback_data="my", style=PRIMARY),
         InlineKeyboardButton(text="Закрыть", callback_data="close", style=DANGER),
