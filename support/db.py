@@ -190,6 +190,19 @@ async def set_threads(
     await conn().commit()
 
 
+async def clear_user_thread(ticket_id: int) -> None:
+    """Forget the user's topic, because it no longer exists.
+
+    Called after the topic is deleted on close. Leaving the id behind would let
+    `ticket_by_user_thread` match a thread Telegram has thrown away, and would
+    make every later message to this user aim at a dead thread.
+    """
+    await conn().execute(
+        "UPDATE tickets SET user_thread_id = NULL WHERE id = ?", (ticket_id,)
+    )
+    await conn().commit()
+
+
 async def ticket_by_chat_thread(thread_id: int) -> aiosqlite.Row | None:
     """Anything a moderator writes inside a ticket's topic belongs to it.
 

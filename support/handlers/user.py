@@ -223,6 +223,9 @@ async def self_close(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer("Закрыто ⚪")
     with suppress(TelegramAPIError):
         await call.message.delete()
+    # Topics go first: the user's thread is deleted with everything in it, so the
+    # confirmation below has to land in the main chat, not in that thread.
+    closed = await cards.close_topics(call.bot, closed)
     # No rating prompt: nobody answered, so there is nothing to rate.
     await cards.to_user(
         call.bot, closed, texts.self_closed(ticket_id), reply_markup=kb.main_menu()

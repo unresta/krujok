@@ -203,6 +203,23 @@ async def post_self_closed(bot: Bot, ticket) -> None:
         )
 
 
+async def close_topics(bot: Bot, ticket):
+    """Wrap up a closed ticket's topics, and return the ticket to notify through.
+
+    Order matters here, and it is the reason this returns a ticket. The user's
+    topic is deleted, which takes the ticket's messages with it — so this has to
+    run *before* the closing notice and the rating buttons, and those have to go
+    out in the main chat rather than into a thread that no longer exists. The
+    returned row has `user_thread_id` cleared exactly when the delete succeeded,
+    so passing it to `to_user` puts the notice in the right place either way.
+    """
+    deleted = await topics.close_ticket_topics(bot, ticket, settings.support_chat())
+    if not deleted:
+        return ticket
+    await db.clear_user_thread(ticket["id"])
+    return await db.get_ticket(ticket["id"]) or ticket
+
+
 async def refresh(bot: Bot, ticket_id: int) -> None:
     ticket = await db.get_ticket(ticket_id)
     if ticket is None or not ticket["admin_msg_id"]:

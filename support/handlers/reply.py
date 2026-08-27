@@ -181,6 +181,9 @@ async def _close(call: CallbackQuery, ticket_id: int) -> None:
 
     await call.answer("Закрыто ⚪")
     await cards.refresh(call.bot, ticket_id)
+    # Topics first: closing deletes the user's thread along with its messages, so
+    # the rating question has to be sent afterwards, into the main chat.
+    closed = await cards.close_topics(call.bot, closed)
     # The rating question is the last thing the user gets, and only once.
     await cards.to_user(
         call.bot,
