@@ -13,3 +13,23 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # Separate bot, separate token, separate database. It only reads the main
+  # bot's base — mounted :ro here and opened with mode=ro in SQLite, so a bug
+  # on this side cannot touch the data the main bot depends on.
+  support:
+    build: ./support
+    container_name: krujok-support
+    restart: unless-stopped
+    env_file: ./support/.env
+    environment:
+      SUPPORT_DB_PATH: /app/data/support.db
+      MAIN_DB_PATH: /app/main/bot.db
+    volumes:
+      - ./support/data:/app/data
+      - ./data:/app/main:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
