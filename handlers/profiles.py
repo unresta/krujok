@@ -646,15 +646,29 @@ async def mp_bought(call: CallbackQuery) -> None:
         await call.message.answer("Ты ещё ничего не купил.")
         return
 
-    lines = []
+    text_lines = ["🛒 <b>Купленные кружочки:</b>\n"]
+    buttons = []
+
     for p in purchases:
         circles = await db.author_circles(p["author_id"], p["max_circle_id"])
-        lines.append(
-            f"• Автор <code>{p['author_id']}</code> — {len(circles)} кружков"
+        count = len(circles)
+        text_lines.append(f"• Автор <code>{p['author_id']}</code> — {count} кружков")
+        buttons.append(
+            InlineKeyboardButton(
+                text=f"👤 Автор {p['author_id']} ({count})",
+                callback_data=f"pf:show:{p['author_id']}",
+                style=PRIMARY,
+            )
         )
 
-    text = "🛒 <b>Купленные кружочки:</b>\n\n" + "\n".join(lines)
-    await call.message.answer(text, reply_markup=kb.back())
+    text = "\n".join(text_lines)
+
+    b = InlineKeyboardBuilder()
+    for btn in buttons:
+        b.row(btn)
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+
+    await call.message.answer(text, reply_markup=b.as_markup())
 
 
 @router.callback_query(F.data.startswith("pf:card:"))
