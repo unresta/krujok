@@ -92,7 +92,6 @@ BTN_ANKETAS = "Смотреть анкеты"
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
     BTN_ANKETAS: emoji.PROFILE,
-    BTN_UPLOAD: emoji.UPLOAD,
     BTN_PROFILE: emoji.PROFILE,
     BTN_FEED: emoji.FEED,
     BTN_REF: emoji.REF,
@@ -106,7 +105,6 @@ MENU_STYLES = {
     BTN_WATCH: SUCCESS,
     BTN_SHOP: SUCCESS,
     BTN_ANKETAS: None,
-    BTN_UPLOAD: None,
     BTN_PROFILE: None,
     BTN_FEED: None,
     BTN_REF: None,
@@ -127,7 +125,6 @@ MENU_BUTTONS = frozenset(
     {
         BTN_WATCH,
         BTN_ANKETAS,
-        BTN_UPLOAD,
         BTN_PROFILE,
         BTN_FEED,
         BTN_REF,
@@ -142,9 +139,9 @@ def main_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [_menu_button(BTN_WATCH)],
             [_menu_button(BTN_ANKETAS)],
-            [_menu_button(BTN_UPLOAD), _menu_button(BTN_PROFILE)],
-            [_menu_button(BTN_FEED), _menu_button(BTN_REF)],
-            [_menu_button(BTN_RULES), _menu_button(BTN_SHOP)],
+            [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
+            [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
+            [_menu_button(BTN_SHOP)],
         ],
         resize_keyboard=True,
         is_persistent=True,

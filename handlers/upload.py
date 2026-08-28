@@ -20,16 +20,6 @@ class Upload(StatesGroup):
     waiting_video = State()
 
 
-@router.message(F.text == kb.BTN_UPLOAD)
-async def upload_button(message: Message, state: FSMContext) -> None:
-    if not await _may_upload(message):
-        return
-    profile = await db.get_profile(message.from_user.id)
-    await state.set_state(Upload.waiting_video)
-    await state.update_data(gender=profile["gender"])
-    await message.answer(texts.upload_ask(profile["gender"]), reply_markup=kb.back())
-
-
 async def _may_upload(message: Message, user_id: int | None = None) -> bool:
     """Circles hang off a profile, so there has to be one to hang them on."""
     profile = await db.get_profile(user_id or message.from_user.id)
