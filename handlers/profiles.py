@@ -637,7 +637,7 @@ async def mp_upload(call: CallbackQuery, state: FSMContext) -> None:
 async def mp_circles(call: CallbackQuery) -> None:
     """Show user's own uploaded circles."""
     await call.answer()
-    stats = await db.circle_stats(call.from_user.id)
+    stats = await db.user_stats(call.from_user.id)
     total = stats["approved"] + stats["pending"] + stats["rejected"]
     if not total:
         await call.message.answer("Ты ещё ничего не загрузил.")
