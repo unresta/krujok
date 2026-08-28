@@ -1190,6 +1190,15 @@ async def get_purchase(buyer_id: int, author_id: int, kind: str) -> aiosqlite.Ro
         return await cur.fetchone()
 
 
+async def get_user_purchases(buyer_id: int, kind: str) -> list[aiosqlite.Row]:
+    """All purchases of a given kind by this buyer."""
+    async with conn().execute(
+        "SELECT * FROM purchases WHERE buyer_id = ? AND kind = ?",
+        (buyer_id, kind),
+    ) as cur:
+        return await cur.fetchall()
+
+
 async def buy_access(
     buyer_id: int, author_id: int, kind: str, price: int, share: int
 ) -> tuple[str, aiosqlite.Row | None]:

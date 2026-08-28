@@ -71,7 +71,7 @@ def faq() -> str:
         "и открывает по кнопке твою анкету. Чем больше лайков собирает кружок, "
         "тем большему числу людей его показывают.\n\n"
         "<b>Что такое анкета?</b>\n"
-        "Витрина: фото, описание и твои цены. Заполняется в «Моя анкета», "
+        "Витрина: фото, описание и твои цены. Заполняется в «Мой профиль»,"
         "проходит проверку, потом её показывают в «Смотреть анкеты».\n\n"
         "<b>Как вывести заработанное?</b>\n"
         f"В «Профиле» кнопка «Вывести заработок»: от {settings.get('payout_min')} "
@@ -88,7 +88,7 @@ def faq() -> str:
         "Нет: кружочки уходят с защитой от пересылки и сохранения.\n\n"
         "<b>Почему для загрузки нужна анкета?</b>\n"
         "Потому что кружок и автор связаны: под каждым кружком есть кнопка "
-        "«Анкета автора», через неё зритель покупает доступ ко всем твоим "
+        "«Профиль автора», через неё зритель покупает доступ ко всем твоим"
         "кружочкам. Без анкеты этот путь обрывается.\n\n"
         "<b>Кто увидит, кто я?</b>\n"
         "В анкете — только фото и описание, которые ты сам выбрал. Имя и "
@@ -174,7 +174,7 @@ UPLOAD_NEEDS_PROFILE = (
 def upload_profile_pending(status: str) -> str:
     if status == "pending":
         return "🕒 Анкета на проверке. Как одобрят — можно будет загружать кружочки."
-    return "🔴 Анкета отклонена. Заполни её заново в «Моя анкета», потом загружай."
+    return "🔴 Анкета отклонена. Заполни её заново в «Мой профиль», потом загружай."
 
 
 def upload_ask(gender: str) -> str:
@@ -184,7 +184,7 @@ def upload_ask(gender: str) -> str:
         f"• <b>+{reward}</b> {coin()} после проверки модератором"
         if reward
         else "• кружочки не оплачиваются — это витрина твоей анкеты\n"
-        "• под каждым есть кнопка «Анкета автора»: так тебя находят и покупают\n"
+        "• под каждым есть кнопка «Профиль автора»: так тебя находят и покупают\n"
         "• чем больше лайков, тем большему числу людей тебя показывают"
     )
     return (
@@ -293,20 +293,22 @@ def profile(
     withdrawable: int = 0,
 ) -> str:
     sales = sales or {"content": 0, "contact": 0, "income": 0}
+    dislikes = 0  # TODO: implement dislike tracking if needed
     return (
-        "👤 <b>Профиль</b>\n\n"
-        f"ID: <code>{user_id}</code>\n"
-        f"{coin()} Баланс: <b>{coins}</b>\n\n"
-        f"📤 Мои кружочки: {s['approved']} в базе · {s['pending']} на проверке · "
-        f"{s['rejected']} отклонено\n"
-        f"👀 Их посмотрели: {views}\n"
-        f"👍 Лайков: {likes}\n"
-        f"🛒 Продано: {sales['content']} доступов · {sales['contact']} контактов\n"
-        f"{coin()} Заработано: <b>{sales['income']}</b>\n"
+        f"{emoji.text(emoji.PROFILE_HEADER)} <b>Твой профиль:</b>\n\n"
+        f"{emoji.text(emoji.UPLOADED_COUNT)} Загружено кружков: <b>{s['approved']}</b>\n"
+        f"{emoji.text(emoji.RATINGS_ICON)} Оценки: {emoji.text(emoji.LIKE_EMOJI)} "
+        f"<b>{likes}</b> | {emoji.text(emoji.DISLIKE_EMOJI)} <b>{dislikes}</b>\n"
+        f"{emoji.text(emoji.VIEWS_COUNT)} Просмотрено кружков: <b>{s['watched']}</b>\n"
+        f"{emoji.text(emoji.BALANCE_ICON)} Баланс: <b>{coins}</b> "
+        f"{emoji.text(emoji.COIN_EMOJI)}\n\n"
+        f"{emoji.text(emoji.EARNINGS_ICON)} <b>Хочешь зарабатывать в Krujok — жми "
+        "«Профиль автора» 👇</b>\n\n"
+        f"👥 Приглашено пользователей: {ref_done}\n"
         f"💸 К выводу: <b>{withdrawable}</b> {coin()} "
-        f"(~{settings.stars_for(withdrawable)} ⭐)\n\n"
-        f"👀 Сам посмотрел: {s['watched']}\n"
-        f"👥 Приглашено: {ref_done}"
+        f"(~{settings.stars_for(withdrawable)} ⭐)\n"
+        f"🛒 Продано: {sales['content']} доступов · {sales['contact']} контактов\n"
+        f"👀 Просмотров твоих кружков: {views}"
     )
 
 
@@ -331,7 +333,7 @@ PROFILE_INTRO = (
 )
 
 PROFILE_PHOTO = (
-    "🖼 <b>Анкета автора</b>\n\n"
+    "🖼 <b>Профиль автора</b>\n\n"
     "Пришли фото для анкеты — его увидят все, кто листает анкеты.\n"
     "Лицо показывать необязательно."
 )
@@ -467,7 +469,7 @@ def profile_status(profile) -> str:  # noqa: D401 — the author's own view
         else "не продаётся"
     )
     return (
-        f"<b>Моя анкета</b> · {label}\n\n"
+        f"<b>Мой профиль</b> · {label}\n\n"
         f"{profile['about'] or 'Без описания'}\n\n"
         f"Кружочки: {profile['price_content']} {coin()}\n"
         f"Личка: {contact}\n"

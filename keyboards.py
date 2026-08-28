@@ -53,11 +53,13 @@ def _pref_button(pref: str, styled: bool) -> InlineKeyboardButton:
     )
 
 
-def _coin_button(text: str, callback_data: str, style: str) -> InlineKeyboardButton:
+def _coin_button(text: str, callback_data: str, style: str, icon: str | None = None) -> InlineKeyboardButton:
+    emoji_id = icon if icon else emoji.icon(emoji.COIN)
+    label_emoji = emoji.COIN if not icon else None
     return InlineKeyboardButton(
-        text=emoji.label(emoji.COIN) + text,
+        text=(emoji.label(label_emoji) if label_emoji else "") + text,
         callback_data=callback_data,
-        icon_custom_emoji_id=emoji.icon(emoji.COIN),
+        icon_custom_emoji_id=emoji_id,
         style=style,
     )
 
@@ -86,7 +88,7 @@ BTN_REF = "Рефералы"
 BTN_RULES = "Правила и FAQ"
 BTN_SHOP = "Магазин"
 BTN_ANKETAS = "Смотреть анкеты"
-BTN_MY_ANKETA = "Моя анкета"
+BTN_MY_ANKETA = "Мой профиль"
 
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
@@ -181,7 +183,10 @@ def circle(
     if author_id:  # only when that author has a profile to open
         b.row(
             InlineKeyboardButton(
-                text="👤 Анкета автора", callback_data=f"pf:card:{author_id}", style=PRIMARY
+                text="Профиль автора",
+                callback_data=f"pf:card:{author_id}",
+                icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
+                style=PRIMARY
             )
         )
     elif archive:  # the bot's own seed content: no author to show
@@ -190,10 +195,13 @@ def circle(
         )
     b.row(
         InlineKeyboardButton(
-            text="⚠️ Пожаловаться", callback_data=f"rep:{circle_id}", style=DANGER
+            text="Пожаловаться",
+            callback_data=f"rep:{circle_id}",
+            icon_custom_emoji_id=emoji.icon(emoji.REPORT),
+            style=DANGER
         )
     )
-    b.row(_coin_button(f'Следующий · {settings.get("watch_cost")}', "watch", SUCCESS))
+    b.row(_coin_button(f'Следующий кружок · {settings.get("watch_cost")}', "watch", SUCCESS, icon=emoji.icon(emoji.NEXT_CIRCLE)))
     return b.as_markup()
 
 
@@ -377,9 +385,76 @@ def my_profile(exists: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text=("✏️ Изменить анкету" if exists else "📝 Заполнить анкету"),
-            callback_data="pf:edit",
+            text="Загрузить кружок",
+            callback_data="mp:upload",
+            icon_custom_emoji_id=emoji.icon(emoji.UPLOAD),
             style=SUCCESS,
+        ),
+        InlineKeyboardButton(
+            text="Мои кружки",
+            callback_data="mp:circles",
+            icon_custom_emoji_id=emoji.icon(emoji.FILM),
+            style=PRIMARY,
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Профиль автора",
+            callback_data="pf:edit_menu",
+            icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
+            style=PRIMARY,
+        ),
+        InlineKeyboardButton(
+            text="Купленные кружочки",
+            callback_data="mp:bought",
+            icon_custom_emoji_id=emoji.icon(emoji.SHOP),
+            style=PRIMARY,
+        ),
+    )
+    return b.as_markup()
+
+
+def profile_edit_menu(profile) -> InlineKeyboardMarkup:
+    """Menu for editing individual profile fields."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="📷 Изменить фото", callback_data="pf:edit:photo", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="✏️ Изменить описание", callback_data="pf:edit:about", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="👤 Изменить пол", callback_data="pf:edit:gender", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="💰 Изменить цену кружков",
+            callback_data="pf:edit:price_content",
+            style=PRIMARY,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="💬 Изменить цену контакта",
+            callback_data="pf:edit:price_contact",
+            style=PRIMARY,
+        )
+    )
+    if profile and profile["status"] == "approved":
+        b.row(
+            InlineKeyboardButton(
+                text="🚫 Скрыть анкету", callback_data="pf:hide", style=DANGER
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="📝 Заполнить заново", callback_data="pf:start", style=SUCCESS
         )
     )
     return b.as_markup()

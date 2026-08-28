@@ -59,12 +59,75 @@ async def my_profile(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.callback_query(F.data == "pf:edit_menu")
+async def edit_menu(call: CallbackQuery, state: FSMContext) -> None:
+    """Show menu to edit individual fields or create new profile."""
+    await state.clear()
+    profile = await db.get_profile(call.from_user.id)
+    if profile is None:
+        await call.message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
+    else:
+        await call.message.answer_photo(
+            profile["photo_id"],
+            caption=texts.profile_status(profile),
+            reply_markup=kb.profile_edit_menu(profile),
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data == "pf:hide")
+async def hide_profile(call: CallbackQuery) -> None:
+    """User hides their own profile."""
+    profile = await db.get_profile(call.from_user.id)
+    if profile is None or profile["status"] != "approved":
+        await call.answer("Нечего скрывать.", show_alert=True)
+        return
+    await db.set_profile_status(call.from_user.id, "rejected")
+    await call.answer("Анкета скрыта.")
+    profile = await db.get_profile(call.from_user.id)
+    await call.message.edit_caption(
+        caption=texts.profile_status(profile),
+        reply_markup=kb.profile_edit_menu(profile),
+    )
+
+
+@router.callback_query(F.data.startswith("pf:edit:"))
+async def edit_field(call: CallbackQuery, state: FSMContext) -> None:
+    """Start editing one field."""
+    field = call.data.split(":")[2]
+    profile = await db.get_profile(call.from_user.id)
+    if profile is None:
+        await call.answer("Сначала заполни анкету.", show_alert=True)
+        return
+
+    await state.update_data(editing_field=field)
+
+    if field == "photo":
+        await state.set_state(Anketa.photo)
+        await call.message.answer(texts.PROFILE_PHOTO, reply_markup=kb.back())
+    elif field == "about":
+        await state.set_state(Anketa.about)
+        await call.message.answer(texts.profile_about(), reply_markup=kb.back())
+    elif field == "gender":
+        await state.set_state(Anketa.gender)
+        await call.message.answer(texts.PROFILE_GENDER, reply_markup=kb.profile_gender())
+    elif field == "price_content":
+        await state.set_state(Anketa.price_content)
+        await call.message.answer(texts.profile_price_content(), reply_markup=kb.back())
+    elif field == "price_contact":
+        await state.set_state(Anketa.price_contact)
+        has_username = bool(call.from_user.username)
+        await call.message.answer(
+            texts.PROFILE_CONTACT_ASK if has_username else texts.PROFILE_NO_USERNAME,
+            reply_markup=kb.profile_contact_ask(has_username),
+        )
+    await call.answer()
+
+
 @router.callback_query(F.data == "pf:edit")
 async def edit_profile(call: CallbackQuery, state: FSMContext) -> None:
-    """Every road into the form goes through the pitch and its agreement."""
-    await state.clear()
-    await call.message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
-    await call.answer()
+    """Legacy callback — redirect to edit menu."""
+    await edit_menu(call, state)
 
 
 @router.callback_query(F.data == "pf:start")
@@ -79,6 +142,33 @@ async def start_profile(call: CallbackQuery, state: FSMContext) -> None:
 @router.message(Anketa.photo, F.photo)
 async def got_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1]
+    data = await state.get_data()
+
+    if data.get("editing_field") == "photo":
+        # Single-field edit: update only photo
+        profile = await db.get_profile(message.from_user.id)
+        if profile:
+            await db.save_profile(
+                user_id=message.from_user.id,
+                photo_id=photo.file_id,
+                photo_unique_id=photo.file_unique_id,
+                about=profile["about"],
+                gender=profile["gender"],
+                price_content=profile["price_content"],
+                price_contact=profile["price_contact"],
+                contact_ok=profile["contact_ok"],
+                username=message.from_user.username,
+            )
+            await state.clear()
+            await message.answer("✅ Фото обновлено.", reply_markup=kb.back())
+            profile = await db.get_profile(message.from_user.id)
+            await message.answer_photo(
+                profile["photo_id"],
+                caption=texts.profile_status(profile),
+                reply_markup=kb.profile_edit_menu(profile),
+            )
+            return
+
     await state.update_data(
         photo_id=photo.file_id, photo_unique_id=photo.file_unique_id
     )
@@ -99,6 +189,32 @@ async def got_about(message: Message, state: FSMContext) -> None:
     if len(about) > ABOUT_MAX:
         await message.answer(texts.profile_about(), reply_markup=kb.back())
         return
+
+    data = await state.get_data()
+    if data.get("editing_field") == "about":
+        profile = await db.get_profile(message.from_user.id)
+        if profile:
+            await db.save_profile(
+                user_id=message.from_user.id,
+                photo_id=profile["photo_id"],
+                photo_unique_id=profile["photo_unique_id"],
+                about=about,
+                gender=profile["gender"],
+                price_content=profile["price_content"],
+                price_contact=profile["price_contact"],
+                contact_ok=profile["contact_ok"],
+                username=message.from_user.username,
+            )
+            await state.clear()
+            await message.answer("✅ Описание обновлено.", reply_markup=kb.back())
+            profile = await db.get_profile(message.from_user.id)
+            await message.answer_photo(
+                profile["photo_id"],
+                caption=texts.profile_status(profile),
+                reply_markup=kb.profile_edit_menu(profile),
+            )
+            return
+
     await state.update_data(about=about)
     await state.set_state(Anketa.gender)
     await message.answer(texts.PROFILE_GENDER, reply_markup=kb.profile_gender())
@@ -106,7 +222,34 @@ async def got_about(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(Anketa.gender, F.data.startswith("pg:"))
 async def got_gender(call: CallbackQuery, state: FSMContext) -> None:
-    await state.update_data(gender=call.data.split(":")[1])
+    gender = call.data.split(":")[1]
+    data = await state.get_data()
+
+    if data.get("editing_field") == "gender":
+        profile = await db.get_profile(call.from_user.id)
+        if profile:
+            await db.save_profile(
+                user_id=call.from_user.id,
+                photo_id=profile["photo_id"],
+                photo_unique_id=profile["photo_unique_id"],
+                about=profile["about"],
+                gender=gender,
+                price_content=profile["price_content"],
+                price_contact=profile["price_contact"],
+                contact_ok=profile["contact_ok"],
+                username=call.from_user.username,
+            )
+            await state.clear()
+            await call.answer("✅ Пол обновлён.")
+            profile = await db.get_profile(call.from_user.id)
+            await call.message.answer_photo(
+                profile["photo_id"],
+                caption=texts.profile_status(profile),
+                reply_markup=kb.profile_edit_menu(profile),
+            )
+            return
+
+    await state.update_data(gender=gender)
     await state.set_state(Anketa.price_content)
     await call.message.edit_text(texts.profile_price_content())
     await call.answer()
@@ -118,6 +261,32 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
     if price is None:
         await message.answer(texts.profile_bad_price(), reply_markup=kb.back())
         return
+
+    data = await state.get_data()
+    if data.get("editing_field") == "price_content":
+        profile = await db.get_profile(message.from_user.id)
+        if profile:
+            await db.save_profile(
+                user_id=message.from_user.id,
+                photo_id=profile["photo_id"],
+                photo_unique_id=profile["photo_unique_id"],
+                about=profile["about"],
+                gender=profile["gender"],
+                price_content=price,
+                price_contact=profile["price_contact"],
+                contact_ok=profile["contact_ok"],
+                username=message.from_user.username,
+            )
+            await state.clear()
+            await message.answer("✅ Цена кружков обновлена.", reply_markup=kb.back())
+            profile = await db.get_profile(message.from_user.id)
+            await message.answer_photo(
+                profile["photo_id"],
+                caption=texts.profile_status(profile),
+                reply_markup=kb.profile_edit_menu(profile),
+            )
+            return
+
     await state.update_data(price_content=price)
     await state.set_state(Anketa.contact)
 
@@ -164,6 +333,32 @@ async def got_price_contact(message: Message, state: FSMContext) -> None:
     if price is None:
         await message.answer(texts.profile_bad_price(), reply_markup=kb.back())
         return
+
+    data = await state.get_data()
+    if data.get("editing_field") == "price_contact":
+        profile = await db.get_profile(message.from_user.id)
+        if profile:
+            await db.save_profile(
+                user_id=message.from_user.id,
+                photo_id=profile["photo_id"],
+                photo_unique_id=profile["photo_unique_id"],
+                about=profile["about"],
+                gender=profile["gender"],
+                price_content=profile["price_content"],
+                price_contact=price,
+                contact_ok=True,
+                username=message.from_user.username,
+            )
+            await state.clear()
+            await message.answer("✅ Цена контакта обновлена.", reply_markup=kb.back())
+            profile = await db.get_profile(message.from_user.id)
+            await message.answer_photo(
+                profile["photo_id"],
+                caption=texts.profile_status(profile),
+                reply_markup=kb.profile_edit_menu(profile),
+            )
+            return
+
     await state.update_data(price_contact=price)
     await _submit(message, message.from_user, state)
 
@@ -414,6 +609,52 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         reply_markup=kb.profile_card(profile, bought_content, bought_contact),
     )
     await db.mark_profile_seen(viewer_id, author)
+
+
+@router.callback_query(F.data == "mp:upload")
+async def mp_upload(call: CallbackQuery) -> None:
+    """Redirect to upload flow."""
+    await call.answer()
+    await call.message.answer(texts.UPLOAD_INTRO, reply_markup=kb.back())
+
+
+@router.callback_query(F.data == "mp:circles")
+async def mp_circles(call: CallbackQuery) -> None:
+    """Show user's own uploaded circles."""
+    await call.answer()
+    stats = await db.circle_stats(call.from_user.id)
+    total = stats["approved"] + stats["pending"] + stats["rejected"]
+    if not total:
+        await call.message.answer("Ты ещё ничего не загрузил.")
+        return
+    text = (
+        "📤 <b>Мои загруженные кружки:</b>\n\n"
+        f"🟢 Одобрено: {stats['approved']}\n"
+        f"🕒 На проверке: {stats['pending']}\n"
+        f"🔴 Отклонено: {stats['rejected']}\n\n"
+        f"Всего: {total}"
+    )
+    await call.message.answer(text, reply_markup=kb.back())
+
+
+@router.callback_query(F.data == "mp:bought")
+async def mp_bought(call: CallbackQuery) -> None:
+    """Show purchased content."""
+    await call.answer()
+    purchases = await db.get_user_purchases(call.from_user.id, "content")
+    if not purchases:
+        await call.message.answer("Ты ещё ничего не купил.")
+        return
+
+    lines = []
+    for p in purchases:
+        circles = await db.author_circles(p["author_id"], p["max_circle_id"])
+        lines.append(
+            f"• Автор <code>{p['author_id']}</code> — {len(circles)} кружков"
+        )
+
+    text = "🛒 <b>Купленные кружочки:</b>\n\n" + "\n".join(lines)
+    await call.message.answer(text, reply_markup=kb.back())
 
 
 @router.callback_query(F.data.startswith("pf:card:"))
