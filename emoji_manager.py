@@ -82,22 +82,43 @@ def text(key: str) -> str:
 
 async def resolve(bot):
     """Resolve all emoji IDs with Telegram."""
-    _emoji_map.clear()
-    all_emoji = {}
+    import emoji as emoji_module
+    from aiogram.exceptions import TelegramAPIError
+    from config import PREMIUM_EMOJI
 
+    _emoji_map.clear()
+
+    if not PREMIUM_EMOJI:
+        return
+
+    all_emoji = {}
     # Merge custom over defaults
     for key, data in DEFAULT_EMOJI.items():
         all_emoji[key] = data["emoji_id"]
     for key, data in _custom_emoji.items():
         all_emoji[key] = data["emoji_id"]
 
-    # Resolve with Telegram
+    # Get unique IDs
     unique_ids = list(set(all_emoji.values()))
-    resolved = await emoji_module.resolve(bot, unique_ids)
 
-    # Map back to keys
+    try:
+        stickers = await bot.get_custom_emoji_stickers(custom_emoji_ids=unique_ids)
+    except TelegramAPIError:
+        # If resolution fails, just return - emoji will use fallbacks
+        return
+
+    # Create ID -> resolved mapping
+    resolved_ids = set()
+    for sticker in stickers:
+        if sticker.custom_emoji_id:
+            resolved_ids.add(sticker.custom_emoji_id)
+
+    # Map back to keys - only resolved IDs
     for key, emoji_id in all_emoji.items():
-        _emoji_map[key] = resolved.get(emoji_id)
+        if emoji_id in resolved_ids:
+            _emoji_map[key] = emoji_id
+        else:
+            _emoji_map[key] = None
 
 
 def list_all_emoji() -> dict:
