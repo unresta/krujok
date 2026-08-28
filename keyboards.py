@@ -23,7 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
 import settings
-from config import STAR_PACKS
+from config import PRIVACY_URL, STAR_PACKS, TERMS_URL
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -682,8 +682,8 @@ def buy() -> InlineKeyboardMarkup:
 # anywhere money changes hands — acquirers check for exactly that.
 def _legal_row(b: InlineKeyboardBuilder) -> None:
     b.row(
-        InlineKeyboardButton(text="📄 Оферта", callback_data="doc:terms"),
-        InlineKeyboardButton(text="🔒 Конфиденциальность", callback_data="doc:privacy"),
+        InlineKeyboardButton(text="📄 Оферта", url=TERMS_URL),
+        InlineKeyboardButton(text="🔒 Конфиденциальность", url=PRIVACY_URL),
     )
 
 

@@ -103,21 +103,6 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
     await send_invoice(call.message, stars)
 
 
-@router.callback_query(F.data.startswith("doc:"))
-async def show_document(call: CallbackQuery) -> None:
-    """The offer and the privacy policy, in the chat rather than behind a link."""
-    name = call.data.split(":", 1)[1]
-    if name not in texts.DOCS:
-        await call.answer(texts.STALE_BUTTON)
-        return
-
-    await call.answer()
-    parts = texts.doc_parts(name)
-    for index, part in enumerate(parts):
-        last = index == len(parts) - 1
-        await call.message.answer(part, reply_markup=kb.back() if last else None)
-
-
 @router.callback_query(F.data.startswith("pay_method:"))
 async def pay_with_crypto(call: CallbackQuery, state: FSMContext) -> None:
     """Everything that is not Stars is an invoice at one of the crypto bots."""
