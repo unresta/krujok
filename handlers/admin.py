@@ -60,8 +60,7 @@ class Admin(StatesGroup):
     delete_link = State()
     profiles_chat = State()
     circles_chat = State()
-    emoji_edit = State()
-    text_edit = State()
+    content_edit = State()  # unified text + emoji editing
 
 
 # --- home ----------------------------------------------------------------
@@ -129,8 +128,7 @@ def home_kb(
         )
     )
     b.row(
-        InlineKeyboardButton(text="Эмодзи", callback_data="a:emoji", style=kb.PRIMARY),
-        InlineKeyboardButton(text="Тексты", callback_data="a:texts", style=kb.PRIMARY),
+        InlineKeyboardButton(text="📝 Тексты и эмодзи", callback_data="a:content", style=kb.PRIMARY),
     )
     b.row(
         InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
@@ -1771,221 +1769,177 @@ async def refund_cmd(message: Message, command: CommandObject) -> None:
     await message.answer(f"Возвращено {payment['stars']} ⭐.")
 
 
-# --- emoji and text management -------------------------------------------
+# New unified content management handlers for admin.py
+# Replace the old emoji and text handlers with these
+
+# --- content management (texts + emoji) ----------------------------------
 
 
-@router.callback_query(F.data == "a:emoji")
-async def emoji_menu(call: CallbackQuery) -> None:
-    """Show emoji management menu."""
-    import emoji_manager
+@router.callback_query(F.data == "a:content")
+async def content_menu(call: CallbackQuery, state: FSMContext) -> None:
+    """Show unified content management menu with all editable texts."""
+    await state.clear()
+    import text_manager
 
-    emoji_list = emoji_manager.list_all_emoji()
-    text_lines = ["🎨 <b>Управление премиум-эмодзи</b>\n"]
+    # Get all texts
+    texts_list = text_manager.list_all_texts()
 
-    for key, data in sorted(emoji_list.items()):
-        status = "✏️" if data["is_custom"] else "📋"
-        text_lines.append(
-            f"{status} <code>{key}</code>\n"
-            f"   ID: <code>{data['emoji_id']}</code>\n"
-            f"   {data['description']}"
-        )
-
-    text = "\n".join(text_lines)
+    # Build menu with all editable items
+    text = "📝 <b>Тексты и эмодзи</b>\n\n"
+    text += "Выбери текст для редактирования:\n\n"
 
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="Изменить эмодзи", callback_data="a:emoji:edit"))
-    b.row(InlineKeyboardButton(text="Сбросить всё", callback_data="a:emoji:reset"))
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+
+    # Show all texts in a grid (2 per row)
+    buttons = []
+    for key in sorted(texts_list.keys()):
+        data = texts_list[key]
+        status = "✏️" if data["is_custom"] else "📋"
+        # Truncate description to fit button
+        short_desc = data['description'][:25]
+        if len(data['description']) > 25:
+            short_desc += "..."
+        buttons.append(
+            InlineKeyboardButton(
+                text=f"{status} {short_desc}",
+                callback_data=f"a:cnt:e:{key}"
+            )
+        )
+
+    # Add buttons in rows of 2
+    for i in range(0, len(buttons), 2):
+        if i + 1 < len(buttons):
+            b.row(buttons[i], buttons[i + 1])
+        else:
+            b.row(buttons[i])
+
+    b.row(InlineKeyboardButton(text="🔄 Сбросить все", callback_data="a:cnt:rst"))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home", style=kb.DANGER))
 
     await call.message.edit_text(text, reply_markup=b.as_markup())
     await call.answer()
 
 
-@router.callback_query(F.data == "a:emoji:edit")
-async def emoji_edit_start(call: CallbackQuery, state: FSMContext) -> None:
-    """Start editing emoji."""
-    await state.set_state(Admin.emoji_edit)
-    await call.message.edit_text(
-        "✏️ <b>Изменить эмодзи</b>\n\n"
-        "Отправь сообщение в формате:\n"
-        "<code>KEY emoji_id fallback описание</code>\n\n"
-        "Пример:\n"
-        "<code>UPLOAD 6028115612163641653 ⬆️ Кнопка загрузки</code>\n\n"
-        "Отправь /cancel для отмены.",
-        reply_markup=back_kb(),
-    )
-    await call.answer()
+@router.callback_query(F.data.startswith("a:cnt:e:"))
+async def content_edit_start(call: CallbackQuery, state: FSMContext) -> None:
+    """Show current text with emoji and prompt for editing."""
+    key = call.data[8:]  # Remove "a:cnt:e:" prefix
 
-
-@router.message(Admin.emoji_edit)
-async def emoji_edit_process(message: Message, state: FSMContext) -> None:
-    """Process emoji edit."""
-    if message.text == "/cancel":
-        await state.clear()
-        await message.answer("Отменено.", reply_markup=back_kb())
-        return
-
-    parts = message.text.split(maxsplit=3)
-    if len(parts) < 3:
-        await message.answer(
-            "❌ Неверный формат. Нужно: <code>KEY emoji_id fallback описание</code>"
-        )
-        return
-
-    key = parts[0]
-    emoji_id = parts[1]
-    fallback = parts[2]
-    description = parts[3] if len(parts) > 3 else ""
-
-    await db.save_custom_emoji(key, emoji_id, fallback, description)
-
-    import emoji_manager
-    await emoji_manager.load_from_db()
-
-    await state.clear()
-    await message.answer(
-        f"✅ Эмодзи <code>{key}</code> сохранён.\n\n"
-        "⚠️ Перезапусти бота, чтобы изменения вступили в силу.",
-        reply_markup=back_kb(),
-    )
-
-
-@router.callback_query(F.data == "a:emoji:reset")
-async def emoji_reset_confirm(call: CallbackQuery) -> None:
-    """Confirm emoji reset."""
-    b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="✅ Да, сбросить", callback_data="a:emoji:reset:yes"))
-    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="a:emoji"))
-
-    await call.message.edit_text(
-        "⚠️ <b>Подтверди сброс</b>\n\n"
-        "Все кастомные эмодзи будут удалены и восстановлены дефолтные значения.",
-        reply_markup=b.as_markup(),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data == "a:emoji:reset:yes")
-async def emoji_reset_execute(call: CallbackQuery) -> None:
-    """Execute emoji reset."""
-    await db.conn().execute("DELETE FROM custom_emoji")
-    await db.conn().commit()
-
-    import emoji_manager
-    await emoji_manager.load_from_db()
-
-    await call.message.edit_text(
-        "✅ Все эмодзи сброшены.\n\n"
-        "⚠️ Перезапусти бота, чтобы изменения вступили в силу.",
-        reply_markup=back_kb(),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data == "a:texts")
-async def texts_menu(call: CallbackQuery) -> None:
-    """Show texts management menu."""
     import text_manager
 
     texts_list = text_manager.list_all_texts()
-    text_lines = ["📝 <b>Управление текстами</b>\n"]
+    if key not in texts_list:
+        await call.answer("❌ Текст не найден", show_alert=True)
+        return
 
-    for key, data in sorted(texts_list.items()):
-        status = "✏️" if data["is_custom"] else "📋"
-        preview = data["text"][:50] + "..." if len(data["text"]) > 50 else data["text"]
-        text_lines.append(
-            f"{status} <code>{key}</code>\n"
-            f"   {data['description']}\n"
-            f"   <i>{html.escape(preview)}</i>"
-        )
+    data = texts_list[key]
+    current_text = data["text"]
+    description = data["description"]
 
-    text = "\n".join(text_lines)
+    await state.set_state(Admin.content_edit)
+    await state.update_data(key=key)
 
-    b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="Изменить текст", callback_data="a:texts:edit"))
-    b.row(InlineKeyboardButton(text="Сбросить всё", callback_data="a:texts:reset"))
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
-
-    await call.message.edit_text(text, reply_markup=b.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data == "a:texts:edit")
-async def texts_edit_start(call: CallbackQuery, state: FSMContext) -> None:
-    """Start editing text."""
-    await state.set_state(Admin.text_edit)
-    await call.message.edit_text(
-        "✏️ <b>Изменить текст</b>\n\n"
-        "Отправь сообщение в формате:\n"
-        "<code>KEY|||текст|||описание</code>\n\n"
-        "Пример:\n"
-        "<code>WELCOME|||Привет! 👋|||Приветствие</code>\n\n"
-        "Отправь /cancel для отмены.",
-        reply_markup=back_kb(),
+    prompt = (
+        f"✏️ <b>{description}</b>\n\n"
+        f"<b>Текущий текст:</b>\n"
+        f"{current_text}\n\n"
+        f"━━━━━━━━━━━━━━━━━\n\n"
+        f"Отправь новый текст с премиум эмодзи.\n"
+        f"Бот автоматически извлечёт emoji ID из твоего сообщения.\n\n"
+        f"Или /cancel для отмены."
     )
+
+    await call.message.edit_text(prompt, reply_markup=back_kb())
     await call.answer()
 
 
-@router.message(Admin.text_edit)
-async def texts_edit_process(message: Message, state: FSMContext) -> None:
-    """Process text edit."""
-    if message.text == "/cancel":
+@router.message(Admin.content_edit)
+async def content_edit_process(message: Message, state: FSMContext) -> None:
+    """Process text edit with automatic emoji extraction."""
+    if message.text and message.text.startswith("/cancel"):
         await state.clear()
-        await message.answer("Отменено.", reply_markup=back_kb())
+        await message.answer("❌ Отменено", reply_markup=back_kb())
         return
 
-    parts = message.text.split("|||")
-    if len(parts) < 2:
-        await message.answer(
-            "❌ Неверный формат. Нужно: <code>KEY|||текст|||описание</code>"
-        )
+    data = await state.get_data()
+    key = data.get("key")
+
+    if not key:
+        await message.answer("❌ Ошибка: ключ не найден")
+        await state.clear()
         return
 
-    key = parts[0].strip()
-    text = parts[1].strip()
-    description = parts[2].strip() if len(parts) > 2 else ""
+    new_text = message.text or message.caption or ""
+    if not new_text.strip():
+        await message.answer("❌ Текст не может быть пустым", reply_markup=back_kb())
+        return
 
-    await db.save_custom_text(key, text, description)
+    # Extract custom emoji from entities
+    emoji_count = 0
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "custom_emoji" and entity.custom_emoji_id:
+                emoji_count += 1
+                # Get the emoji fallback text at this position
+                emoji_fallback = new_text[entity.offset:entity.offset + entity.length]
+                # Save this emoji for future reference (optional, for tracking)
+                emoji_key = f"AUTO_{entity.custom_emoji_id[:12]}"
+                await db.conn().execute(
+                    "INSERT OR IGNORE INTO custom_emoji (key, emoji_id, fallback, description) "
+                    "VALUES (?, ?, ?, ?)",
+                    (emoji_key, entity.custom_emoji_id, emoji_fallback, f"Из {key}")
+                )
 
+    # Save text to database
     import text_manager
-    await text_manager.load_from_db()
+    description_data = text_manager.list_all_texts().get(key, {})
+    description = description_data.get("description", "")
 
+    await db.conn().execute(
+        "INSERT INTO custom_texts (key, text, description) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET text = excluded.text",
+        (key, new_text, description)
+    )
+    await db.conn().commit()
     await state.clear()
+
+    preview = new_text[:100] + "..." if len(new_text) > 100 else new_text
     await message.answer(
-        f"✅ Текст <code>{key}</code> сохранён.\n\n"
-        "⚠️ Перезапусти бота, чтобы изменения вступили в силу.",
-        reply_markup=back_kb(),
+        f"✅ <b>{description}</b> обновлён\n\n"
+        f"Ключ: <code>{key}</code>\n"
+        f"Премиум эмодзи: {emoji_count}\n"
+        f"Текст: {preview}\n\n"
+        f"⚠️ Перезапусти бота для применения.",
+        reply_markup=back_kb()
     )
 
 
-@router.callback_query(F.data == "a:texts:reset")
-async def texts_reset_confirm(call: CallbackQuery) -> None:
-    """Confirm texts reset."""
+@router.callback_query(F.data == "a:cnt:rst")
+async def content_reset_confirm(call: CallbackQuery) -> None:
+    """Confirm content reset."""
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="✅ Да, сбросить", callback_data="a:texts:reset:yes"))
-    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="a:texts"))
+    b.row(InlineKeyboardButton(text="✅ Да, сбросить всё", callback_data="a:cnt:rst:y"))
+    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="a:content"))
 
     await call.message.edit_text(
         "⚠️ <b>Подтверди сброс</b>\n\n"
-        "Все кастомные тексты будут удалены и восстановлены дефолтные значения.",
+        "Все кастомные тексты и эмодзи будут удалены.\n"
+        "Восстановятся дефолтные значения.",
         reply_markup=b.as_markup(),
     )
     await call.answer()
 
 
-@router.callback_query(F.data == "a:texts:reset:yes")
-async def texts_reset_execute(call: CallbackQuery) -> None:
-    """Execute texts reset."""
+@router.callback_query(F.data == "a:cnt:rst:y")
+async def content_reset_execute(call: CallbackQuery) -> None:
+    """Execute content reset."""
     await db.conn().execute("DELETE FROM custom_texts")
+    await db.conn().execute("DELETE FROM custom_emoji")
     await db.conn().commit()
 
-    import text_manager
-    await text_manager.load_from_db()
-
     await call.message.edit_text(
-        "✅ Все тексты сброшены.\n\n"
-        "⚠️ Перезапусти бота, чтобы изменения вступили в силу.",
+        "✅ Все тексты и эмодзи сброшены.\n\n"
+        "⚠️ Перезапусти бота для применения.",
         reply_markup=back_kb(),
     )
     await call.answer()
-
