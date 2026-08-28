@@ -770,28 +770,38 @@ def vars_hint(key: str) -> str:
     return "Можно вставить:\n" + "\n".join(f"• {pair}" for pair in pairs)
 
 
-# Tags the bot's own texts are written with. Seeing one typed out as plain text
-# means the admin is editing the markup itself — most likely they copied the
-# block from the card, changed a word and sent it straight back.
-_TAG = re.compile(
-    r"</?(b|strong|i|em|u|s|code|pre|a|tg-emoji|blockquote|span)\b[^>]*>", re.I
+# Tags the bot's own texts are written with, as they come back escaped.
+_TAGS = "b|strong|i|em|u|ins|s|strike|del|code|pre|a|tg-emoji|tg-spoiler|blockquote|span"
+_ESCAPED_TAG = re.compile(
+    rf"&lt;(/?)({_TAGS})((?:(?!&gt;).)*)&gt;", re.IGNORECASE | re.DOTALL
 )
+
+
+def _unescape_tags(html_text: str) -> str:
+    """Put back the tags the admin typed, leaving everything else escaped."""
+
+    def restore(match: re.Match) -> str:
+        import html as html_module
+
+        attrs = html_module.unescape(match.group(3))
+        return f"<{match.group(1)}{match.group(2)}{attrs}>"
+
+    return _ESCAPED_TAG.sub(restore, html_text)
 
 
 def incoming(key: str, text: str, html_text: str) -> tuple[str, str | None]:
     """What to store for this message, and what to fall back to if it fails.
 
-    Telegram gives the same message two ways: as typed, and with the sender's
-    own bold/links/emoji already turned into tags. Tags that were typed by hand
-    would come back escaped from the second one — «<b>» as visible letters — so
-    a message that carries them is taken as written.
+    Telegram hands the same message over twice: as typed, and with whatever the
+    sender formatted — bold, links, premium emoji — already turned into tags.
+    Only the second one carries those, so it is the one to keep; but it escapes
+    tags that were typed by hand, and a text copied out of the card is full of
+    them. Hence: take the formatted version, then un-escape the tags in it.
     """
-    text = (text or "").strip()
     if EDITABLE[key].plain:
-        return text, None
-    if _TAG.search(text):
-        return text, html_text.strip()
-    return html_text.strip(), None
+        return (text or "").strip(), None
+    escaped = html_text.strip()
+    return _unescape_tags(escaped), escaped
 
 
 def check(key: str, value: str) -> str | None:
