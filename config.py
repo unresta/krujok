@@ -72,7 +72,7 @@ STAR_PRICE = 130  # what one ⭐ is worth to you, in minor units (1.30 ₽)
 # Channel users must join before they can use the bot; empty turns the gate off.
 # The bot has to be an administrator there to see who is a member.
 CHANNEL: str = os.getenv("CHANNEL", "")
-SUB_CACHE = 300.0  # seconds a confirmed subscription is trusted without asking
+SUB_CACHE = 0.0  # seconds a confirmed subscription is trusted without asking
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing, fill .env")
