@@ -133,6 +133,44 @@ CREATE TABLE IF NOT EXISTS profile_reports (
     PRIMARY KEY (user_id, author_id)
 );
 
+-- Sponsor channels the gate demands. Several at once: this is what is sold to
+-- advertisers, so each one keeps its own count of who came through it.
+CREATE TABLE IF NOT EXISTS gate_channels (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat     TEXT    NOT NULL UNIQUE,       -- @name or -100…
+    title    TEXT    NOT NULL DEFAULT '',
+    link     TEXT    NOT NULL DEFAULT '',   -- filled in from Telegram
+    active   INTEGER NOT NULL DEFAULT 1,
+    added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS channel_joins (
+    channel_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    ts         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (channel_id, user_id)
+);
+
+-- A post the admin forwards once and the bot shows on its own: a welcome is
+-- seen once per user, a promo comes round again on a timer.
+CREATE TABLE IF NOT EXISTS posts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL,             -- welcome | promo
+    from_chat  INTEGER NOT NULL,             -- where the original still lives
+    msg_id     INTEGER NOT NULL,
+    title      TEXT    NOT NULL DEFAULT '',
+    active     INTEGER NOT NULL DEFAULT 1,
+    shown      INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS post_seen (
+    user_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (user_id, post_id)
+);
+
 CREATE TABLE IF NOT EXISTS campaigns (
     code       TEXT PRIMARY KEY,          -- what goes after ?start=
     title      TEXT NOT NULL DEFAULT '',
@@ -222,6 +260,7 @@ MIGRATIONS = {
         "last_seen": "INTEGER NOT NULL DEFAULT 0",
         "last_push": "INTEGER NOT NULL DEFAULT 0",
         "free_views": "INTEGER NOT NULL DEFAULT 0",  # circles owed, not coins
+        "last_promo": "INTEGER NOT NULL DEFAULT 0",  # when a promo post last came
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -1611,6 +1650,192 @@ async def add_payment(
         return False
     await conn().commit()
     return True
+
+
+# --- sponsor channels ----------------------------------------------------
+
+
+async def add_channel(chat: str, title: str = "", link: str = "") -> int | None:
+    """None when that channel is already on the list."""
+    try:
+        cur = await conn().execute(
+            "INSERT INTO gate_channels(chat, title, link) VALUES (?, ?, ?)",
+            (chat, title, link),
+        )
+    except aiosqlite.IntegrityError:
+        return None
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def channels(active_only: bool = False) -> list[aiosqlite.Row]:
+    """Every sponsor channel with what it brought in — today and in total."""
+    where = "WHERE c.active = 1" if active_only else ""
+    async with conn().execute(
+        f"""
+        SELECT c.*,
+               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id)
+                   AS joined,
+               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+                  AND j.ts > strftime('%s','now') - 86400) AS joined_today
+        FROM gate_channels c {where} ORDER BY c.active DESC, c.id
+        """
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_channel(channel_id: int) -> aiosqlite.Row | None:
+    """Carries the same join counts as channels(), so cards render the same."""
+    async with conn().execute(
+        """
+        SELECT c.*,
+               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id)
+                   AS joined,
+               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+                  AND j.ts > strftime('%s','now') - 86400) AS joined_today
+        FROM gate_channels c WHERE c.id = ?
+        """,
+        (channel_id,),
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def set_channel_active(channel_id: int, active: bool) -> None:
+    await conn().execute(
+        "UPDATE gate_channels SET active = ? WHERE id = ?", (int(active), channel_id)
+    )
+    await conn().commit()
+
+
+async def set_channel_meta(channel_id: int, title: str, link: str) -> None:
+    await conn().execute(
+        "UPDATE gate_channels SET title = ?, link = ? WHERE id = ?",
+        (title, link, channel_id),
+    )
+    await conn().commit()
+
+
+async def drop_channel(channel_id: int) -> None:
+    await conn().execute("DELETE FROM gate_channels WHERE id = ?", (channel_id,))
+    await conn().execute("DELETE FROM channel_joins WHERE channel_id = ?", (channel_id,))
+    await conn().commit()
+
+
+async def mark_join(channel_id: int, user_id: int) -> bool:
+    """True the first time this person is seen inside this channel."""
+    try:
+        await conn().execute(
+            "INSERT INTO channel_joins(channel_id, user_id) VALUES (?, ?)",
+            (channel_id, user_id),
+        )
+    except aiosqlite.IntegrityError:
+        return False
+    await conn().commit()
+    return True
+
+
+# --- welcome and promo posts ---------------------------------------------
+
+
+async def add_post(kind: str, from_chat: int, msg_id: int, title: str) -> int:
+    cur = await conn().execute(
+        "INSERT INTO posts(kind, from_chat, msg_id, title) VALUES (?, ?, ?, ?)",
+        (kind, from_chat, msg_id, title),
+    )
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def posts(kind: str | None = None) -> list[aiosqlite.Row]:
+    where = "WHERE kind = ?" if kind else ""
+    args = (kind,) if kind else ()
+    async with conn().execute(
+        f"SELECT * FROM posts {where} ORDER BY active DESC, id", args
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_post(post_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM posts WHERE id = ?", (post_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def set_post_active(post_id: int, active: bool) -> None:
+    await conn().execute(
+        "UPDATE posts SET active = ? WHERE id = ?", (int(active), post_id)
+    )
+    await conn().commit()
+
+
+async def drop_post(post_id: int) -> None:
+    await conn().execute("DELETE FROM posts WHERE id = ?", (post_id,))
+    await conn().execute("DELETE FROM post_seen WHERE post_id = ?", (post_id,))
+    await conn().commit()
+
+
+async def unseen_welcome(user_id: int) -> list[aiosqlite.Row]:
+    """Active welcome posts this person has not been shown yet."""
+    async with conn().execute(
+        """
+        SELECT * FROM posts
+        WHERE kind = 'welcome' AND active = 1
+          AND id NOT IN (SELECT post_id FROM post_seen WHERE user_id = ?)
+        ORDER BY id
+        """,
+        (user_id,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def pick_promo(user_id: int) -> aiosqlite.Row | None:
+    """A promo the user has seen least recently; ties broken at random."""
+    async with conn().execute(
+        """
+        SELECT p.* FROM posts p
+        LEFT JOIN post_seen s ON s.post_id = p.id AND s.user_id = :uid
+        WHERE p.kind = 'promo' AND p.active = 1
+        ORDER BY COALESCE(s.ts, 0), RANDOM() LIMIT 1
+        """,
+        {"uid": user_id},
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def mark_shown(user_id: int, post_id: int, promo: bool = False) -> None:
+    await conn().execute(
+        "INSERT INTO post_seen(user_id, post_id) VALUES (?, ?)"
+        " ON CONFLICT(user_id, post_id) DO UPDATE SET ts = strftime('%s','now')",
+        (user_id, post_id),
+    )
+    await conn().execute("UPDATE posts SET shown = shown + 1 WHERE id = ?", (post_id,))
+    if promo:
+        await conn().execute(
+            "UPDATE users SET last_promo = strftime('%s','now') WHERE id = ?",
+            (user_id,),
+        )
+    await conn().commit()
+
+
+async def promo_due(user_id: int, cooldown: int) -> bool:
+    async with conn().execute(
+        "SELECT last_promo < strftime('%s','now') - ? FROM users WHERE id = ?",
+        (cooldown, user_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return bool(row and row[0])
+
+
+async def post_stats() -> dict:
+    async with conn().execute(
+        """
+        SELECT
+          COALESCE(SUM(kind = 'welcome' AND active = 1), 0) AS welcome,
+          COALESCE(SUM(kind = 'promo' AND active = 1), 0)   AS promo,
+          COALESCE(SUM(shown), 0)                           AS shown
+        FROM posts
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
 
 
 # --- crypto invoices -----------------------------------------------------

@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
 import access
+import posts
 import texts
 import ui
 
@@ -24,4 +25,5 @@ async def check(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer(texts.SUBSCRIBE_OK)
     with suppress(TelegramAPIError):  # older than 48h, or already gone
         await call.message.delete()
+    await posts.show_welcome(call.bot, call.from_user.id)
     await ui.render_menu(call.message, call.from_user.id)

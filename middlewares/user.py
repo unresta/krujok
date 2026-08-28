@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import access
 import db
+import posts
 import keyboards as kb
 import settings
 import texts
@@ -59,7 +60,7 @@ class UserMiddleware(BaseMiddleware):
         if not self._exempt(event) and not await access.is_subscribed(
             data["bot"], tg_user.id
         ):
-            await self._gate(event, data["bot"])
+            await self._gate(event, data["bot"], tg_user.id)
             return None
 
         # Age and the rules are confirmed once, before anything else is shown.
@@ -69,7 +70,11 @@ class UserMiddleware(BaseMiddleware):
 
         await db.touch_seen(tg_user.id)
         data["user"] = user
-        return await handler(event, data)
+        result = await handler(event, data)
+        # A promo post rides along after the bot has answered, never instead of
+        # it — and only when this person has not seen one for a while.
+        await posts.maybe_promo(data["bot"], tg_user.id)
+        return result
 
     @staticmethod
     def _exempt(event: TelegramObject) -> bool:
@@ -79,13 +84,17 @@ class UserMiddleware(BaseMiddleware):
         )
 
     @staticmethod
-    async def _gate(event: TelegramObject, bot) -> None:
-        markup = await access.gate_keyboard(bot)
+    async def _gate(event: TelegramObject, bot, user_id: int) -> None:
+        # Only the channels they are actually missing, so a second tap does not
+        # send them back to the ones they already joined.
+        missing = await access.missing_channels(bot, user_id)
+        markup = await access.gate_keyboard(bot, missing)
+        text = texts.subscribe(len(missing))
         if isinstance(event, CallbackQuery):
             await event.answer()
-            await event.message.answer(texts.subscribe(), reply_markup=markup)
+            await event.message.answer(text, reply_markup=markup)
         elif isinstance(event, Message):
-            await event.answer(texts.subscribe(), reply_markup=markup)
+            await event.answer(text, reply_markup=markup)
 
     @staticmethod
     async def _welcome(event: TelegramObject) -> None:

@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 import access
 import db
+import posts
 import keyboards as kb
 import settings
 import texts
@@ -21,6 +22,8 @@ async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     # Getting here means the gate let the user through, so the inviter is due.
     await access.credit_referral(message.bot, message.from_user.id)
+    # A welcome post is shown before the menu and only ever once per person.
+    await posts.show_welcome(message.bot, message.from_user.id)
     await ui.render_menu(message, message.from_user.id)
 
 

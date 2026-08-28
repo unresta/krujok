@@ -35,6 +35,8 @@ DEFAULTS: dict[str, int] = {
     "payout_rate": config.PAYOUT_RATE,
     "star_price": config.STAR_PRICE,
     "usdt_rate": config.USDT_RATE,
+    "promo_enabled": config.PROMO_ENABLED,
+    "promo_every_hours": config.PROMO_EVERY_HOURS,
     "maintenance": 0,
 }
 
@@ -74,6 +76,7 @@ TITLES: dict[str, str] = {
     "payout_rate": "Монеток за 1 ⭐ (вывод)",
     "star_price": "Цена 1 ⭐ в копейках",
     "usdt_rate": "Монеток за 1 USDT",
+    "promo_every_hours": "Показ раз в, ч",
 }
 
 # Twenty-four knobs in one column is a wall; the panel shows them by subject.
@@ -99,6 +102,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "push_free_views",
     ),
     "⚠️ Модерация": ("reports_to_hide",),
+    "📰 Посты": ("promo_every_hours",),
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -128,6 +132,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "payout_rate": (1, 1000),
     "star_price": (1, 1_000_000),
     "usdt_rate": (1, 1_000_000),
+    "promo_enabled": (0, 1),
+    "promo_every_hours": (1, 720),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

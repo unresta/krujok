@@ -28,10 +28,12 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
+import botstat
 import config
 import crypto
 import db
 import invoices
+import posts
 import pushes
 import keyboards as kb
 import settings
@@ -68,13 +70,20 @@ class Admin(StatesGroup):
     circles_chat = State()
     content_edit = State()  # unified text + emoji editing
     crypto_asset = State()
+    post = State()
+    botman_folder = State()
 
 
 # --- home ----------------------------------------------------------------
 
 
 def home_kb(
-    maintenance: bool, pending: int, reports: int, anketas: int, payouts: int
+    maintenance: bool,
+    pending: int,
+    reports: int,
+    anketas: int,
+    payouts: int,
+    channels: int = 0,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
@@ -122,13 +131,21 @@ def home_kb(
         InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
     )
 
-    # Settings section - без цветов
+    # Traffic section — что продаётся рекламодателям
     b.row(
-        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
-        InlineKeyboardButton(text="📢 Канал", callback_data="a:chan"),
+        InlineKeyboardButton(
+            text=f"📢 Подписка · {channels}", callback_data="a:chan"
+        ),
+        InlineKeyboardButton(text="📰 Посты", callback_data="a:posts"),
     )
     b.row(
         InlineKeyboardButton(text="🔗 Ссылки", callback_data="a:links"),
+        InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
+    )
+
+    # Settings section - без цветов
+    b.row(
+        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
         InlineKeyboardButton(text="🔔 Напоминания", callback_data="a:push"),
     )
     b.row(
@@ -185,6 +202,7 @@ async def show_home(call: CallbackQuery, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
+            len(await db.channels(active_only=True)),
         ))
 
 
@@ -199,6 +217,7 @@ async def open_panel(message: Message, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
+            len(await db.channels(active_only=True)),
         )
     )
 
@@ -261,91 +280,79 @@ async def cb_top(call: CallbackQuery) -> None:
             for i, r in enumerate(rows, 1)
         )
     await _edit(call, f"🏆 <b>Топ авторов</b>\n\n{body}", back_kb())
-    await call.answer()
+    await call.answer()# --- sponsor channels ----------------------------------------------------
+
+# Several channels at once: this is the thing sold to advertisers, so each one
+# is listed separately with what it actually brought in.
 
 
-# --- forced subscription -------------------------------------------------
+async def _channel_status(bot: Bot, chat: str) -> str:
+    """The gate is only real if the bot can see the member list."""
+    try:
+        me = await bot.get_chat_member(chat, (await bot.me()).id)
+    except TelegramAPIError as error:
+        return f"🔴 не вижу канал: {error}"
+    if me.status not in {"administrator", "creator"}:
+        return "🔴 бот не админ — подписку не проверить"
+    return "🟢 проверяется"
+
+
+def _channels_kb(rows: list) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="➕ Добавить канал", callback_data="a:chan:add", style=kb.SUCCESS
+        )
+    )
+    for row in rows:
+        mark = "🟢" if row["active"] else "⚪"
+        title = row["title"] or row["chat"]
+        b.row(
+            InlineKeyboardButton(
+                text=f"{mark} {title[:24]} · {row['joined']}",
+                callback_data=f"a:chan:{row['id']}",
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
 
 
 @router.callback_query(F.data == "a:chan")
 async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    channel = settings.get_text("channel").strip()
+    rows = await db.channels()
+    active = [r for r in rows if r["active"]]
+    today = sum(r["joined_today"] for r in active)
     invited, confirmed = await db.referral_totals()
 
-    if channel:
-        status = await _channel_status(call.bot, channel)
-        body = f"Канал: <code>{channel}</code>\n{status}"
-    else:
-        body = "Подписка выключена — бот пускает всех."
-
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="✏️ Изменить канал", callback_data="a:chan:set"
-        )
+    body = (
+        f"Каналов в подписке: <b>{len(active)}</b> из {len(rows)}\n"
+        f"Пришло через них за сутки: <b>{today}</b>"
+        if rows
+        else "Каналов нет — бот пускает всех.\n"
+        "Добавь канал, и вход будет только через подписку на него."
     )
-    if channel:
-        b.row(
-            InlineKeyboardButton(
-                text="❌ Выключить подписку", callback_data="a:chan:off", style=kb.DANGER
-            )
-        )
-    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"📢 <b>Обязательная подписка</b>\n\n{body}\n\n"
         f"👥 Рефералы: {confirmed} подтверждено из {invited} приглашённых, "
-        f"по {settings.get('ref_reward')} монеток за каждого "
-        "(меняется в «Экономике»).",
-        b.as_markup(),
+        f"по {settings.get('ref_reward')} монеток за каждого.",
+        _channels_kb(rows),
     )
     await call.answer()
 
 
-async def _channel_status(bot: Bot, channel: str) -> str:
-    """The gate is only real if the bot can see the member list."""
-    try:
-        me = await bot.get_chat_member(channel, (await bot.me()).id)
-    except TelegramAPIError as error:
-        return f"🔴 Бот не видит канал: {error}\nПодписка не проверяется."
-    if me.status not in {"administrator", "creator"}:
-        return "🔴 Бот не админ канала — проверить подписку он не сможет."
-    return "🟢 Бот админ канала, подписка проверяется."
-
-
-@router.message(Command("gate"))
-async def gate_cmd(message: Message) -> None:
-    """Why the gate is or is not stopping anyone, without any of the shortcuts."""
-    channel = settings.get_text("channel").strip()
-    if not channel:
-        await message.answer(
-            "Канал не задан — подписка выключена, бот пускает всех.\n"
-            "Задать: /admin → «Подписка на канал»."
-        )
-        return
-
-    lines = [f"Канал: <code>{channel}</code>", await _channel_status(message.bot, channel)]
-    try:
-        member = await message.bot.get_chat_member(channel, message.from_user.id)
-        lines.append(f"Твой статус в канале: <code>{member.status}</code>")
-    except TelegramAPIError as error:
-        lines.append(f"🔴 Проверить тебя не вышло: {error}")
-    lines.append(
-        "⚠️ Ты в ADMIN_IDS — тебя гейт пропускает всегда, "
-        "проверяй на обычном аккаунте."
-    )
-    await message.answer("\n".join(lines))
-
-
-@router.callback_query(F.data == "a:chan:set")
-async def cb_channel_set(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == "a:chan:add")
+async def cb_channel_add(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.channel)
     await _edit(
         call,
-        "Пришли <code>@username</code> канала или его id вида "
-        "<code>-100…</code>.\nБот должен быть админом там.",
-        back_kb(),
+        "➕ <b>Новый канал</b>\n\n"
+        "Пришли <code>@username</code>, ссылку <code>t.me/…</code> или id вида "
+        "<code>-100…</code>.\n\n"
+        "Бот должен быть админом в канале — иначе он не сможет проверять "
+        "подписку, и такой канал просто не будет никого задерживать.",
+        back_kb([InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan")]),
     )
     await call.answer()
 
@@ -355,25 +362,183 @@ async def got_channel(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if raw.startswith("https://t.me/"):
         raw = "@" + raw.removeprefix("https://t.me/").strip("/")
+    elif raw.startswith("t.me/"):
+        raw = "@" + raw.removeprefix("t.me/").strip("/")
     if not (raw.startswith("@") or raw.lstrip("-").isdigit()):
-        await message.answer("Нужен @username или числовой id.")
+        await message.answer("Нужен @username, ссылка t.me/… или числовой id.")
+        return
+
+    title, link = await access.describe(message.bot, raw)
+    channel_id = await db.add_channel(raw, title, link)
+    if channel_id is None:
+        await message.answer("Такой канал уже в списке.")
         return
 
     await state.clear()
-    await settings.set_text("channel", raw)
     access.drop_link_cache()
+    channel = await db.get_channel(channel_id)
     await message.answer(
-        f"Канал: <code>{raw}</code>\n{await _channel_status(message.bot, raw)}",
-        reply_markup=back_kb(),
+        await _channel_card(message.bot, channel),
+        reply_markup=_channel_kb(channel),
     )
 
 
-@router.callback_query(F.data == "a:chan:off")
-async def cb_channel_off(call: CallbackQuery, state: FSMContext) -> None:
-    await settings.set_text("channel", "")
+async def _channel_card(bot: Bot, channel) -> str:
+    status = await _channel_status(bot, channel["chat"])
+    title = channel["title"] or channel["chat"]
+    return (
+        f"📢 <b>{html.escape(title)}</b>\n"
+        f"<code>{html.escape(channel['chat'])}</code> · "
+        f"{'🟢 в подписке' if channel['active'] else '⚪ выключен'}\n"
+        f"Проверка: {status}\n\n"
+        f"Пришло через канал: <b>{channel['joined']}</b>\n"
+        f"За сутки: {channel['joined_today']}\n"
+        f"Ссылка: {channel['link'] or '—'}"
+    )
+
+
+def _channel_kb(channel) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if channel["active"]:
+        b.row(
+            InlineKeyboardButton(
+                text="⏸ Убрать из подписки",
+                callback_data=f"a:chan:off:{channel['id']}",
+                style=kb.DANGER,
+            )
+        )
+    else:
+        b.row(
+            InlineKeyboardButton(
+                text="▶️ Вернуть в подписку",
+                callback_data=f"a:chan:on:{channel['id']}",
+                style=kb.SUCCESS,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="🔄 Обновить данные", callback_data=f"a:chan:{channel['id']}"
+        ),
+        InlineKeyboardButton(
+            text="🗑 Удалить", callback_data=f"a:chan:del:{channel['id']}"
+        ),
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan"))
+    return b.as_markup()
+
+
+async def _show_channel(call: CallbackQuery, channel_id: int) -> None:
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+    rows = await db.channels()
+    channel = next((r for r in rows if r["id"] == channel_id), channel)
+    await _edit(call, await _channel_card(call.bot, channel), _channel_kb(channel))
+
+
+@router.callback_query(F.data.startswith("a:chan:on:"))
+async def cb_channel_on(call: CallbackQuery) -> None:
+    channel_id = int(call.data.split(":")[3])
+    await db.set_channel_active(channel_id, True)
+    await call.answer("В подписке")
+    await _show_channel(call, channel_id)
+
+
+@router.callback_query(F.data.startswith("a:chan:off:"))
+async def cb_channel_off(call: CallbackQuery) -> None:
+    channel_id = int(call.data.split(":")[3])
+    await db.set_channel_active(channel_id, False)
+    await call.answer("Убрал из подписки")
+    await _show_channel(call, channel_id)
+
+
+@router.callback_query(F.data.startswith("a:chan:del:"))
+async def cb_channel_del(call: CallbackQuery) -> None:
+    """Dropping a channel throws away what it brought, so it asks first."""
+    channel_id = int(call.data.split(":")[3])
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Да, удалить",
+            callback_data=f"a:chan:delgo:{channel_id}",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"a:chan:{channel_id}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Удалить канал {html.escape(channel['title'] or channel['chat'])}?</b>\n\n"
+        "Вместе с ним пропадёт счётчик, сколько людей через него пришло. "
+        "Если канал нужно просто временно убрать из подписки — жми «Убрать», "
+        "счётчик останется.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:chan:delgo:"))
+async def cb_channel_del_go(call: CallbackQuery, state: FSMContext) -> None:
+    await db.drop_channel(int(call.data.split(":")[3]))
     access.drop_link_cache()
-    await call.answer("Подписка выключена")
+    await call.answer("Удалён")
     await cb_channel(call, state)
+
+
+@router.callback_query(F.data.regexp(r"^a:chan:\d+$"))
+async def cb_channel_one(call: CallbackQuery) -> None:
+    """Opening a channel also refreshes its title and link from Telegram."""
+    channel_id = int(call.data.split(":")[2])
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+    title, link = await access.describe(call.bot, channel["chat"])
+    if title or link:
+        await db.set_channel_meta(channel_id, title or channel["title"], link)
+    await call.answer()
+    await _show_channel(call, channel_id)
+
+
+@router.message(Command("gate"))
+async def gate_cmd(message: Message) -> None:
+    """Why the gate is or is not stopping anyone, without any of the shortcuts."""
+    rows = await db.channels(active_only=True)
+    if not rows:
+        await message.answer(
+            "Каналов в подписке нет — бот пускает всех.\n"
+            "Добавить: /admin → «Подписка»."
+        )
+        return
+
+    lines = []
+    for channel in rows:
+        line = [
+            f"<b>{html.escape(channel['title'] or channel['chat'])}</b> "
+            f"(<code>{html.escape(channel['chat'])}</code>)",
+            await _channel_status(message.bot, channel["chat"]),
+        ]
+        try:
+            member = await message.bot.get_chat_member(
+                channel["chat"], message.from_user.id
+            )
+            line.append(f"ты там: <code>{member.status}</code>")
+        except TelegramAPIError as error:
+            line.append(f"🔴 проверить тебя не вышло: {error}")
+        lines.append("\n".join(line))
+    lines.append(
+        "⚠️ Ты в ADMIN_IDS — тебя гейт пропускает всегда, "
+        "проверяй на обычном аккаунте."
+    )
+    await message.answer("\n\n".join(lines))
 
 
 @router.callback_query(F.data == "a:reports")
@@ -2454,3 +2619,446 @@ async def cb_content_reset_go(call: CallbackQuery, state: FSMContext) -> None:
     logger.info("custom texts reset by %s (%s)", call.from_user.id, dropped)
     await call.answer(f"Вернул стандартные: {dropped}")
     await _edit(call, _content_home_text(), _content_home_kb())
+
+
+# --- welcome and promo posts ---------------------------------------------
+
+# The admin forwards a message once; the bot keeps where it lives and copies it
+# from there, so any kind of post works without the panel knowing what is in it.
+
+
+def _posts_home_kb(stats: dict) -> InlineKeyboardMarkup:
+    on = bool(settings.get("promo_enabled"))
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text=f"👋 Приветки · {stats['welcome']}", callback_data="a:post:k:welcome"
+        ),
+        InlineKeyboardButton(
+            text=f"🔁 Показы · {stats['promo']}", callback_data="a:post:k:promo"
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"{'❌ Выключить показы' if on else '✅ Включить показы'}",
+            callback_data="a:post:toggle",
+            style=kb.DANGER if on else kb.SUCCESS,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"⏱ Показ раз в {settings.get('promo_every_hours')} ч",
+            callback_data="a:econ:k:promo_every_hours",
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
+
+
+async def _posts_home_text() -> str:
+    stats = await db.post_stats()
+    on = bool(settings.get("promo_enabled"))
+    return (
+        "📰 <b>Посты</b>\n\n"
+        "<b>👋 Приветка</b> — показывается один раз, сразу после /start.\n"
+        "<b>🔁 Показ</b> — попадается снова и снова, пока человек пользуется "
+        f"ботом, не чаще раза в {settings.get('promo_every_hours')} ч.\n\n"
+        f"Активных приветок: <b>{stats['welcome']}</b> · "
+        f"показов: <b>{stats['promo']}</b> "
+        f"({'🟢 включены' if on else '🔴 выключены'})\n"
+        f"Всего показано: {stats['shown']}"
+    )
+
+
+@router.callback_query(F.data == "a:posts")
+async def cb_posts(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, await _posts_home_text(), _posts_home_kb(await db.post_stats()))
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:post:toggle")
+async def cb_posts_toggle(call: CallbackQuery, state: FSMContext) -> None:
+    await settings.set("promo_enabled", 0 if settings.get("promo_enabled") else 1)
+    await call.answer("Показы включены" if settings.get("promo_enabled") else "Выключены")
+    await cb_posts(call, state)
+
+
+def _post_list_kb(kind: str, rows: list) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="➕ Добавить", callback_data=f"a:post:add:{kind}", style=kb.SUCCESS
+        )
+    )
+    for row in rows:
+        mark = "🟢" if row["active"] else "⚪"
+        b.row(
+            InlineKeyboardButton(
+                text=f"{mark} {row['title'][:26]} · {row['shown']}",
+                callback_data=f"a:post:one:{row['id']}",
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ К постам", callback_data="a:posts"))
+    return b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:post:k:"))
+async def cb_post_list(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _render_post_list(call, call.data.split(":")[3])
+    await call.answer()
+
+
+async def _render_post_list(call: CallbackQuery, kind: str) -> None:
+    rows = await db.posts(kind)
+    what = (
+        "Показывается один раз каждому новому пользователю, сразу после /start."
+        if kind == posts.WELCOME
+        else "Попадается во время пользования ботом. Если их несколько, "
+        "человеку каждый раз достаётся тот, который он видел давнее всех."
+    )
+    await _edit(
+        call,
+        f"<b>{posts.KINDS[kind]}и</b>\n\n{what}\n\n"
+        + (
+            "🟢 — работает, ⚪ — выключен. Цифра — сколько раз показан."
+            if rows
+            else "Пока пусто."
+        ),
+        _post_list_kb(kind, rows),
+    )
+
+
+@router.callback_query(F.data.startswith("a:post:add:"))
+async def cb_post_add(call: CallbackQuery, state: FSMContext) -> None:
+    kind = call.data.split(":")[3]
+    await state.set_state(Admin.post)
+    await state.update_data(kind=kind)
+    await _edit(
+        call,
+        f"➕ <b>Новая {posts.KINDS[kind].lower()}</b>\n\n"
+        "Пришли сюда сам пост — текстом, фото, видео, кружком, чем угодно. "
+        "Можно переслать готовый из канала.\n\n"
+        "Бот покажет его пользователям точной копией, вместе с кнопками, "
+        "если они в нём есть. Сообщение должно остаться в этом чате — бот "
+        "копирует его отсюда каждый раз.",
+        back_kb(
+            [InlineKeyboardButton(text="⬅️ Отмена", callback_data=f"a:post:k:{kind}")]
+        ),
+    )
+    await call.answer()
+
+
+@router.message(Admin.post, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_post(message: Message, state: FSMContext) -> None:
+    kind = (await state.get_data()).get("kind", posts.PROMO)
+    await state.clear()
+    title = (message.text or message.caption or "").strip().replace("\n", " ")
+    post_id = await db.add_post(
+        kind, message.chat.id, message.message_id, title[:60] or "без текста"
+    )
+    post = await db.get_post(post_id)
+    await message.answer(
+        f"✅ {posts.KINDS[kind]} сохранена и уже работает.\n\n" + _post_card(post),
+        reply_markup=_post_kb(post),
+    )
+
+
+def _post_card(post) -> str:
+    return (
+        f"{'👋' if post['kind'] == posts.WELCOME else '🔁'} "
+        f"<b>{posts.KINDS[post['kind']]} #{post['id']}</b> · "
+        f"{'🟢 работает' if post['active'] else '⚪ выключен'}\n\n"
+        f"{html.escape(post['title'])}\n\n"
+        f"Показан: <b>{post['shown']}</b> раз"
+    )
+
+
+def _post_kb(post) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="👁 Показать мне", callback_data=f"a:post:show:{post['id']}"
+        )
+    )
+    if post["active"]:
+        b.row(
+            InlineKeyboardButton(
+                text="⏸ Выключить",
+                callback_data=f"a:post:off:{post['id']}",
+                style=kb.DANGER,
+            )
+        )
+    else:
+        b.row(
+            InlineKeyboardButton(
+                text="▶️ Включить",
+                callback_data=f"a:post:on:{post['id']}",
+                style=kb.SUCCESS,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"a:post:del:{post['id']}"),
+        InlineKeyboardButton(
+            text="⬅️ К списку", callback_data=f"a:post:k:{post['kind']}"
+        ),
+    )
+    return b.as_markup()
+
+
+async def _show_post(call: CallbackQuery, post_id: int) -> None:
+    post = await db.get_post(post_id)
+    if post is None:
+        await call.answer("Поста уже нет.", show_alert=True)
+        return
+    await _edit(call, _post_card(post), _post_kb(post))
+
+
+@router.callback_query(F.data.startswith("a:post:one:"))
+async def cb_post_one(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await call.answer()
+    await _show_post(call, int(call.data.split(":")[3]))
+
+
+@router.callback_query(F.data.startswith("a:post:show:"))
+async def cb_post_preview(call: CallbackQuery) -> None:
+    """Exactly what the user gets, copied the same way."""
+    post = await db.get_post(int(call.data.split(":")[3]))
+    if post is None:
+        await call.answer("Поста уже нет.", show_alert=True)
+        return
+    try:
+        await call.bot.copy_message(
+            chat_id=call.from_user.id,
+            from_chat_id=post["from_chat"],
+            message_id=post["msg_id"],
+        )
+    except TelegramAPIError as error:
+        await call.answer(f"Не копируется: {error}", show_alert=True)
+        return
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:post:on:"))
+async def cb_post_on(call: CallbackQuery) -> None:
+    post_id = int(call.data.split(":")[3])
+    await db.set_post_active(post_id, True)
+    await call.answer("Включён")
+    await _show_post(call, post_id)
+
+
+@router.callback_query(F.data.startswith("a:post:off:"))
+async def cb_post_off(call: CallbackQuery) -> None:
+    post_id = int(call.data.split(":")[3])
+    await db.set_post_active(post_id, False)
+    await call.answer("Выключен")
+    await _show_post(call, post_id)
+
+
+@router.callback_query(F.data.startswith("a:post:del:"))
+async def cb_post_del(call: CallbackQuery) -> None:
+    post_id = int(call.data.split(":")[3])
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Да, удалить",
+            callback_data=f"a:post:delgo:{post_id}",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"a:post:one:{post_id}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Удалить пост #{post_id}?</b>\n\n"
+        "Пропадёт и счётчик показов, и отметки о том, кто его уже видел — "
+        "если добавить такой же заново, он снова покажется всем. "
+        "Чтобы просто перестать показывать, хватит «Выключить».",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:post:delgo:"))
+async def cb_post_del_go(call: CallbackQuery, state: FSMContext) -> None:
+    post_id = int(call.data.split(":")[3])
+    post = await db.get_post(post_id)
+    kind = post["kind"] if post else posts.PROMO
+    await db.drop_post(post_id)
+    await state.clear()
+    await call.answer("Удалён")
+    await _render_post_list(call, kind)
+
+
+# --- BotStat: broadcasts and audience checks -----------------------------
+
+# The base leaves the bot only from here, only by hand, and only as telegram
+# ids — the screen says as much before anything is sent anywhere.
+
+
+async def _botstat_text() -> str:
+    total = len(await db.all_user_ids())
+    key = "🟢 задан" if botstat.configured() else "⚪ нет (BOTSTAT_KEY в .env)"
+    return (
+        "🛡 <b>BotStat</b>\n\n"
+        f"Пользователей в базе: <b>{total}</b>\n"
+        f"Ключ BotStat: {key}\n\n"
+        "<b>📤 В BotMan</b> — база уезжает в @BotManRobot, рассылку делаешь "
+        "там: он умеет скорость, паузы, кнопки и отчёты. Бот сам рассылать "
+        "такую базу не станет — это часы и риск для токена.\n\n"
+        "<b>🛡 В BotSafe</b> — проверка аудитории в @BotSafeRobot: сколько "
+        "живых, сколько мёртвых. Результат придёт тебе в личку от бота "
+        "проверки.\n\n"
+        "Уходят <b>только Telegram id</b> — ни имён, ни сообщений, ни балансов."
+    )
+
+
+def _botstat_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="📤 Отправить базу в BotMan",
+            callback_data="a:bs:botman",
+            style=kb.PRIMARY,
+        )
+    )
+    if botstat.configured():
+        b.row(
+            InlineKeyboardButton(
+                text="🛡 Проверить базу в BotSafe", callback_data="a:bs:safe"
+            )
+        )
+        b.row(
+            InlineKeyboardButton(text="📊 Что знает BotStat", callback_data="a:bs:info")
+        )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
+
+
+@router.callback_query(F.data == "a:botstat")
+async def cb_botstat(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, await _botstat_text(), _botstat_kb())
+    await call.answer()
+
+
+def _confirm_kb(action: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="✅ Да, отправить", callback_data=action, style=kb.DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data="a:botstat", style=kb.PRIMARY
+        )
+    )
+    return b.as_markup()
+
+
+@router.callback_query(F.data == "a:bs:botman")
+async def cb_botman_ask(call: CallbackQuery) -> None:
+    total = len(await db.all_user_ids())
+    await _edit(
+        call,
+        "📤 <b>Отправить базу в BotMan?</b>\n\n"
+        f"Уйдёт <b>{total}</b> Telegram id в @BotManRobot, база закрепится "
+        f"за тобой (<code>{call.from_user.id}</code>).\n\n"
+        "Это выгрузка на сторонний сервис — дальше рассылка делается там.",
+        _confirm_kb("a:bs:botman:go"),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:bs:botman:go")
+async def cb_botman_go(call: CallbackQuery) -> None:
+    await call.answer("Отправляю…")
+    ids = await db.all_user_ids()
+    try:
+        await botstat.to_botman(ids, call.from_user.id)
+    except botstat.BotStatError as error:
+        await _edit(
+            call,
+            f"🔴 <b>BotMan не принял базу</b>\n\n<code>{html.escape(str(error))}</code>\n\n"
+            "Чаще всего это значит, что бот не привязан к твоему аккаунту "
+            "в @BotManRobot — открой его и добавь бота, потом повтори.",
+            back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+        )
+        return
+    await _edit(
+        call,
+        f"🟢 <b>База ушла в BotMan</b>\n\nОтправлено {len(ids)} id.\n"
+        "Открой @BotManRobot — база там, рассылка настраивается в нём.",
+        back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+    )
+
+
+@router.callback_query(F.data == "a:bs:safe")
+async def cb_botsafe_ask(call: CallbackQuery) -> None:
+    total = len(await db.all_user_ids())
+    await _edit(
+        call,
+        "🛡 <b>Проверить базу в BotSafe?</b>\n\n"
+        f"Уйдёт <b>{total}</b> Telegram id в @BotSafeRobot. Проверка идёт "
+        "приватно, прогресс и результат придут тебе в личку от него.\n\n"
+        "Одновременно у бота может идти только одна проверка.",
+        _confirm_kb("a:bs:safe:go"),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:bs:safe:go")
+async def cb_botsafe_go(call: CallbackQuery) -> None:
+    await call.answer("Отправляю…")
+    ids = await db.all_user_ids()
+    try:
+        result = await botstat.to_botsafe(ids, call.from_user.id)
+    except botstat.BotStatError as error:
+        await _edit(
+            call,
+            f"🔴 <b>BotSafe не принял базу</b>\n\n<code>{html.escape(str(error))}</code>",
+            back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+        )
+        return
+    job = result.get("id", "")
+    line = f"Задача: <code>{html.escape(str(job))}</code>\n" if job else ""
+    await _edit(
+        call,
+        f"🟢 <b>Проверка запущена</b>\n\nОтправлено {len(ids)} id.\n{line}"
+        "Прогресс и результат придут от @BotSafeRobot.",
+        back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+    )
+
+
+@router.callback_query(F.data == "a:bs:info")
+async def cb_botstat_info(call: CallbackQuery) -> None:
+    await call.answer()
+    username = (await call.bot.me()).username
+    try:
+        info = await botstat.bot_info(username)
+    except botstat.BotStatError as error:
+        await _edit(
+            call,
+            f"🔴 <b>BotStat не ответил</b>\n\n<code>{html.escape(str(error))}</code>\n\n"
+            "Бот должен быть привязан в личном кабинете botstat.io, "
+            "и ключ должен быть от того же аккаунта.",
+            back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+        )
+        return
+    await _edit(
+        call,
+        f"📊 <b>{html.escape(str(info.get('fullname') or username))}</b>\n\n"
+        f"Живых: <b>{info.get('users_live', '—')}</b> · "
+        f"мёртвых: {info.get('users_die', '—')}\n"
+        f"Групп: {info.get('groups_live', '—')} живых / "
+        f"{info.get('groups_die', '—')} мёртвых\n"
+        f"В группах людей: {info.get('users_in_groups', '—')}\n"
+        f"Данные на: {html.escape(str(info.get('date', '—')))}",
+        back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+    )

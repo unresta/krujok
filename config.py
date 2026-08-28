@@ -31,6 +31,12 @@ CRYPTOBOT_API: str = os.getenv("CRYPTOBOT_API", "https://pay.crypt.bot/api")
 XROCKET_KEY: str = os.getenv("XROCKET_KEY", "")
 XROCKET_API: str = os.getenv("XROCKET_API", "https://pay.xrocket.exchange")
 
+# --- BotStat: broadcasts through @BotManRobot, audience check in @BotSafeRobot
+# Access key: https://botstat.io/dashboard (раздел API). Without it only the
+# BotMan upload works — it authenticates by the bot token alone.
+BOTSTAT_KEY: str = os.getenv("BOTSTAT_KEY", "")
+BOTSTAT_API: str = os.getenv("BOTSTAT_API", "https://api.botstat.io")
+
 # Nothing here is exposed to the internet, so a webhook has nowhere to land —
 # the bot asks the provider about its own invoices instead.
 INVOICE_TTL = 1800  # seconds an invoice stays payable
@@ -63,6 +69,10 @@ PUSH_COOLDOWN_HOURS = 48  # never nudge the same person more often
 PUSH_BATCH = 40  # per tick, so a big base is spread over hours
 PUSH_FREE_VIEWS = 1  # circles handed out with the reminder
 PUSH_TICK = 900.0  # seconds between sweeps
+
+# --- welcome and promo posts ---
+PROMO_ENABLED = 1
+PROMO_EVERY_HOURS = 6  # how rarely one person meets a promo post
 
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
 

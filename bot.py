@@ -67,6 +67,7 @@ async def main() -> None:
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
+    await access.adopt_legacy_channel()  # one-channel gate becomes the list
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
     await emoji_manager.resolve(bot)  # resolve custom emoji too
     access.bot_username = (await bot.me()).username  # referral links need it
