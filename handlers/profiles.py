@@ -135,7 +135,7 @@ async def got_photo(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
 
     if data.get("editing_field") == "photo":
-        # Single-field edit: update only photo
+        # Single-field edit: update only photo and resubmit for review
         profile = await db.get_profile(message.from_user.id)
         if profile:
             await db.save_profile(
@@ -150,13 +150,11 @@ async def got_photo(message: Message, state: FSMContext) -> None:
                 username=message.from_user.username,
             )
             await state.clear()
-            await message.answer("✅ Фото обновлено.", reply_markup=kb.back())
-            profile = await db.get_profile(message.from_user.id)
-            await message.answer_photo(
-                profile["photo_id"],
-                caption=texts.profile_status(profile),
-                reply_markup=kb.profile_edit_menu(profile),
+            await message.answer(
+                "✅ Фото обновлено.\n📬 Анкета отправлена на повторную проверку.",
+                reply_markup=kb.back()
             )
+            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(
@@ -196,13 +194,11 @@ async def got_about(message: Message, state: FSMContext) -> None:
                 username=message.from_user.username,
             )
             await state.clear()
-            await message.answer("✅ Описание обновлено.", reply_markup=kb.back())
-            profile = await db.get_profile(message.from_user.id)
-            await message.answer_photo(
-                profile["photo_id"],
-                caption=texts.profile_status(profile),
-                reply_markup=kb.profile_edit_menu(profile),
+            await message.answer(
+                "✅ Описание обновлено.\n📬 Анкета отправлена на повторную проверку.",
+                reply_markup=kb.back()
             )
+            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(about=about)
@@ -230,13 +226,12 @@ async def got_gender(call: CallbackQuery, state: FSMContext) -> None:
                 username=call.from_user.username,
             )
             await state.clear()
-            await call.answer("✅ Пол обновлён.")
-            profile = await db.get_profile(call.from_user.id)
-            await call.message.answer_photo(
-                profile["photo_id"],
-                caption=texts.profile_status(profile),
-                reply_markup=kb.profile_edit_menu(profile),
+            await call.answer("✅ Пол обновлён. Анкета на повторной проверке.")
+            await call.message.answer(
+                "📬 Анкета отправлена на повторную проверку.",
+                reply_markup=kb.back()
             )
+            await _resubmit_for_review(call.message, call.from_user.id, call.bot)
             return
 
     await state.update_data(gender=gender)
@@ -268,13 +263,11 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
                 username=message.from_user.username,
             )
             await state.clear()
-            await message.answer("✅ Цена кружков обновлена.", reply_markup=kb.back())
-            profile = await db.get_profile(message.from_user.id)
-            await message.answer_photo(
-                profile["photo_id"],
-                caption=texts.profile_status(profile),
-                reply_markup=kb.profile_edit_menu(profile),
+            await message.answer(
+                "✅ Цена кружков обновлена.\n📬 Анкета отправлена на повторную проверку.",
+                reply_markup=kb.back()
             )
+            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(price_content=price)
@@ -340,13 +333,11 @@ async def got_price_contact(message: Message, state: FSMContext) -> None:
                 username=message.from_user.username,
             )
             await state.clear()
-            await message.answer("✅ Цена контакта обновлена.", reply_markup=kb.back())
-            profile = await db.get_profile(message.from_user.id)
-            await message.answer_photo(
-                profile["photo_id"],
-                caption=texts.profile_status(profile),
-                reply_markup=kb.profile_edit_menu(profile),
+            await message.answer(
+                "✅ Цена контакта обновлена.\n📬 Анкета отправлена на повторную проверку.",
+                reply_markup=kb.back()
             )
+            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(price_contact=price)
@@ -412,6 +403,38 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
         # only the card is missing, and silence here is what hides that.
         logger.error(
             "profile card for %s not delivered to %s: %s", author.id, chat, error
+        )
+
+
+async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
+    """Re-submit profile for review after editing a field."""
+    profile = await db.get_profile(user_id)
+    if not profile:
+        return
+
+    # Set status back to pending
+    await db.set_profile_status(user_id, "pending")
+
+    chat = settings.profiles_chat()
+    try:
+        card = await bot.send_photo(
+            chat,
+            profile["photo_id"],
+            caption=(
+                f"#анкета_изменена от <code>{user_id}</code>"
+                f"{' @' + profile['username'] if profile['username'] else ''}\n"
+                f"♻️ Отредактирована\n"
+                f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
+                f"Кружочки: {profile['price_content']} · "
+                f"личка: {profile.get('price_contact') or 'нет'}\n\n"
+                f"{profile.get('about') or 'Без описания'}"
+            ),
+            reply_markup=kb.profile_review(user_id),
+        )
+        await db.set_profile_admin_msg(user_id, card.message_id)
+    except TelegramAPIError as error:
+        logger.error(
+            "profile card for %s not delivered to %s: %s", user_id, chat, error
         )
 
 
