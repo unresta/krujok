@@ -392,7 +392,7 @@ def my_profile(exists: bool) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="Мои кружки",
             callback_data="mp:circles",
-            icon_custom_emoji_id=emoji.icon(emoji.FILM),
+            icon_custom_emoji_id=emoji.icon(emoji.MY_CIRCLES),
         ),
     )
     b.row(
