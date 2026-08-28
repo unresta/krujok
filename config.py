@@ -22,6 +22,21 @@ DB_PATH: str = os.getenv("DB_PATH", "bot.db")
 # to plain unicode everywhere.
 PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "False")
 
+# --- crypto payments -----------------------------------------------------
+# Keys come from the payment bots themselves: @CryptoBot → Crypto Pay → Create
+# App, @tonRocketBot → Rocket Pay → Create App. An empty key simply hides that
+# method from the checkout, so the bot runs fine without either of them.
+CRYPTOBOT_TOKEN: str = os.getenv("CRYPTOBOT_TOKEN", "")
+CRYPTOBOT_API: str = os.getenv("CRYPTOBOT_API", "https://pay.crypt.bot/api")
+XROCKET_KEY: str = os.getenv("XROCKET_KEY", "")
+XROCKET_API: str = os.getenv("XROCKET_API", "https://pay.xrocket.exchange")
+
+# Nothing here is exposed to the internet, so a webhook has nowhere to land —
+# the bot asks the provider about its own invoices instead.
+INVOICE_TTL = 1800  # seconds an invoice stays payable
+INVOICE_POLL = 10.0  # seconds between status checks
+INVOICE_TIMEOUT = 15.0  # seconds to wait for a provider's answer
+
 # --- economy ---
 WATCH_COST = 2
 # Uploading pays nothing: a circle is a shop window for the author's profile,
@@ -62,6 +77,10 @@ ABOUT_MAX = 300  # characters in a profile description
 # --- ad accounting ---
 CURRENCY = "₽"
 STAR_PRICE = 130  # what one ⭐ is worth to you, in minor units (1.30 ₽)
+# Crypto is priced on its own scale, not converted from stars: one number
+# an admin can move when the rate drifts. Check it before switching on.
+USDT_RATE = 200  # coins for 1 USDT
+CRYPTO_ASSET = "USDT"  # what invoices are issued in, both providers
 
 # Channel users must join before they can use the bot; empty turns the gate off.
 # The bot has to be an administrator there to see who is a member.

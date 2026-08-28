@@ -17,6 +17,7 @@ from aiogram.types import (
 import access
 import db
 import emoji
+import invoices
 import pushes
 import settings
 import texts
@@ -99,11 +100,14 @@ async def main() -> None:
             )
 
     reminders = asyncio.create_task(pushes.run(bot))
+    # Crypto invoices are confirmed by asking, not by being told — see crypto.py.
+    watcher = asyncio.create_task(invoices.run(bot))
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
         reminders.cancel()
+        watcher.cancel()
         await db.close()
         await bot.session.close()
 

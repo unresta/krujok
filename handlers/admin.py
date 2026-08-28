@@ -29,7 +29,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
 import config
+import crypto
 import db
+import invoices
 import pushes
 import keyboards as kb
 import settings
@@ -65,6 +67,7 @@ class Admin(StatesGroup):
     profiles_chat = State()
     circles_chat = State()
     content_edit = State()  # unified text + emoji editing
+    crypto_asset = State()
 
 
 # --- home ----------------------------------------------------------------
@@ -1900,25 +1903,122 @@ async def got_setting(message: Message, state: FSMContext) -> None:
 # --- payments, backup, maintenance ---------------------------------------
 
 
+def _payment_line(row) -> str:
+    what = (
+        f"{row['stars']} ⭐"
+        if row["provider"] == "stars"
+        else f"{row['amount']} {row['asset']} · {crypto.TITLES.get(row['provider'], row['provider'])}"
+    )
+    return (
+        f"<code>{row['user_id']}</code> — {what} → {row['coins']} 🪙"
+        f"{' · возвращён' if row['refunded'] else ''}\n"
+        f"<code>{html.escape(row['charge_id'])}</code>"
+    )
+
+
 @router.callback_query(F.data == "a:pay")
 async def cb_pay(call: CallbackQuery) -> None:
     rows = await db.recent_payments()
-    if not rows:
-        body = "Платежей пока нет."
-    else:
-        body = "\n\n".join(
-            f"<code>{r['user_id']}</code> — {r['stars']} ⭐ → {r['coins']} 🪙"
-            f"{' · возвращён' if r['refunded'] else ''}\n"
-            f"<code>{r['charge_id']}</code>"
-            for r in rows
-        )
+    body = (
+        "\n\n".join(_payment_line(r) for r in rows) if rows else "Платежей пока нет."
+    )
+    totals = await db.crypto_totals()
+    crypto_lines = "\n".join(
+        f"• {crypto.TITLES.get(t['provider'], t['provider'])}: {t['payments']} шт · "
+        f"{t['amount']:.2f} {t['asset']} → {t['coins']} 🪙"
+        for t in totals
+    )
+
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="🪙 Крипта", callback_data="a:crypto"))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"💳 <b>Последние платежи</b>\n\n{body}\n\n"
-        "Возврат: <code>/refund charge_id</code>",
+        + (f"<b>Крипта за всё время</b>\n{crypto_lines}\n\n" if crypto_lines else "")
+        + "Возврат: <code>/refund charge_id</code> — только для ⭐.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:crypto")
+async def cb_crypto(call: CallbackQuery, state: FSMContext) -> None:
+    """Whether crypto checkout is actually working, without leaving the panel."""
+    await state.clear()
+    await call.answer()
+    totals = await db.invoice_totals()
+    poll = invoices.last_poll
+
+    lines = []
+    for provider in (crypto.CRYPTOBOT, crypto.XROCKET):
+        status = await crypto.check_key(provider)
+        lines.append(f"{crypto.ICONS[provider]} <b>{crypto.TITLES[provider]}</b>: {status}")
+
+    if poll["error"]:
+        watcher = f"🔴 сорвался: {html.escape(poll['error'])[:120]}"
+    elif poll["at"]:
+        watcher = f"🟢 {_ago(poll['at'])} — проверено {poll['checked']}, оплачено {poll['paid']}"
+    else:
+        watcher = "⚪ ещё не запускался"
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="💱 Сменить валюту", callback_data="a:crypto:asset")
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"💰 Монеток за 1 {crypto.asset()}: {settings.get('usdt_rate')}",
+            callback_data="a:econ:k:usdt_rate",
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"))
+    await _edit(
+        call,
+        "🪙 <b>Оплата криптой</b>\n\n"
+        + "\n".join(lines)
+        + f"\n\nВалюта счетов: <b>{crypto.asset()}</b>\n"
+        f"Цена: {settings.get('usdt_rate')} монеток за 1 {crypto.asset()}\n"
+        f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
+        f"{int(config.INVOICE_POLL)} сек\n\n"
+        f"Проверка счетов: {watcher}\n"
+        f"Счета: открыто {totals['open']} · оплачено {totals['paid']} · "
+        f"просрочено {totals['expired']} · отменено {totals['cancelled']}\n\n"
+        "Ключи задаются в <code>.env</code>: <code>CRYPTOBOT_TOKEN</code>, "
+        "<code>XROCKET_KEY</code>. Без ключа способ не показывается покупателю.",
+        b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:crypto:asset")
+async def cb_crypto_asset(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.crypto_asset)
+    await _edit(
+        call,
+        "💱 <b>Валюта счетов</b>\n\n"
+        f"Сейчас: <b>{crypto.asset()}</b>\n\n"
+        "Пришли код валюты — <code>USDT</code>, <code>TON</code>, "
+        "<code>BTC</code>… Он должен поддерживаться обоими сервисами, иначе "
+        "счёт просто не создастся.",
         back_kb(),
     )
     await call.answer()
+
+
+@router.message(Admin.crypto_asset, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_crypto_asset(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip().upper()
+    if not raw.isalnum() or not 2 <= len(raw) <= 10:
+        await message.answer("Код валюты — латиница и цифры, 2–10 знаков.")
+        return
+    await state.clear()
+    await settings.set_text("crypto_asset", raw)
+    await message.answer(
+        f"💱 Валюта счетов: <b>{raw}</b>\n\n"
+        "Проверь, что цена за 1 монетку осталась разумной: "
+        f"сейчас {settings.get('usdt_rate')} монеток за 1 {raw}.",
+        reply_markup=back_kb(),
+    )
 
 
 @router.callback_query(F.data == "a:db")
@@ -2007,6 +2107,25 @@ async def refund_cmd(message: Message, command: CommandObject) -> None:
         return
     if payment["refunded"]:
         await message.answer("Уже возвращён.")
+        return
+    if payment["provider"] != "stars":
+        # Telegram only gives back its own charges. The bot has no business
+        # moving crypto on its own either, so it does the bookkeeping half and
+        # leaves the transfer to a human.
+        await db.mark_refunded(charge_id)
+        await db.deduct_clamped(payment["user_id"], payment["coins"])
+        name = crypto.TITLES.get(payment["provider"], payment["provider"])
+        with suppress(TelegramAPIError):
+            await message.bot.send_message(
+                payment["user_id"],
+                f"Платёж {payment['amount']} {payment['asset']} отменён — "
+                f"списал {payment['coins']} 🪙.",
+            )
+        await message.answer(
+            f"Отметил возврат и списал {payment['coins']} 🪙.\n\n"
+            f"⚠️ Сами <b>{payment['amount']} {payment['asset']}</b> переведи "
+            f"вручную из {name} — бот криптой не распоряжается."
+        )
         return
 
     try:

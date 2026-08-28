@@ -177,9 +177,31 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id   INTEGER NOT NULL,
     stars     INTEGER NOT NULL,
     coins     INTEGER NOT NULL,
+    provider  TEXT    NOT NULL DEFAULT 'stars',  -- stars | cryptobot | xrocket
+    asset     TEXT    NOT NULL DEFAULT '',       -- USDT, TON… for crypto
+    amount    TEXT    NOT NULL DEFAULT '',       -- what was actually charged
     refunded  INTEGER NOT NULL DEFAULT 0,
     ts        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- A crypto invoice lives here until the provider says it was paid. Nothing of
+-- ours is reachable from the internet, so there is no webhook to wait for: the
+-- bot asks about its own open invoices and closes them itself.
+CREATE TABLE IF NOT EXISTS invoices (
+    provider   TEXT    NOT NULL,               -- cryptobot | xrocket
+    invoice_id TEXT    NOT NULL,
+    user_id    INTEGER NOT NULL,
+    coins      INTEGER NOT NULL,
+    amount     TEXT    NOT NULL,
+    asset      TEXT    NOT NULL,
+    link       TEXT    NOT NULL DEFAULT '',
+    status     TEXT    NOT NULL DEFAULT 'active',  -- active|paid|expired|cancelled
+    msg_id     INTEGER,                        -- card to update once it is paid
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    closed_at  INTEGER,
+    PRIMARY KEY (provider, invoice_id)
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_open ON invoices(status, created_at);
 """
 
 REFERRAL_WINDOW = 600  # seconds after signup during which a link still counts
@@ -221,6 +243,11 @@ MIGRATIONS = {
     },
     "profile_reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",
+    },
+    "payments": {
+        "provider": "TEXT NOT NULL DEFAULT 'stars'",  # everything before was stars
+        "asset": "TEXT NOT NULL DEFAULT ''",
+        "amount": "TEXT NOT NULL DEFAULT ''",
     },
 }
 
@@ -1560,17 +1587,114 @@ async def wipe_custom_texts() -> int:
 # --- payments ------------------------------------------------------------
 
 
-async def add_payment(charge_id: str, user_id: int, stars: int, coins: int) -> bool:
-    """False when Telegram replays a charge we already credited."""
+async def add_payment(
+    charge_id: str,
+    user_id: int,
+    stars: int,
+    coins: int,
+    provider: str = "stars",
+    asset: str = "",
+    amount: str = "",
+) -> bool:
+    """False when a charge we already credited comes round again.
+
+    Both the button the payer taps and the background poller end up here, so
+    this is the one place that decides whether coins are owed.
+    """
     try:
         await conn().execute(
-            "INSERT INTO payments(charge_id, user_id, stars, coins) VALUES (?, ?, ?, ?)",
-            (charge_id, user_id, stars, coins),
+            "INSERT INTO payments(charge_id, user_id, stars, coins, provider,"
+            " asset, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (charge_id, user_id, stars, coins, provider, asset, amount),
         )
     except aiosqlite.IntegrityError:
         return False
     await conn().commit()
     return True
+
+
+# --- crypto invoices -----------------------------------------------------
+
+
+async def add_invoice(
+    provider: str,
+    invoice_id: str,
+    user_id: int,
+    coins: int,
+    amount: str,
+    asset: str,
+    link: str,
+) -> None:
+    await conn().execute(
+        "INSERT OR REPLACE INTO invoices(provider, invoice_id, user_id, coins,"
+        " amount, asset, link) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (provider, invoice_id, user_id, coins, amount, asset, link),
+    )
+    await conn().commit()
+
+
+async def get_invoice(provider: str, invoice_id: str) -> aiosqlite.Row | None:
+    async with conn().execute(
+        "SELECT * FROM invoices WHERE provider = ? AND invoice_id = ?",
+        (provider, invoice_id),
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def set_invoice_msg(provider: str, invoice_id: str, msg_id: int) -> None:
+    await conn().execute(
+        "UPDATE invoices SET msg_id = ? WHERE provider = ? AND invoice_id = ?",
+        (msg_id, provider, invoice_id),
+    )
+    await conn().commit()
+
+
+async def close_invoice(provider: str, invoice_id: str, status: str) -> bool:
+    """False when somebody closed it first — the poller and the button race."""
+    cur = await conn().execute(
+        "UPDATE invoices SET status = ?, closed_at = strftime('%s','now')"
+        " WHERE provider = ? AND invoice_id = ? AND status = 'active'",
+        (status, provider, invoice_id),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def open_invoices(limit: int = 100) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        "SELECT * FROM invoices WHERE status = 'active'"
+        " ORDER BY created_at LIMIT ?",
+        (limit,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def invoice_totals() -> dict:
+    async with conn().execute(
+        """
+        SELECT
+          COALESCE(SUM(status = 'active'), 0)    AS open,
+          COALESCE(SUM(status = 'paid'), 0)      AS paid,
+          COALESCE(SUM(status = 'expired'), 0)   AS expired,
+          COALESCE(SUM(status = 'cancelled'), 0) AS cancelled
+        FROM invoices
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def crypto_totals() -> list[aiosqlite.Row]:
+    """What came in through each provider, for the payments screen."""
+    async with conn().execute(
+        """
+        SELECT provider, asset, COUNT(*) AS payments,
+               COALESCE(SUM(coins), 0) AS coins,
+               COALESCE(SUM(CAST(amount AS REAL)), 0) AS amount
+        FROM payments WHERE provider != 'stars' AND refunded = 0
+        GROUP BY provider, asset ORDER BY payments DESC
+        """
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def get_payment(charge_id: str) -> aiosqlite.Row | None:

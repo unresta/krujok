@@ -478,6 +478,58 @@ def buy_bad_input() -> str:
     return _fmt("BUY_BAD_INPUT", BUY_BAD_INPUT, min_stars=settings.get("min_stars"))
 
 
+CRYPTO_INVOICE = (
+    "🧾 <b>Счёт на {amount} {asset}</b>\n\n"
+    "Получишь: <b>{coins}</b> {coin}\n"
+    "Оплата через {provider}.\n\n"
+    "Жми «Оплатить», а после оплаты — «Проверить». "
+    "Монетки придут сами в течение минуты.\n"
+    "Счёт действует {minutes} минут."
+)
+
+
+def crypto_invoice(provider: str, amount: str, asset: str, coins: int) -> str:
+    import crypto
+    from config import INVOICE_TTL
+
+    return _fmt(
+        "CRYPTO_INVOICE",
+        CRYPTO_INVOICE,
+        amount=amount,
+        asset=asset,
+        coins=coins,
+        coin=coin(),
+        provider=crypto.TITLES.get(provider, provider),
+        minutes=INVOICE_TTL // 60,
+    )
+
+
+CRYPTO_PAID = (
+    "🟢 Оплачено {amount} {asset} → <b>+{coins}</b> {coin}\nБаланс: <b>{balance}</b>"
+)
+
+
+def crypto_paid(amount: str, asset: str, coins: int, balance: int) -> str:
+    return _fmt(
+        "CRYPTO_PAID",
+        CRYPTO_PAID,
+        amount=amount,
+        asset=asset,
+        coins=coins,
+        coin=coin(),
+        balance=balance,
+    )
+
+
+CRYPTO_PENDING = "Оплата ещё не пришла. Если только что перевёл — подожди минуту."
+CRYPTO_EXPIRED = "Счёт больше не действует. Оформи новый в «Магазине»."
+CRYPTO_CANCELLED = "Счёт отменён."
+CRYPTO_FAILED = (
+    "😕 Не получилось выставить счёт — платёжный сервис не ответил.\n"
+    "Попробуй ещё раз или выбери другой способ оплаты."
+)
+CRYPTO_GONE = "Счёт не найден."
+
 PAID = "🟢 Оплачено {stars} ⭐ → <b>+{added}</b> {coin}\nБаланс: <b>{coins}</b>"
 
 

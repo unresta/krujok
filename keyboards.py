@@ -678,6 +678,9 @@ def buy() -> InlineKeyboardMarkup:
 
 
 def buy_payment_method() -> InlineKeyboardMarkup:
+    """Stars always, crypto only where a key for that provider is configured."""
+    import crypto
+
     kb = InlineKeyboardBuilder()
     kb.row(
         InlineKeyboardButton(
@@ -686,15 +689,37 @@ def buy_payment_method() -> InlineKeyboardMarkup:
             style=SUCCESS,
         )
     )
-    kb.row(
-        InlineKeyboardButton(
-            text="💳 Карта (скоро)",
-            callback_data="pay_method:card",
-            style=None,
+    for provider in crypto.available():
+        kb.row(
+            InlineKeyboardButton(
+                text=f"{crypto.ICONS[provider]} {crypto.TITLES[provider]} · "
+                f"крипта",
+                callback_data=f"pay_method:{provider}",
+                style=PRIMARY,
+            )
         )
-    )
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
     return kb.as_markup()
+
+
+def crypto_invoice(provider: str, invoice_id: str, link: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="💳 Оплатить", url=link, style=SUCCESS))
+    b.row(
+        InlineKeyboardButton(
+            text="🔄 Проверить оплату",
+            callback_data=f"inv:check:{provider}:{invoice_id}",
+            style=PRIMARY,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="❌ Отменить счёт",
+            callback_data=f"inv:drop:{provider}:{invoice_id}",
+            style=DANGER,
+        )
+    )
+    return b.as_markup()
 
 
 def buy_cancel() -> InlineKeyboardMarkup:

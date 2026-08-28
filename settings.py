@@ -34,6 +34,7 @@ DEFAULTS: dict[str, int] = {
     "payout_min": config.PAYOUT_MIN,
     "payout_rate": config.PAYOUT_RATE,
     "star_price": config.STAR_PRICE,
+    "usdt_rate": config.USDT_RATE,
     "maintenance": 0,
 }
 
@@ -44,6 +45,7 @@ TEXT_DEFAULTS: dict[str, str] = {
     "profiles_chat": config.PROFILES_CHAT,
     "circles_chat": config.CIRCLES_CHAT,
     "currency": config.CURRENCY,
+    "crypto_asset": config.CRYPTO_ASSET,
 }
 
 TITLES: dict[str, str] = {
@@ -71,6 +73,7 @@ TITLES: dict[str, str] = {
     "payout_min": "Минимум вывода",
     "payout_rate": "Монеток за 1 ⭐ (вывод)",
     "star_price": "Цена 1 ⭐ в копейках",
+    "usdt_rate": "Монеток за 1 USDT",
 }
 
 # Twenty-four knobs in one column is a wall; the panel shows them by subject.
@@ -86,7 +89,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "reward_m",
     ),
     "💰 Продажи": ("author_share", "price_min", "price_max"),
-    "⭐ Покупка монеток": ("stars_rate", "min_stars", "star_price"),
+    "⭐ Покупка монеток": ("stars_rate", "min_stars", "star_price", "usdt_rate"),
     "💸 Вывод": ("payout_min", "payout_rate"),
     "🎁 Бонусы": ("welcome_bonus", "sub_bonus", "ref_reward"),
     "🔔 Напоминания": (
@@ -124,6 +127,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "payout_min": (1, 1_000_000),
     "payout_rate": (1, 1000),
     "star_price": (1, 1_000_000),
+    "usdt_rate": (1, 1_000_000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

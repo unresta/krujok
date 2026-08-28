@@ -1,4 +1,7 @@
+from contextlib import suppress
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -8,7 +11,9 @@ from aiogram.types import (
     PreCheckoutQuery,
 )
 
+import crypto
 import db
+import invoices
 import keyboards as kb
 import texts
 import ui
@@ -98,9 +103,53 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
     await send_invoice(call.message, stars)
 
 
-@router.callback_query(F.data == "pay_method:card")
-async def pay_with_card(call: CallbackQuery, state: FSMContext) -> None:
-    await call.answer(texts.BUY_CARD_SOON, show_alert=True)
+@router.callback_query(F.data.startswith("pay_method:"))
+async def pay_with_crypto(call: CallbackQuery, state: FSMContext) -> None:
+    """Everything that is not Stars is an invoice at one of the crypto bots."""
+    provider = call.data.split(":", 1)[1]
+    if provider not in crypto.available():
+        await call.answer(texts.BUY_CARD_SOON, show_alert=True)
+        return
+
+    stars = (await state.get_data()).get("stars")
+    if not stars:
+        await call.answer(texts.BUY_NO_AMOUNT, show_alert=True)
+        return
+    await state.clear()
+    await call.answer()
+    coins = stars * settings.get("stars_rate")
+    await invoices.start(call.bot, call.from_user.id, provider, coins, call.message)
+
+
+@router.callback_query(F.data.startswith("inv:"))
+async def invoice_action(call: CallbackQuery) -> None:
+    _, action, provider, invoice_id = call.data.split(":", 3)
+    invoice = await db.get_invoice(provider, invoice_id)
+    if invoice is None or invoice["user_id"] != call.from_user.id:
+        await call.answer(texts.CRYPTO_GONE, show_alert=True)
+        return
+
+    if action == "drop":
+        await db.close_invoice(provider, invoice_id, "cancelled")
+        await call.answer(texts.CRYPTO_CANCELLED)
+        with suppress(TelegramAPIError):
+            await call.message.delete()
+        return
+
+    if invoice["status"] == "paid":  # the poller got there first
+        await call.answer(texts.ALREADY_BOUGHT, show_alert=True)
+        return
+
+    state = await invoices.check_one(call.bot, invoice)
+    if state == crypto.PAID:
+        await call.answer("🟢")
+        return
+    if state == crypto.EXPIRED:
+        await call.answer(texts.CRYPTO_EXPIRED, show_alert=True)
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(reply_markup=None)
+        return
+    await call.answer(texts.CRYPTO_PENDING, show_alert=True)
 
 
 async def send_invoice(message: Message, stars: int) -> None:
