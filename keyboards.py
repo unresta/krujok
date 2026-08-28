@@ -674,7 +674,17 @@ def buy() -> InlineKeyboardMarkup:
         )
     )
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
+    _legal_row(kb)
     return kb.as_markup()
+
+
+# One row, unstyled, always last: the two documents have to be one tap from
+# anywhere money changes hands — acquirers check for exactly that.
+def _legal_row(b: InlineKeyboardBuilder) -> None:
+    b.row(
+        InlineKeyboardButton(text="📄 Оферта", callback_data="doc:terms"),
+        InlineKeyboardButton(text="🔒 Конфиденциальность", callback_data="doc:privacy"),
+    )
 
 
 def buy_payment_method() -> InlineKeyboardMarkup:
@@ -699,6 +709,7 @@ def buy_payment_method() -> InlineKeyboardMarkup:
             )
         )
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
+    _legal_row(kb)  # terms of the purchase, readable before paying
     return kb.as_markup()
 
 
