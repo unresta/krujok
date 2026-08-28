@@ -20,6 +20,7 @@ router = Router()
 
 class Buy(StatesGroup):
     waiting_amount = State()
+    choose_method = State()
 
 
 @router.message(F.text == kb.BTN_SHOP)
@@ -50,16 +51,48 @@ async def custom_amount(message: Message, state: FSMContext) -> None:
     if not raw.isdigit() or not (settings.get("min_stars") <= int(raw) <= MAX_STARS):
         await message.answer(texts.buy_bad_input(), reply_markup=kb.buy_cancel())
         return
-    await state.clear()
-    await send_invoice(message, int(raw))
+    stars = int(raw)
+    await state.update_data(stars=stars)
+    await state.set_state(Buy.choose_method)
+    coins = stars * settings.get("stars_rate")
+    await message.answer(
+        texts.buy_choose_method(stars, coins),
+        reply_markup=kb.buy_payment_method()
+    )
 
 
 @router.callback_query(F.data.startswith("pay:"))
 async def pay_pack(call: CallbackQuery, state: FSMContext) -> None:
+    if call.data == "pay:custom":
+        return  # handled by buy_custom
+
     await state.clear()
     stars = int(call.data.split(":", 1)[1])
+    coins = stars * settings.get("stars_rate")
+    await state.update_data(stars=stars)
+    await state.set_state(Buy.choose_method)
+    await call.message.answer(
+        texts.buy_choose_method(stars, coins),
+        reply_markup=kb.buy_payment_method()
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "pay_method:stars")
+async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    stars = data.get("stars")
+    if not stars:
+        await call.answer("Ошибка: сумма не выбрана", show_alert=True)
+        return
+    await state.clear()
     await call.answer()
     await send_invoice(call.message, stars)
+
+
+@router.callback_query(F.data == "pay_method:card")
+async def pay_with_card(call: CallbackQuery, state: FSMContext) -> None:
+    await call.answer("⚠️ Оплата картой пока недоступна. Используйте Telegram Stars.", show_alert=True)
 
 
 async def send_invoice(message: Message, stars: int) -> None:

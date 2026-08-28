@@ -272,6 +272,14 @@ def buy_custom() -> str:
     return f'Сколько ⭐ спишем? Пришли число (от {settings.get("min_stars")}).'
 
 
+def buy_choose_method(stars: int, coins: int) -> str:
+    return (
+        f"💰 <b>Покупка {coins} монет</b>\n\n"
+        f"Сумма: <b>{stars} ⭐</b> → <b>{coins}</b> {coin()}\n\n"
+        "Выбери способ оплаты:"
+    )
+
+
 def buy_bad_input() -> str:
     return f'Нужно целое число от {settings.get("min_stars")}.'
 

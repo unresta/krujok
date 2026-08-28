@@ -292,7 +292,10 @@ def rules() -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(text="❓ Прочитать FAQ", callback_data="faq", style=PRIMARY)
     )
-    _legal_row(b)
+    b.row(
+        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
+        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
+    )
     return b.as_markup()
 
 
@@ -303,7 +306,10 @@ def faq() -> InlineKeyboardMarkup:
             text="ℹ️ Прочитать Правила", callback_data="rules", style=PRIMARY
         )
     )
-    _legal_row(b)
+    b.row(
+        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
+        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
+    )
     return b.as_markup()
 
 
@@ -610,14 +616,33 @@ def buy() -> InlineKeyboardMarkup:
         )
     )
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
-    _legal_row(kb)  # terms of the purchase, one tap before paying for it
+    return kb.as_markup()
+
+
+def buy_payment_method() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(
+            text="⭐ Telegram Stars",
+            callback_data="pay_method:stars",
+            style=SUCCESS,
+        )
+    )
+    kb.row(
+        InlineKeyboardButton(
+            text="💳 Карта (скоро)",
+            callback_data="pay_method:card",
+            style=None,
+        )
+    )
+    kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
+    _legal_row(kb)  # terms of the purchase, readable before paying
     return kb.as_markup()
 
 
 def buy_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
-    _legal_row(kb)
     return kb.as_markup()
 
 
