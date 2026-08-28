@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 import db
+import keyboards as kb
 import texts
 import settings
 from config import ADMIN_CHAT_ID, ADMIN_IDS
@@ -33,30 +34,48 @@ async def review(call: CallbackQuery) -> None:
         await call.answer("Кружок не найден.", show_alert=True)
         return
 
-    status = "approved" if verdict == "ok" else "rejected"
-    if not await db.review_circle(circle_id, status, call.from_user.id):
-        await call.answer("Уже обработан.", show_alert=True)
+    if verdict == "again":  # a verdict can always be revisited
         with suppress(TelegramAPIError):
-            await call.message.edit_reply_markup(reply_markup=None)
+            await call.message.edit_reply_markup(reply_markup=kb.moderation(circle_id))
+        await call.answer("Решай заново")
+        return
+
+    status = "approved" if verdict == "ok" else "rejected"
+    changed, pay = await db.decide_circle(circle_id, status, call.from_user.id)
+    if not changed:
+        await call.answer("Уже с таким решением.", show_alert=True)
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.circle_decided(circle_id)
+            )
         return
 
     uploader = circle["uploader_id"]
     if status == "approved":
-        reward = settings.reward(circle["gender"])
-        await db.add_coins(uploader, reward, earned=True)
+        reward = settings.reward(circle["gender"]) if pay else 0
+        if reward:
+            await db.add_coins(uploader, reward, earned=True)
         balance = (await db.get_user(uploader))["coins"]
-        note = texts.approved(reward, balance)
+        # Approved a second time the circle simply comes back; the reward for it
+        # was already paid, and saying «+0» would read as a mistake.
+        note = texts.approved(reward, balance) if pay else texts.CIRCLE_RESTORED
     else:
         note = texts.REJECTED
 
-    with suppress(TelegramAPIError):  # user may have blocked the bot
-        await call.bot.send_message(uploader, note)
+    if uploader:
+        with suppress(TelegramAPIError):  # user may have blocked the bot
+            await call.bot.send_message(uploader, note)
 
     mark = "🟢 одобрено" if status == "approved" else "🔴 отклонено"
     who = call.from_user.username and f"@{call.from_user.username}" or call.from_user.id
     with suppress(TelegramAPIError):
         await call.message.edit_text(
-            f"{call.message.html_text}\n\n<b>{mark}</b> · {who}",
-            reply_markup=None,
+            f"{_card_body(call.message.html_text)}\n\n<b>{mark}</b> · {who}",
+            reply_markup=kb.circle_decided(circle_id),
         )
     await call.answer(mark)
+
+
+def _card_body(html_text: str) -> str:
+    """The card is re-decided in place, so old verdict lines must not stack up."""
+    return html_text.split("\n\n<b>🟢")[0].split("\n\n<b>🔴")[0].rstrip()

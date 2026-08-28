@@ -73,6 +73,31 @@ TITLES: dict[str, str] = {
     "star_price": "Цена 1 ⭐ в копейках",
 }
 
+# Twenty-four knobs in one column is a wall; the panel shows them by subject.
+GROUPS: dict[str, tuple[str, ...]] = {
+    "🎬 Просмотр и лента": (
+        "watch_cost",
+        "view_payout",
+        "like_bonus",
+        "like_boost",
+        "min_duration",
+        "max_pending",
+        "reward_f",
+        "reward_m",
+    ),
+    "💰 Продажи": ("author_share", "price_min", "price_max"),
+    "⭐ Покупка монеток": ("stars_rate", "min_stars", "star_price"),
+    "💸 Вывод": ("payout_min", "payout_rate"),
+    "🎁 Бонусы": ("welcome_bonus", "sub_bonus", "ref_reward"),
+    "🔔 Напоминания": (
+        "push_idle_hours",
+        "push_cooldown_hours",
+        "push_batch",
+        "push_free_views",
+    ),
+    "⚠️ Модерация": ("reports_to_hide",),
+}
+
 LIMITS: dict[str, tuple[int, int]] = {
     "watch_cost": (1, 1000),
     "reward_f": (0, 1000),
@@ -161,6 +186,17 @@ def maintenance() -> bool:
 async def set(key: str, value: int) -> None:
     _values[key] = value
     await db.save_setting(key, value)
+
+
+def default(key: str) -> int:
+    return DEFAULTS[key]
+
+
+def groups() -> dict[str, tuple[str, ...]]:
+    """Every titled setting belongs somewhere, even one added after the fact."""
+    known = {key for keys in GROUPS.values() for key in keys}
+    rest = tuple(key for key in TITLES if key not in known)
+    return {**GROUPS, "📋 Прочее": rest} if rest else dict(GROUPS)
 
 
 def get_text(key: str) -> str:

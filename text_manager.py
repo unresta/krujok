@@ -1,227 +1,177 @@
-"""Dynamic text management system with database overrides."""
+"""Texts an admin can rewrite from the panel.
 
-# Default texts organized by category
-DEFAULT_TEXTS = {
-    # === Система ===
-    "WELCOME": {
-        "text": "Привет! 👋\n\nЭто бот для обмена кружочками.",
-        "description": "Приветственное сообщение",
-        "category": "Система"
-    },
-    "ACCEPTED": {
-        "text": "Готово. Приятного просмотра 🙂",
-        "description": "Подтверждение согласия",
-        "category": "Система"
-    },
-    "BANNED": {
-        "text": "Доступ закрыт.",
-        "description": "Сообщение для забаненных",
-        "category": "Система"
-    },
-    "MAINTENANCE": {
-        "text": "🔧 Бот на техработах. Загляни чуть позже.",
-        "description": "Режим обслуживания",
-        "category": "Система"
-    },
+The defaults live in texts.py and nowhere else — this module only knows which
+of them may be edited, and swaps an override straight into that module. That is
+what makes a change show up in the next message instead of after a restart, and
+what keeps the panel from drifting apart from the code.
 
-    # === Профиль автора ===
-    "PROFILE_INTRO": {
-        "text": "📋 Создай анкету автора, чтобы зарабатывать на своих кружочках.",
-        "description": "Введение в профиль",
-        "category": "Профиль"
-    },
-    "PROFILE_PHOTO": {
-        "text": "🖼 <b>Профиль автора</b>\n\nПришли фото для анкеты — его увидят все, кто листает кружочки. Чем лучше смотрится, тем больше шансов на покупку.",
-        "description": "Запрос фото профиля",
-        "category": "Профиль"
-    },
-    "PROFILE_GENDER": {
-        "text": "Кто ты?",
-        "description": "Выбор пола",
-        "category": "Профиль"
-    },
-    "PROFILE_CONTACT_ASK": {
-        "text": "Продавать личку? Её купят — откроется username, пишут напрямую.",
-        "description": "Вопрос о продаже контакта",
-        "category": "Профиль"
-    },
-    "PROFILE_NO_USERNAME": {
-        "text": "У тебя нет username — личку продать не получится. Заведи его в настройках Telegram и возвращайся.",
-        "description": "Нет username",
-        "category": "Профиль"
-    },
-    "PROFILE_STILL_NO_USERNAME": {
-        "text": "Username всё ещё нет. Заведи его и возвращайся.",
-        "description": "Повтор - нет username",
-        "category": "Профиль"
-    },
-    "PROFILE_SENT": {
-        "text": "📬 Анкета отправлена на проверку. Как одобрят — придёт уведомление.",
-        "description": "Анкета на модерацию",
-        "category": "Профиль"
-    },
-    "PROFILE_NOT_PHOTO": {
-        "text": "Нужно именно фото.",
-        "description": "Ошибка типа файла",
-        "category": "Профиль"
-    },
-    "PROFILE_APPROVED": {
-        "text": "🟢 Твоя анкета одобрена — её уже показывают.",
-        "description": "Анкета одобрена",
-        "category": "Профиль"
-    },
-    "PROFILE_EMPTY_WAIT": {
-        "text": "Анкет пока нет — все просмотрены. Загляни позже.",
-        "description": "Нет анкет для просмотра",
-        "category": "Профиль"
-    },
+A text shown in a toast or an alert is stored as plain text: Telegram renders no
+HTML there, so bold and premium emoji would arrive as visible tags.
+"""
 
-    # === Загрузка кружков ===
-    "UPLOAD_NEEDS_PROFILE": {
-        "text": "🎬 Сначала анкета.\n\nКружочки показываются вместе с анкетой автора: зритель может её открыть и купить доступ ко всем твоим кружочкам. Без анкеты продавать нечего.",
-        "description": "Нужна анкета для загрузки",
-        "category": "Загрузка"
-    },
-    "NOT_A_CIRCLE": {
-        "text": "Это не кружок. Зажми 🎥 в поле ввода и запиши видеосообщение.",
-        "description": "Неверный формат",
-        "category": "Загрузка"
-    },
-    "DUPLICATE": {
-        "text": "Такой кружок уже есть в базе.",
-        "description": "Дубликат кружка",
-        "category": "Загрузка"
-    },
-    "TOO_MANY_PENDING": {
-        "text": "У тебя уже несколько кружков на проверке. Дождись решения.",
-        "description": "Слишком много на модерации",
-        "category": "Загрузка"
-    },
-    "REJECTED": {
-        "text": "🔴 Кружок отклонён модератором.",
-        "description": "Кружок отклонён",
-        "category": "Загрузка"
-    },
+import logging
+from typing import NamedTuple
 
-    # === Просмотр ===
-    "EMPTY": {
-        "text": "Свежих кружочков этого типа пока нет — ты посмотрел все.\nЗагляни позже или смени тип.",
-        "description": "Нет новых кружков",
-        "category": "Просмотр"
-    },
-    "ARCHIVE_NOTE": {
-        "text": "Это кружок из архива бота — он без автора, анкеты у него нет.",
-        "description": "Архивный кружок",
-        "category": "Просмотр"
-    },
+import db
+import texts
 
-    # === Жалобы ===
-    "REPORT_SENT": {
-        "text": "Жалоба отправлена модераторам.",
-        "description": "Жалоба отправлена",
-        "category": "Жалобы"
-    },
-    "REPORT_DOUBLE": {
-        "text": "Ты уже жаловался на этот кружок.",
-        "description": "Повторная жалоба на кружок",
-        "category": "Жалобы"
-    },
-    "REPORT_DOUBLE_PROFILE": {
-        "text": "Ты уже жаловался на эту анкету.",
-        "description": "Повторная жалоба на анкету",
-        "category": "Жалобы"
-    },
-    "CIRCLE_REMOVED": {
-        "text": "🔴 Твой кружок удалён по жалобам.",
-        "description": "Кружок удалён",
-        "category": "Жалобы"
-    },
+logger = logging.getLogger(__name__)
 
-    # === Покупки ===
-    "CONTACT_NOT_FOR_SALE": {
-        "text": "Автор не продаёт личку.",
-        "description": "Контакт не продаётся",
-        "category": "Покупки"
-    },
-    "NOTHING_TO_SELL": {
-        "text": "У автора пока нет кружочков — покупать нечего.",
-        "description": "Нет контента",
-        "category": "Покупки"
-    },
-    "ALREADY_BOUGHT": {
-        "text": "Уже куплено.",
-        "description": "Уже куплен доступ",
-        "category": "Покупки"
-    },
 
-    # === Выплаты ===
-    "PAYOUT_ASK_DETAILS": {
-        "text": "💸 <b>Вывод средств</b>\n\nПришли реквизиты для перевода и сумму.\n\nПример:\n<code>СБП 79991234567 500₽</code>",
-        "description": "Запрос реквизитов",
-        "category": "Выплаты"
-    },
+class Item(NamedTuple):
+    description: str
+    category: str
+    plain: bool = False  # lives in a toast/alert, where formatting is not shown
 
-    # === Рефералы ===
-    "TRAFFER_UNKNOWN": {
-        "text": "Команда не подходит — проверь её у того, кто выдал ссылку.",
-        "description": "Неизвестная команда",
-        "category": "Рефералы"
-    },
 
-    # === Подписка ===
-    "SUBSCRIBE_MISSING": {
-        "text": "Подписки не вижу. Подпишись на канал и нажми ещё раз.",
-        "description": "Нет подписки",
-        "category": "Подписка"
-    },
+CATEGORY_ICON = {
+    "Система": "⚙️",
+    "Профиль": "👤",
+    "Загрузка": "🎥",
+    "Просмотр": "👀",
+    "Жалобы": "⚠️",
+    "Покупки": "💰",
+    "Выплаты": "💸",
+    "Рефералы": "👥",
+    "Подписка": "📢",
 }
 
-# Cache for custom texts loaded from database
-_custom_texts = {}
+EDITABLE: dict[str, Item] = {
+    # --- Система ---
+    "ACCEPTED": Item("Согласие принято", "Система", plain=True),
+    "BANNED": Item("Сообщение забаненному", "Система", plain=True),
+    "MAINTENANCE": Item("Режим техработ", "Система", plain=True),
+    # --- Профиль ---
+    "PROFILE_INTRO": Item("Приглашение завести анкету", "Профиль"),
+    "PROFILE_PHOTO": Item("Просьба прислать фото", "Профиль"),
+    "PROFILE_GENDER": Item("Вопрос о поле", "Профиль"),
+    "PROFILE_ABOUT_TEXT_ONLY": Item("Описание — только текстом", "Профиль"),
+    "PROFILE_CONTACT_ASK": Item("Продавать ли личку", "Профиль"),
+    "PROFILE_NO_USERNAME": Item("Нужен @username", "Профиль", plain=True),
+    "PROFILE_STILL_NO_USERNAME": Item("@username так и нет", "Профиль", plain=True),
+    "PROFILE_SENT": Item("Анкета ушла на проверку", "Профиль"),
+    "PROFILE_NOT_PHOTO": Item("Прислали не фото", "Профиль"),
+    "PROFILE_APPROVED": Item("Анкета одобрена", "Профиль"),
+    "PROFILE_EMPTY_WAIT": Item("Анкеты кончились", "Профиль"),
+    # --- Загрузка ---
+    "UPLOAD_NEEDS_PROFILE": Item("Сначала анкета", "Загрузка"),
+    "NOT_A_CIRCLE": Item("Прислали не кружок", "Загрузка"),
+    "DUPLICATE": Item("Кружок уже есть в базе", "Загрузка"),
+    "TOO_MANY_PENDING": Item("Слишком много на проверке", "Загрузка"),
+    "REJECTED": Item("Кружок отклонён", "Загрузка"),
+    # --- Просмотр ---
+    "EMPTY": Item("Кружки этого типа кончились", "Просмотр"),
+    "ARCHIVE_NOTE": Item("Кружок из архива бота", "Просмотр", plain=True),
+    # --- Жалобы ---
+    "REPORT_ASK": Item("Вопрос «за что жалуешься»", "Жалобы", plain=True),
+    "REPORT_SENT": Item("Жалоба отправлена", "Жалобы", plain=True),
+    "REPORT_DOUBLE": Item("Повторная жалоба на кружок", "Жалобы", plain=True),
+    "REPORT_DOUBLE_PROFILE": Item("Повторная жалоба на анкету", "Жалобы", plain=True),
+    "CIRCLE_HIDDEN": Item("Кружок сняли с показа", "Жалобы"),
+    "CIRCLE_RESTORED": Item("Кружок вернули в показ", "Жалобы"),
+    "CIRCLE_REMOVED": Item("Кружок удалён по жалобам", "Жалобы"),
+    # --- Покупки ---
+    "CONTACT_NOT_FOR_SALE": Item("Личка не продаётся", "Покупки", plain=True),
+    "NOTHING_TO_SELL": Item("У автора нет кружочков", "Покупки", plain=True),
+    "ALREADY_BOUGHT": Item("Уже куплено", "Покупки", plain=True),
+    "BUY_PICK_METHOD": Item("Выбери способ оплаты", "Покупки"),
+    # --- Выплаты ---
+    "PAYOUT_ASK_DETAILS": Item("Запрос реквизитов", "Выплаты"),
+    # --- Рефералы ---
+    "TRAFFER_UNKNOWN": Item("Неизвестная команда траффера", "Рефералы"),
+    # --- Подписка ---
+    "SUBSCRIBE_MISSING": Item("Подписки не видно", "Подписка", plain=True),
+}
+
+_defaults: dict[str, str] = {}
+_custom: dict[str, str] = {}
 
 
-async def load_from_db():
-    """Load custom texts from database."""
-    import db
+def _snapshot() -> None:
+    """The values texts.py was shipped with, taken before anything overrides."""
+    if _defaults:
+        return
+    for key in EDITABLE:
+        value = getattr(texts, key, None)
+        if isinstance(value, str):
+            _defaults[key] = value
+        else:  # a key that no longer exists in the code must not hide the rest
+            logger.warning("editable text %s is missing from texts.py", key)
 
-    global _custom_texts
-    _custom_texts = {}
 
-    async with db.conn().execute("SELECT key, text, description FROM custom_texts") as cur:
-        async for row in cur:
-            _custom_texts[row["key"]] = {
-                "text": row["text"],
-                "description": row["description"] or "",
-            }
+def apply() -> None:
+    """Push the current values into texts.py, overrides and defaults alike."""
+    _snapshot()
+    for key, default in _defaults.items():
+        setattr(texts, key, _custom.get(key, default))
+
+
+async def load_from_db() -> None:
+    _snapshot()
+    _custom.clear()
+    for key, row in (await db.load_custom_texts()).items():
+        if key in _defaults:
+            _custom[key] = row["text"]
+    apply()
+    logger.info("custom texts loaded: %s", len(_custom))
+
+
+def default(key: str) -> str:
+    _snapshot()
+    return _defaults.get(key, "")
 
 
 def get(key: str) -> str:
-    """Get text by key, returning custom version if available."""
-    if key in _custom_texts:
-        return _custom_texts[key]["text"]
-    if key in DEFAULT_TEXTS:
-        return DEFAULT_TEXTS[key]["text"]
-    return f"[Текст {key} не найден]"
+    return _custom.get(key) or default(key)
 
 
-def list_all_texts() -> dict:
-    """List all available texts with their current values."""
-    result = {}
-    for key, data in DEFAULT_TEXTS.items():
-        custom = _custom_texts.get(key)
-        result[key] = {
-            "text": custom["text"] if custom else data["text"],
-            "description": custom.get("description") if custom else data["description"],
-            "category": data.get("category", "Разное"),
-            "is_custom": key in _custom_texts,
-        }
-    # Add custom texts not in defaults
-    for key in _custom_texts:
-        if key not in result:
-            result[key] = {
-                "text": _custom_texts[key]["text"],
-                "description": _custom_texts[key].get("description", ""),
-                "category": "Разное",
-                "is_custom": True,
-            }
-    return result
+def is_custom(key: str) -> bool:
+    return key in _custom
+
+
+def known(key: str) -> bool:
+    _snapshot()
+    return key in _defaults
+
+
+def keys_in(category: str) -> list[str]:
+    return [
+        key
+        for key in EDITABLE
+        if EDITABLE[key].category == category and known(key)
+    ]
+
+
+def categories() -> list[tuple[str, int, int]]:
+    """(name, texts in it, how many of them are overridden)"""
+    out = []
+    for name in CATEGORY_ICON:
+        keys = keys_in(name)
+        if keys:
+            out.append((name, len(keys), sum(is_custom(k) for k in keys)))
+    return out
+
+
+def custom_count() -> int:
+    return len(_custom)
+
+
+async def save(key: str, value: str) -> None:
+    if not known(key):
+        return
+    _custom[key] = value
+    await db.save_custom_text(key, value, EDITABLE[key].description)
+    apply()
+
+
+async def reset(key: str) -> None:
+    _custom.pop(key, None)
+    await db.delete_custom_text(key)
+    apply()
+
+
+async def reset_all() -> int:
+    dropped = await db.wipe_custom_texts()
+    _custom.clear()
+    apply()
+    return dropped

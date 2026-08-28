@@ -289,6 +289,8 @@ def circles_word(count: int) -> str:
 
 
 CIRCLE_REMOVED = "🔴 Твой кружок удалён по жалобам."
+CIRCLE_HIDDEN = "🚫 Твой кружок сняли с показа — модератор счёл его нарушающим правила."
+CIRCLE_RESTORED = "🟢 Твой кружок проверили и вернули в показ."
 
 
 ARCHIVE_NOTE = (

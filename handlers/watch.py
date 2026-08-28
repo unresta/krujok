@@ -259,23 +259,54 @@ async def review_report(call: CallbackQuery) -> None:
     _, action, raw_id = call.data.split(":")
     circle_id = int(raw_id)
     circle = await db.get_circle(circle_id)
+
+    if action == "again":  # hiding and keeping are both reversible
+        if circle is None:
+            await call.answer("Кружок уже удалён.", show_alert=True)
+            return
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.report_review(circle_id)
+            )
+        await call.answer("Решай заново")
+        return
+
     await db.clear_reports(circle_id)
+    author = circle["uploader_id"] if circle else 0
+    note = ""
 
     if action == "del":
-        if circle and circle["uploader_id"]:
-            with suppress(TelegramAPIError):
-                await call.bot.send_message(
-                    circle["uploader_id"], texts.CIRCLE_REMOVED
-                )
+        note = texts.CIRCLE_REMOVED
         await db.delete_circle(circle_id)
         verdict = "🔴 удалён"
+    elif action == "hide":
+        if circle:
+            await db.set_status(circle_id, "rejected")
+            note = texts.CIRCLE_HIDDEN
+        verdict = "🚫 скрыт"
     else:
         if circle:
+            # Only worth telling the author when the circle was actually off.
+            if circle["status"] != "approved":
+                note = texts.CIRCLE_RESTORED
             await db.set_status(circle_id, "approved")
         verdict = "🟢 оставлен"
 
+    if author and note:
+        with suppress(TelegramAPIError):
+            await call.bot.send_message(author, note)
+
     with suppress(TelegramAPIError):
         await call.message.edit_text(
-            f"{call.message.html_text}\n\n<b>{verdict}</b>", reply_markup=None
+            f"{_card_body(call.message.html_text)}\n\n<b>{verdict}</b>",
+            # A deleted circle has nothing left to change one's mind about.
+            reply_markup=None if action == "del" else kb.report_decided(circle_id),
         )
     await call.answer(verdict)
+
+
+def _card_body(html_text: str) -> str:
+    """Re-deciding edits the same card, so verdict lines must not stack up."""
+    for mark in ("\n\n<b>🟢", "\n\n<b>🔴", "\n\n<b>🚫"):
+        html_text = html_text.split(mark)[0]
+    return html_text.rstrip()

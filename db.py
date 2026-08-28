@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS circles (
     gender         TEXT    NOT NULL,            -- f | m
     duration       INTEGER NOT NULL,
     status         TEXT    NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+    rewarded       INTEGER NOT NULL DEFAULT 0,          -- upload reward already paid
     views          INTEGER NOT NULL DEFAULT 0,
     admin_msg_id   INTEGER,
     reviewed_by    INTEGER,
@@ -211,6 +212,9 @@ MIGRATIONS = {
         "likes": "INTEGER NOT NULL DEFAULT 0",
         "dislikes": "INTEGER NOT NULL DEFAULT 0",
         "earned": "INTEGER NOT NULL DEFAULT 0",
+        # Set the first time a circle is approved, so a moderator who changes
+        # their mind twice cannot pay the upload reward twice.
+        "rewarded": "INTEGER NOT NULL DEFAULT 0",
     },
     "reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
@@ -633,15 +637,29 @@ async def circle_by_unique(file_unique_id: str) -> aiosqlite.Row | None:
         return await cur.fetchone()
 
 
-async def review_circle(circle_id: int, status: str, admin_id: int) -> bool:
-    """Flip a pending circle. False if somebody reviewed it first."""
-    cur = await conn().execute(
-        "UPDATE circles SET status = ?, reviewed_by = ?"
-        " WHERE id = ? AND status = 'pending'",
-        (status, admin_id, circle_id),
+async def decide_circle(
+    circle_id: int, status: str, admin_id: int
+) -> tuple[bool, bool]:
+    """Set a verdict, first one or a changed mind alike.
+
+    Returns (the status moved, the upload reward is due now) — the reward is
+    remembered on the circle, so approving it a second time cannot pay twice.
+    """
+    async with conn().execute(
+        "SELECT status, rewarded FROM circles WHERE id = ?", (circle_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None or row["status"] == status:
+        return False, False
+
+    pay = status == "approved" and not row["rewarded"]
+    await conn().execute(
+        "UPDATE circles SET status = ?, reviewed_by = ?,"
+        " rewarded = CASE WHEN ? THEN 1 ELSE rewarded END WHERE id = ?",
+        (status, admin_id, int(pay), circle_id),
     )
     await conn().commit()
-    return cur.rowcount > 0
+    return True, pay
 
 
 async def set_status(circle_id: int, status: str) -> None:
@@ -1498,6 +1516,12 @@ async def delete_custom_emoji(key: str) -> None:
 async def delete_custom_text(key: str) -> None:
     await conn().execute("DELETE FROM custom_texts WHERE key = ?", (key,))
     await conn().commit()
+
+
+async def wipe_custom_texts() -> int:
+    cur = await conn().execute("DELETE FROM custom_texts")
+    await conn().commit()
+    return cur.rowcount
 
 
 # --- payments ------------------------------------------------------------

@@ -510,11 +510,16 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("За что отклоняем?")
         return
 
-    if verdict == "again":  # a verdict can always be revisited
+    # A verdict can always be revisited — each card comes back to its own pair
+    # of buttons: the queue's approve/reject, the complaint's hide/keep.
+    if verdict in ("again", "ragain"):
+        markup = (
+            kb.profile_review(user_id)
+            if verdict == "again"
+            else kb.profile_report_review(user_id)
+        )
         with suppress(TelegramAPIError):
-            await call.message.edit_reply_markup(
-                reply_markup=kb.profile_review(user_id)
-            )
+            await call.message.edit_reply_markup(reply_markup=markup)
         await call.answer("Решай заново")
         return
 
@@ -540,16 +545,22 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
     status = "approved" if verdict == "ok" else "rejected"
 
     if verdict in ("hide", "keep"):  # verdict on a complaint, not on a new profile
+        was = await db.get_profile(user_id)
         status = "rejected" if verdict == "hide" else "approved"
         await db.set_profile_status(user_id, status)
         await db.clear_profile_reports(user_id)
         if verdict == "hide":
             await db.drop_profile_backup(user_id)  # nothing here is worth restoring
             await _tell_author(call.bot, user_id, "rejected", "жалобы пользователей")
+        elif was is not None and was["status"] != "approved":
+            # Keeping a profile that was already hidden puts it back on screen,
+            # and the author has no other way of learning that.
+            await _tell_author(call.bot, user_id, "approved")
         mark = "🔴 скрыта" if verdict == "hide" else "🟢 оставлена"
         with suppress(TelegramAPIError):
             await call.message.edit_caption(
-                caption=f"{call.message.html_text}\n\n<b>{mark}</b>", reply_markup=None
+                caption=f"{_card_body(call.message.html_text)}\n\n<b>{mark}</b>",
+                reply_markup=kb.profile_report_decided(user_id),
             )
         await call.answer(mark)
         return
@@ -557,10 +568,17 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
     mark = await _decide(call.bot, user_id, status, reason)
     with suppress(TelegramAPIError):
         await call.message.edit_caption(
-            caption=f"{call.message.html_text}\n\n<b>{mark}</b>",
+            caption=f"{_card_body(call.message.html_text)}\n\n<b>{mark}</b>",
             reply_markup=kb.profile_decided(user_id),
         )
     await call.answer(mark)
+
+
+def _card_body(html_text: str) -> str:
+    """Re-deciding edits the same card, so verdict lines must not stack up."""
+    for mark in ("\n\n<b>🟢", "\n\n<b>🔴"):
+        html_text = html_text.split(mark)[0]
+    return html_text.rstrip()
 
 
 async def _decide(bot, user_id: int, status: str, reason: str) -> str:
@@ -615,7 +633,7 @@ async def got_reason(message: Message, state: FSMContext) -> None:
     user_id = data["user_id"]
 
     mark = await _decide(message.bot, user_id, "rejected", reason)
-    with suppress(TelegramAPIError):
+    with suppress(TelegramAPIError):  # the card keeps a way back to the buttons
         await message.bot.edit_message_reply_markup(
             chat_id=message.chat.id,
             message_id=data["card"],

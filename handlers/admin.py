@@ -31,6 +31,7 @@ import db
 import pushes
 import keyboards as kb
 import settings
+import text_manager
 import texts
 from config import ADMIN_IDS, DB_PATH
 
@@ -118,7 +119,7 @@ def home_kb(
 
     # Settings section - без цветов
     b.row(
-        InlineKeyboardButton(text="📝 Тексты и эмодзи", callback_data="a:content"),
+        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
         InlineKeyboardButton(text="📢 Канал", callback_data="a:chan"),
     )
     b.row(
@@ -149,9 +150,20 @@ def back_kb(extra: list[InlineKeyboardButton] | None = None) -> InlineKeyboardMa
 
 async def home_text() -> str:
     d = await db.dashboard()
+    todo = {
+        "жалоб": await db.open_reports(),
+        "анкет": await db.pending_profiles(),
+        "кружков": d["pending"],
+        "выплат": (await db.payout_totals())["open"],
+    }
+    waiting = ", ".join(f"{count} {what}" for what, count in todo.items() if count)
+    # What needs a human comes first; the rest is background.
+    head = f"🔔 <b>Ждут решения:</b> {waiting}" if waiting else "🟢 Разобрано, очередей нет"
     return (
         "⚙️ <b>Админ-панель</b>\n\n"
-        f"👤 {d['users']} польз. (+{d['users_today']} за сутки), "
+        f"{head}\n"
+        + ("🔧 <b>Техработы включены</b>\n" if settings.maintenance() else "")
+        + f"\n👤 {d['users']} польз. (+{d['users_today']} за сутки), "
         f"🚫 бан: {d['banned']}\n"
         f"🎞 {d['approved']} в базе · {d['pending']} ждут · {d['rejected']} отказ\n"
         f"👀 {d['views']} просмотров (+{d['views_today']} за сутки)\n"
@@ -215,7 +227,7 @@ async def cb_stats(call: CallbackQuery) -> None:
     house = d["circles"] - d["approved"] - d["pending"] - d["rejected"]
     await _edit(
         call,
-        "<b>Статистика</b>\n\n"
+        "📊 <b>Статистика</b>\n\n"
         f"Пользователи: {d['users']} (за сутки +{d['users_today']}, "
         f"забанено {d['banned']})\n"
         f"Монеток на руках: {d['coins']}\n\n"
@@ -243,7 +255,7 @@ async def cb_top(call: CallbackQuery) -> None:
             f"{r['approved']} одобрено из {r['total']}"
             for i, r in enumerate(rows, 1)
         )
-    await _edit(call, f"<b>Топ авторов</b>\n\n{body}", back_kb())
+    await _edit(call, f"🏆 <b>Топ авторов</b>\n\n{body}", back_kb())
     await call.answer()
 
 
@@ -277,7 +289,7 @@ async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        f"<b>Обязательная подписка</b>\n\n{body}\n\n"
+        f"📢 <b>Обязательная подписка</b>\n\n{body}\n\n"
         f"👥 Рефералы: {confirmed} подтверждено из {invited} приглашённых, "
         f"по {settings.get('ref_reward')} монеток за каждого "
         "(меняется в «Экономике»).",
@@ -383,7 +395,7 @@ async def cb_reports(call: CallbackQuery, state: FSMContext) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        f"<b>Жалобы</b>\n\nЧат: <code>{chat}</code>\n{status}\n\n"
+        f"⚠️ <b>Жалобы</b>\n\nЧат: <code>{chat}</code>\n{status}\n\n"
         f"Открытых жалоб: {len(rows)}",
         b.as_markup(),
     )
@@ -481,7 +493,7 @@ async def cb_anketas(call: CallbackQuery, state: FSMContext) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        f"<b>Анкеты</b>\n\nЧат: <code>{chat}</code>\n"
+        f"📋 <b>Анкеты</b>\n\nЧат: <code>{chat}</code>\n"
         f"{await _chat_status(call.bot, chat)}\n\n"
         f"На проверке: {waiting}",
         b.as_markup(),
@@ -550,7 +562,7 @@ async def cb_payouts(call: CallbackQuery) -> None:
     if not rows:
         await _edit(
             call,
-            "<b>Выплаты</b>\n\nОткрытых заявок нет.\n"
+            "💸 <b>Выплаты</b>\n\nОткрытых заявок нет.\n"
             f"Выплачено за всё время: {totals['paid_stars']} ⭐",
             back_kb(),
         )
@@ -559,7 +571,7 @@ async def cb_payouts(call: CallbackQuery) -> None:
 
     await _edit(
         call,
-        f"<b>Выплаты</b>\n\nОткрыто: {totals['open']} заявок на "
+        f"💸 <b>Выплаты</b>\n\nОткрыто: {totals['open']} заявок на "
         f"{totals['open_coins']} монеток\n"
         f"Выплачено за всё время: {totals['paid_stars']} ⭐\n\n"
         "Карточки ниже.",
@@ -572,7 +584,7 @@ async def cb_payouts(call: CallbackQuery) -> None:
                 f"#выплата <b>#{payout['id']}</b>\n"
                 f"{payout['coins']} монеток → <b>{payout['stars']} ⭐</b>\n"
                 f"Кому: <code>{payout['user_id']}</code>\n"
-                f"Реквизиты: <code>{payout['details']}</code>",
+                f"Реквизиты: <code>{html.escape(payout['details'])}</code>",
                 reply_markup=kb.payout_review(payout["id"]),
             )
     await call.answer()
@@ -604,7 +616,7 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        "<b>Напоминания</b>\n\n"
+        "🔔 <b>Напоминания</b>\n\n"
         f"Статус: {'🟢 включены' if on else '🔴 выключены'}\n"
         f"Молчал дольше: {settings.get('push_idle_hours')} ч\n"
         f"Не чаще раза в: {settings.get('push_cooldown_hours')} ч\n"
@@ -668,7 +680,7 @@ async def cb_links(call: CallbackQuery, state: FSMContext) -> None:
     total_users = sum(row["users"] for row in rows)
     await _edit(
         call,
-        "<b>Рекламные ссылки</b>\n\n"
+        "🔗 <b>Рекламные ссылки</b>\n\n"
         f"Ссылок: {len(rows)} · пришло с них: {total_users}\n\n"
         "Каждая ссылка — это <code>?start=код</code>. Первая ссылка, по которой "
         "пришёл человек, закрепляется за ним навсегда.\n"
@@ -971,13 +983,13 @@ async def cb_queue(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Чат кружков", callback_data="a:queue:chat", style=kb.PRIMARY
+            text="⚙️ Чат кружков", callback_data="a:queue:chat"
         )
     )
     if waiting:
         b.row(
             InlineKeyboardButton(
-                text="Показать следующий",
+                text="➡️ Показать следующий",
                 callback_data="a:queue:next",
                 style=kb.SUCCESS,
             )
@@ -985,7 +997,7 @@ async def cb_queue(call: CallbackQuery, state: FSMContext) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        f"<b>Кружочки на проверке</b>\n\nЧат: <code>{chat}</code>\n"
+        f"🎬 <b>Кружочки на проверке</b>\n\nЧат: <code>{chat}</code>\n"
         f"{await _chat_status(call.bot, chat)}\n\nЖдут проверки: {waiting}",
         b.as_markup(),
     )
@@ -1082,7 +1094,7 @@ async def cb_bulk(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await _edit(
         call,
-        "<b>Массовая загрузка</b>\n\n"
+        "📦 <b>Массовая загрузка</b>\n\n"
         "Выбери тип — дальше просто шли кружочки подряд, каждый уходит в базу "
         "сразу одобренным, без модерации и без начисления монеток.",
         bulk_kb(),
@@ -1272,7 +1284,8 @@ async def cb_user(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.user_id)
     await _edit(
         call,
-        "Пришли id пользователя числом — или перешли сюда его сообщение.",
+        "👤 <b>Пользователь</b>\n\nПришли id числом — или перешли сюда любое "
+        "его сообщение.",
         back_kb(),
     )
     await call.answer()
@@ -1396,8 +1409,60 @@ async def cb_user_ban(call: CallbackQuery) -> None:
 async def cb_circle(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.circle_id)
     total = await db.total_circles()
-    await _edit(call, f"Пришли номер кружка (всего в базе: {total}).", back_kb())
+    await _edit(
+        call,
+        f"🎥 <b>Кружок по номеру</b>\n\nВсего в базе: {total}.\n"
+        "Пришли номер — <code>12</code> или <code>#12</code>. Оттуда его можно "
+        "снять с показа или удалить.",
+        back_kb(),
+    )
     await call.answer()
+
+
+CIRCLE_STATUS = {
+    "approved": "🟢 показывается",
+    "pending": "🕒 ждёт проверки",
+    "rejected": "🚫 скрыт",
+}
+
+
+def _circle_card(circle) -> str:
+    return (
+        f"🎥 <b>Кружок #{circle['id']}</b>\n\n"
+        f"Статус: <b>{CIRCLE_STATUS.get(circle['status'], circle['status'])}</b>\n"
+        f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
+        f"👀 {circle['views']} · 👍 {circle['likes']} / 👎 {circle['dislikes']}\n"
+        f"Автор: <code>{circle['uploader_id'] or 'архив бота'}</code>"
+    )
+
+
+def _circle_card_kb(circle) -> InlineKeyboardMarkup:
+    """Hiding is the reversible verdict; deleting asks again before it happens."""
+    circle_id = circle["id"]
+    b = InlineKeyboardBuilder()
+    if circle["status"] == "approved":
+        b.row(
+            InlineKeyboardButton(
+                text="🚫 Скрыть с показа",
+                callback_data=f"a:c:hide:{circle_id}",
+                style=kb.DANGER,
+            )
+        )
+    else:
+        b.row(
+            InlineKeyboardButton(
+                text="✅ Вернуть в показ",
+                callback_data=f"a:c:show:{circle_id}",
+                style=kb.SUCCESS,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Удалить навсегда", callback_data=f"a:c:del:{circle_id}"
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
 
 
 @router.message(Admin.circle_id, ~F.text.in_(kb.MENU_BUTTONS))
@@ -1414,22 +1479,7 @@ async def got_circle_id(message: Message, state: FSMContext) -> None:
         return
 
     await message.answer_video_note(circle["file_id"], protect_content=True)
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="Удалить", callback_data=f"a:c:del:{circle['id']}", style=kb.DANGER
-        )
-    )
-    b.row(
-        InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home")
-    )
-    await message.answer(
-        f"<b>#{circle['id']}</b> · {kb.PREF_TITLE(circle['gender'])} · "
-        f"{circle['duration']} сек\n"
-        f"Статус: {circle['status']} · просмотров: {circle['views']}\n"
-        f"Автор: <code>{circle['uploader_id']}</code>",
-        reply_markup=b.as_markup(),
-    )
+    await message.answer(_circle_card(circle), reply_markup=_circle_card_kb(circle))
 
 
 @router.message(Command("wipe_circles"))
@@ -1497,13 +1547,90 @@ async def cb_wipe(call: CallbackQuery) -> None:
     await _edit(call, f"Удалено кружков: <b>{total}</b>. База пуста.", back_kb())
 
 
+@router.callback_query(F.data.startswith("a:c:hide:"))
+async def cb_circle_hide(call: CallbackQuery) -> None:
+    """Out of rotation, but still in the base — the one verdict that is undoable."""
+    circle_id = int(call.data.split(":")[3])
+    circle = await db.get_circle(circle_id)
+    if circle is None:
+        await call.answer("Кружок уже удалён.", show_alert=True)
+        return
+
+    await db.set_status(circle_id, "rejected")
+    if circle["uploader_id"]:
+        with suppress(TelegramAPIError):
+            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_HIDDEN)
+    await call.answer("Скрыт")
+    circle = await db.get_circle(circle_id)
+    await _edit(call, _circle_card(circle), _circle_card_kb(circle))
+
+
+@router.callback_query(F.data.startswith("a:c:show:"))
+async def cb_circle_show(call: CallbackQuery) -> None:
+    circle_id = int(call.data.split(":")[3])
+    circle = await db.get_circle(circle_id)
+    if circle is None:
+        await call.answer("Кружок уже удалён.", show_alert=True)
+        return
+
+    await db.set_status(circle_id, "approved")
+    await db.clear_reports(circle_id)  # a circle back in rotation has no open ones
+    if circle["uploader_id"]:
+        with suppress(TelegramAPIError):
+            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_RESTORED)
+    await call.answer("Вернул в показ")
+    circle = await db.get_circle(circle_id)
+    await _edit(call, _circle_card(circle), _circle_card_kb(circle))
+
+
 @router.callback_query(F.data.startswith("a:c:del:"))
 async def cb_circle_delete(call: CallbackQuery) -> None:
+    """Deleting cannot be taken back, so it is never the first tap."""
     circle_id = int(call.data.split(":")[3])
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Да, удалить",
+            callback_data=f"a:c:delgo:{circle_id}",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"a:c:card:{circle_id}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Удалить кружок #{circle_id}?</b>\n\n"
+        "Уйдут сам кружок, его просмотры, оценки и жалобы. Отменить будет "
+        "нельзя — если нужно просто убрать из показа, скрой его.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:c:card:"))
+async def cb_circle_card(call: CallbackQuery) -> None:
+    circle = await db.get_circle(int(call.data.split(":")[3]))
+    if circle is None:
+        await call.answer("Кружок уже удалён.", show_alert=True)
+        return
+    await _edit(call, _circle_card(circle), _circle_card_kb(circle))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:c:delgo:"))
+async def cb_circle_delete_go(call: CallbackQuery) -> None:
+    circle_id = int(call.data.split(":")[3])
+    circle = await db.get_circle(circle_id)
     await db.clear_reports(circle_id)
     deleted = await db.delete_circle(circle_id)
+    if deleted and circle and circle["uploader_id"]:
+        with suppress(TelegramAPIError):
+            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_REMOVED)
     await call.answer("Удалён" if deleted else "Уже нет", show_alert=True)
-    await _edit(call, f"Кружок #{circle_id} удалён.", back_kb())
+    await _edit(call, f"🗑 Кружок #{circle_id} удалён.", back_kb())
 
 
 # --- broadcast -----------------------------------------------------------
@@ -1586,40 +1713,132 @@ async def _broadcast(
 # --- economy -------------------------------------------------------------
 
 
+def _econ_groups() -> list[tuple[str, tuple[str, ...]]]:
+    return list(settings.groups().items())
+
+
+def _econ_changed(keys) -> int:
+    return sum(settings.get(key) != settings.default(key) for key in keys)
+
+
 @router.callback_query(F.data == "a:econ")
 async def cb_econ(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     b = InlineKeyboardBuilder()
-    for key, title in settings.TITLES.items():
-        b.row(
-            InlineKeyboardButton(
-                text=f"💰 {title}: {settings.get(key)}",
-                callback_data=f"a:econ:{key}",
-            )
+    buttons = [
+        InlineKeyboardButton(
+            text=f"{name} · {len(keys)}"
+            + (f" · ✏️{_econ_changed(keys)}" if _econ_changed(keys) else ""),
+            callback_data=f"a:econ:g:{i}",
         )
+        for i, (name, keys) in enumerate(_econ_groups())
+    ]
+    for i in range(0, len(buttons), 2):
+        b.row(*buttons[i : i + 2])
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        "<b>Экономика</b>\n\nЖми на параметр, чтобы поменять. "
-        "Значения живут в базе и переживают перезапуск.",
+        "💰 <b>Экономика</b>\n\n"
+        "Значения живут в базе и переживают перезапуск, ✏️ — изменённые.\n\n"
+        "Выбери раздел:",
         b.as_markup(),
     )
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("a:econ:"))
+def _econ_group_text(index: int) -> str:
+    name, keys = _econ_groups()[index]
+    lines = []
+    for key in keys:
+        value = settings.get(key)
+        mark = "" if value == settings.default(key) else " ✏️"
+        lines.append(f"• {settings.TITLES[key]}: <b>{value}</b>{mark}")
+    return f"<b>{name}</b>\n\n" + "\n".join(lines) + "\n\nЖми, чтобы поменять:"
+
+
+def _econ_group_kb(index: int) -> InlineKeyboardMarkup:
+    _, keys = _econ_groups()[index]
+    b = InlineKeyboardBuilder()
+    for key in keys:
+        b.row(
+            InlineKeyboardButton(
+                text=f"{settings.TITLES[key]} · {settings.get(key)}",
+                callback_data=f"a:econ:k:{key}",
+            )
+        )
+    b.row(
+        InlineKeyboardButton(text="⬅️ К разделам", callback_data="a:econ"),
+        InlineKeyboardButton(text="🏠 В панель", callback_data="a:home"),
+    )
+    return b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:econ:g:"))
+async def cb_econ_group(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    index = int(call.data.split(":")[3])
+    if not 0 <= index < len(_econ_groups()):
+        await call.answer("Раздела нет.", show_alert=True)
+        return
+    await _edit(call, _econ_group_text(index), _econ_group_kb(index))
+    await call.answer()
+
+
+def _group_of(key: str) -> int:
+    for i, (_, keys) in enumerate(_econ_groups()):
+        if key in keys:
+            return i
+    return 0
+
+
+@router.callback_query(F.data.startswith("a:econ:k:"))
 async def cb_econ_key(call: CallbackQuery, state: FSMContext) -> None:
-    key = call.data.split(":")[2]
+    key = call.data.split(":")[3]
+    if key not in settings.TITLES:
+        await call.answer("Такой настройки нет.", show_alert=True)
+        return
+
     low, high = settings.LIMITS[key]
+    default = settings.default(key)
     await state.set_state(Admin.setting)
     await state.update_data(key=key)
+
+    b = InlineKeyboardBuilder()
+    if settings.get(key) != default:
+        b.row(
+            InlineKeyboardButton(
+                text=f"↩️ Вернуть {default}", callback_data=f"a:econ:d:{key}"
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена",
+            callback_data=f"a:econ:g:{_group_of(key)}",
+            style=kb.DANGER,
+        )
+    )
     await _edit(
         call,
-        f"<b>{settings.TITLES[key]}</b>\nСейчас: {settings.get(key)}\n\n"
-        f"Пришли новое значение ({low}–{high}).",
-        back_kb(),
+        f"⚙️ <b>{settings.TITLES[key]}</b>\n\n"
+        f"Сейчас: <b>{settings.get(key)}</b> · по умолчанию: {default}\n"
+        f"Допустимо: от {low} до {high}\n\n"
+        "Пришли новое значение числом.",
+        b.as_markup(),
     )
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:econ:d:"))
+async def cb_econ_default(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    key = call.data.split(":")[3]
+    if key not in settings.TITLES:
+        await call.answer("Такой настройки нет.", show_alert=True)
+        return
+    await settings.set(key, settings.default(key))
+    index = _group_of(key)
+    await call.answer(f"{settings.TITLES[key]}: {settings.get(key)}")
+    await _edit(call, _econ_group_text(index), _econ_group_kb(index))
 
 
 @router.message(Admin.setting, ~F.text.in_(kb.MENU_BUTTONS))
@@ -1627,14 +1846,23 @@ async def got_setting(message: Message, state: FSMContext) -> None:
     key = (await state.get_data())["key"]
     low, high = settings.LIMITS[key]
     raw = (message.text or "").strip()
-    if not raw.isdigit() or not (low <= int(raw) <= high):
+    if not raw.isdigit():
         await message.answer(f"Нужно число от {low} до {high}.")
         return
+    if not low <= int(raw) <= high:
+        await message.answer(
+            f"{raw} вне допустимого: {settings.TITLES[key]} — от {low} до {high}."
+        )
+        return
+
     await state.clear()
     await settings.set(key, int(raw))
+    index = _group_of(key)
+    # Back to the list it came from, with the new value already in it.
     await message.answer(
-        f"{settings.TITLES[key]}: <b>{settings.get(key)}</b>",
-        reply_markup=back_kb(),
+        f"🟢 {settings.TITLES[key]}: <b>{settings.get(key)}</b>\n\n"
+        + _econ_group_text(index),
+        reply_markup=_econ_group_kb(index),
     )
 
 
@@ -1655,7 +1883,7 @@ async def cb_pay(call: CallbackQuery) -> None:
         )
     await _edit(
         call,
-        f"<b>Последние платежи</b>\n\n{body}\n\n"
+        f"💳 <b>Последние платежи</b>\n\n{body}\n\n"
         "Возврат: <code>/refund charge_id</code>",
         back_kb(),
     )
@@ -1673,7 +1901,7 @@ async def cb_db(call: CallbackQuery) -> None:
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
-        "<b>Бэкап базы</b>\n\nВ файле лежат балансы, платежи и file_id всех "
+        "💾 <b>Бэкап базы</b>\n\nВ файле лежат балансы, платежи и file_id всех "
         "кружочков. Прислать его сюда?",
         b.as_markup(),
     )
@@ -1768,264 +1996,273 @@ async def refund_cmd(message: Message, command: CommandObject) -> None:
     await message.answer(f"Возвращено {payment['stars']} ⭐.")
 
 
-# New unified content management handlers for admin.py
-# Replace the old emoji and text handlers with these
+# --- editable texts ------------------------------------------------------
 
-# --- content management (texts + emoji) ----------------------------------
+# Everything here edits texts.py through text_manager: a saved text is live on
+# the next message, so the panel never has to promise a restart.
+
+
+def _cat_icon(category: str) -> str:
+    return text_manager.CATEGORY_ICON.get(category, "📋")
+
+
+def _content_home_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    buttons = [
+        InlineKeyboardButton(
+            text=f"{_cat_icon(name)} {name} · {total}"
+            + (f" · ✏️{edited}" if edited else ""),
+            callback_data=f"a:cnt:c:{name}",
+        )
+        for name, total, edited in text_manager.categories()
+    ]
+    for i in range(0, len(buttons), 2):
+        b.row(*buttons[i : i + 2])
+    if text_manager.custom_count():
+        b.row(
+            InlineKeyboardButton(
+                text="↩️ Вернуть все стандартные", callback_data="a:cnt:rst"
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
+
+
+def _content_home_text() -> str:
+    total = sum(total for _, total, _ in text_manager.categories())
+    edited = text_manager.custom_count()
+    return (
+        "📝 <b>Тексты бота</b>\n\n"
+        f"Всего можно править: <b>{total}</b> · изменено: <b>{edited}</b>\n\n"
+        "Правка применяется сразу, перезапускать бота не нужно. "
+        "Тексты со счётчиками и ценами собираются из настроек — их тут нет.\n\n"
+        "Выбери раздел:"
+    )
 
 
 @router.callback_query(F.data == "a:content")
-async def content_menu(call: CallbackQuery, state: FSMContext) -> None:
-    """Show unified content management menu with all editable texts."""
+async def cb_content(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    import text_manager
-
-    # Get all texts
-    texts_list = text_manager.list_all_texts()
-
-    # Group by category
-    categories = {}
-    for key, data in texts_list.items():
-        category = data.get("category", "Разное")
-        if category not in categories:
-            categories[category] = []
-        categories[category].append((key, data))
-
-    # Build menu with categories
-    text = "📝 <b>Тексты и эмодзи</b>\n\n"
-    text += "Выбери категорию:\n\n"
-
-    b = InlineKeyboardBuilder()
-
-    # Category emojis
-    category_emoji = {
-        "Система": "⚙️",
-        "Профиль": "👤",
-        "Загрузка": "⬆️",
-        "Просмотр": "👀",
-        "Жалобы": "⚠️",
-        "Покупки": "💰",
-        "Выплаты": "💸",
-        "Рефералы": "👥",
-        "Подписка": "📢",
-        "Разное": "📋"
-    }
-
-    # Show categories in grid (2 per row)
-    buttons = []
-    for category in sorted(categories.keys()):
-        count = len(categories[category])
-        emoji = category_emoji.get(category, "📋")
-        buttons.append(
-            InlineKeyboardButton(
-                text=f"{emoji} {category} ({count})",
-                callback_data=f"a:cnt:cat:{category}"
-            )
-        )
-
-    # Add buttons in rows of 2
-    for i in range(0, len(buttons), 2):
-        if i + 1 < len(buttons):
-            b.row(buttons[i], buttons[i + 1])
-        else:
-            b.row(buttons[i])
-
-    b.row(InlineKeyboardButton(text="🔄 Сбросить все", callback_data="a:cnt:rst"))
-    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
-
-    await call.message.edit_text(text, reply_markup=b.as_markup())
+    await _edit(call, _content_home_text(), _content_home_kb())
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("a:cnt:cat:"))
-async def content_category(call: CallbackQuery, state: FSMContext) -> None:
-    """Show texts in selected category."""
-    category = call.data[10:]  # Remove "a:cnt:cat:" prefix
-
-    import text_manager
-
-    # Get all texts
-    texts_list = text_manager.list_all_texts()
-
-    # Filter by category
-    category_texts = {
-        key: data for key, data in texts_list.items()
-        if data.get("category", "Разное") == category
-    }
-
-    if not category_texts:
-        await call.answer("❌ Нет текстов в этой категории", show_alert=True)
+@router.callback_query(F.data.startswith("a:cnt:c:"))
+async def cb_content_category(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    category = call.data.split(":", 3)[3]
+    keys = text_manager.keys_in(category)
+    if not keys:
+        await call.answer("Раздел пуст.", show_alert=True)
         return
 
-    # Build menu
-    category_emoji = {
-        "Система": "⚙️",
-        "Профиль": "👤",
-        "Загрузка": "⬆️",
-        "Просмотр": "👀",
-        "Жалобы": "⚠️",
-        "Покупки": "💰",
-        "Выплаты": "💸",
-        "Рефералы": "👥",
-        "Подписка": "📢",
-        "Разное": "📋"
-    }
-
-    emoji = category_emoji.get(category, "📋")
-    text = f"{emoji} <b>{category}</b>\n\n"
-    text += "Выбери текст для редактирования:\n\n"
-
     b = InlineKeyboardBuilder()
-
-    # Show all texts in this category
-    buttons = []
-    for key in sorted(category_texts.keys()):
-        data = category_texts[key]
-        status = "✏️" if data["is_custom"] else "📋"
-        # Truncate description to fit button
-        short_desc = data['description'][:22]
-        if len(data['description']) > 22:
-            short_desc += "..."
-        buttons.append(
+    for key in keys:
+        item = text_manager.EDITABLE[key]
+        mark = "✏️" if text_manager.is_custom(key) else "▫️"
+        b.row(
             InlineKeyboardButton(
-                text=f"{status} {short_desc}",
-                callback_data=f"a:cnt:e:{key}"
+                text=f"{mark} {item.description}", callback_data=f"a:cnt:t:{key}"
             )
         )
+    b.row(InlineKeyboardButton(text="⬅️ К разделам", callback_data="a:content"))
+    await _edit(
+        call,
+        f"{_cat_icon(category)} <b>{category}</b>\n\n"
+        "✏️ — текст изменён, ▫️ — стандартный.\n"
+        "Выбери, что открыть:",
+        b.as_markup(),
+    )
+    await call.answer()
 
-    # Add buttons in rows of 2
-    for i in range(0, len(buttons), 2):
-        if i + 1 < len(buttons):
-            b.row(buttons[i], buttons[i + 1])
-        else:
-            b.row(buttons[i])
 
-    b.row(InlineKeyboardButton(text="⬅️ К категориям", callback_data="a:content"))
+def _text_card(key: str, note: str = "") -> str:
+    item = text_manager.EDITABLE[key]
+    value = text_manager.get(key)
+    body = html.escape(value)
+    if len(body) > 700:
+        body = body[:700] + "…"
+    status = "✏️ изменён" if text_manager.is_custom(key) else "▫️ стандартный"
+    warning = (
+        "\n\n⚠️ Этот текст показывается всплывающим окном: жирный шрифт, ссылки "
+        "и премиум-эмодзи в нём не отображаются."
+        if item.plain
+        else ""
+    )
+    return (
+        f"{_cat_icon(item.category)} <b>{item.description}</b>\n"
+        f"<code>{key}</code> · {status}\n\n"
+        f"<pre>{body}</pre>{warning}"
+        + (f"\n\n{note}" if note else "")
+    )
 
-    await call.message.edit_text(text, reply_markup=b.as_markup())
+
+def _text_card_kb(key: str) -> InlineKeyboardMarkup:
+    item = text_manager.EDITABLE[key]
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="✏️ Изменить", callback_data=f"a:cnt:e:{key}", style=kb.SUCCESS
+        ),
+        InlineKeyboardButton(text="👁 Как видит юзер", callback_data=f"a:cnt:p:{key}"),
+    )
+    if text_manager.is_custom(key):
+        b.row(
+            InlineKeyboardButton(
+                text="↩️ Вернуть стандартный", callback_data=f"a:cnt:r:{key}"
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text=f"⬅️ {item.category}", callback_data=f"a:cnt:c:{item.category}"
+        ),
+        InlineKeyboardButton(text="🏠 В панель", callback_data="a:home"),
+    )
+    return b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:cnt:t:"))
+async def cb_text_card(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    key = call.data.split(":", 3)[3]
+    if not text_manager.known(key):
+        await call.answer("Такого текста нет.", show_alert=True)
+        return
+    await _edit(call, _text_card(key), _text_card_kb(key))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:cnt:p:"))
+async def cb_text_preview(call: CallbackQuery) -> None:
+    """The text exactly as the bot sends it — the only honest preview."""
+    key = call.data.split(":", 3)[3]
+    if not text_manager.known(key):
+        await call.answer("Такого текста нет.", show_alert=True)
+        return
+
+    value = text_manager.get(key)
+    if text_manager.EDITABLE[key].plain:
+        await call.answer(value, show_alert=True)  # exactly where it lives
+        return
+    try:
+        await call.message.answer(value)
+    except TelegramBadRequest as error:
+        await call.answer(f"Телеграм не принял текст: {error}", show_alert=True)
+        return
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("a:cnt:e:"))
-async def content_edit_start(call: CallbackQuery, state: FSMContext) -> None:
-    """Show current text with emoji and prompt for editing."""
-    key = call.data[8:]  # Remove "a:cnt:e:" prefix
-
-    import text_manager
-
-    texts_list = text_manager.list_all_texts()
-    if key not in texts_list:
-        await call.answer("❌ Текст не найден", show_alert=True)
+async def cb_text_edit(call: CallbackQuery, state: FSMContext) -> None:
+    key = call.data.split(":", 3)[3]
+    if not text_manager.known(key):
+        await call.answer("Такого текста нет.", show_alert=True)
         return
 
-    data = texts_list[key]
-    current_text = data["text"]
-    description = data["description"]
-
+    item = text_manager.EDITABLE[key]
     await state.set_state(Admin.content_edit)
     await state.update_data(key=key)
 
-    prompt = (
-        f"✏️ <b>{description}</b>\n\n"
-        f"<b>Текущий текст:</b>\n"
-        f"{current_text}\n\n"
-        f"━━━━━━━━━━━━━━━━━\n\n"
-        f"Отправь новый текст с премиум эмодзи.\n"
-        f"Бот автоматически извлечёт emoji ID из твоего сообщения.\n\n"
-        f"Или /cancel для отмены."
+    how = (
+        "Пришли новый текст одним сообщением — <b>только текст</b>, без "
+        "форматирования: он показывается всплывашкой."
+        if item.plain
+        else "Пришли новый текст одним сообщением. Жирный, курсив, ссылки и "
+        "премиум-эмодзи сохранятся как есть."
     )
-
-    await call.message.edit_text(prompt, reply_markup=back_kb())
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="❌ Отмена", callback_data=f"a:cnt:t:{key}", style=kb.DANGER
+        )
+    )
+    await _edit(
+        call,
+        f"✏️ <b>{item.description}</b>\n\n"
+        f"Сейчас:\n<pre>{html.escape(text_manager.get(key))}</pre>\n\n{how}",
+        b.as_markup(),
+    )
     await call.answer()
 
 
-@router.message(Admin.content_edit)
-async def content_edit_process(message: Message, state: FSMContext) -> None:
-    """Process text edit with automatic emoji extraction."""
-    if message.text and message.text.startswith("/cancel"):
+@router.message(Admin.content_edit, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_content(message: Message, state: FSMContext) -> None:
+    key = (await state.get_data()).get("key")
+    if not key or not text_manager.known(key):
         await state.clear()
-        await message.answer("❌ Отменено", reply_markup=back_kb())
+        await message.answer("Текст потерялся, начни заново.", reply_markup=back_kb())
         return
 
-    data = await state.get_data()
-    key = data.get("key")
+    item = text_manager.EDITABLE[key]
+    if not (message.text or "").strip():
+        await message.answer("Нужен текст одним сообщением.")
+        return
+    value = message.text.strip() if item.plain else message.html_text.strip()
 
-    if not key:
-        await message.answer("❌ Ошибка: ключ не найден")
-        await state.clear()
+    # Sending it once before saving is what keeps a text Telegram refuses to
+    # parse from reaching users — the bot would fail silently on every send.
+    try:
+        await message.answer(value)
+    except TelegramBadRequest as error:
+        await message.answer(
+            "⚠️ Телеграм не принял этот текст:\n"
+            f"<code>{html.escape(str(error))}</code>\n\n"
+            "Поправь и пришли ещё раз."
+        )
         return
 
-    new_text = message.text or message.caption or ""
-    if not new_text.strip():
-        await message.answer("❌ Текст не может быть пустым", reply_markup=back_kb())
-        return
-
-    # Extract custom emoji from entities
-    emoji_count = 0
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "custom_emoji" and entity.custom_emoji_id:
-                emoji_count += 1
-                # Get the emoji fallback text at this position
-                emoji_fallback = new_text[entity.offset:entity.offset + entity.length]
-                # Save this emoji for future reference (optional, for tracking)
-                emoji_key = f"AUTO_{entity.custom_emoji_id[:12]}"
-                await db.conn().execute(
-                    "INSERT OR IGNORE INTO custom_emoji (key, emoji_id, fallback, description) "
-                    "VALUES (?, ?, ?, ?)",
-                    (emoji_key, entity.custom_emoji_id, emoji_fallback, f"Из {key}")
-                )
-
-    # Save text to database
-    import text_manager
-    description_data = text_manager.list_all_texts().get(key, {})
-    description = description_data.get("description", "")
-
-    await db.conn().execute(
-        "INSERT INTO custom_texts (key, text, description) VALUES (?, ?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET text = excluded.text",
-        (key, new_text, description)
-    )
-    await db.conn().commit()
+    await text_manager.save(key, value)
     await state.clear()
-
-    preview = new_text[:100] + "..." if len(new_text) > 100 else new_text
     await message.answer(
-        f"✅ <b>{description}</b> обновлён\n\n"
-        f"Ключ: <code>{key}</code>\n"
-        f"Премиум эмодзи: {emoji_count}\n"
-        f"Текст: {preview}\n\n"
-        f"⚠️ Перезапусти бота для применения.",
-        reply_markup=back_kb()
+        _text_card(key, "🟢 Сохранено и уже работает."),
+        reply_markup=_text_card_kb(key),
     )
+
+
+@router.callback_query(F.data.startswith("a:cnt:r:"))
+async def cb_text_reset(call: CallbackQuery) -> None:
+    key = call.data.split(":", 3)[3]
+    if not text_manager.known(key):
+        await call.answer("Такого текста нет.", show_alert=True)
+        return
+    await text_manager.reset(key)
+    await call.answer("Вернул стандартный")
+    await _edit(call, _text_card(key), _text_card_kb(key))
 
 
 @router.callback_query(F.data == "a:cnt:rst")
-async def content_reset_confirm(call: CallbackQuery) -> None:
-    """Confirm content reset."""
+async def cb_content_reset(call: CallbackQuery) -> None:
+    edited = text_manager.custom_count()
+    if not edited:
+        await call.answer("Изменённых текстов нет.", show_alert=True)
+        return
+
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="✅ Да, сбросить всё", callback_data="a:cnt:rst:y"))
-    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="a:content"))
-
-    await call.message.edit_text(
-        "⚠️ <b>Подтверди сброс</b>\n\n"
-        "Все кастомные тексты и эмодзи будут удалены.\n"
-        "Восстановятся дефолтные значения.",
-        reply_markup=b.as_markup(),
+    b.row(
+        InlineKeyboardButton(
+            text=f"↩️ Да, вернуть {edited}",
+            callback_data="a:cnt:rst:go",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data="a:content", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"<b>Вернуть стандартные тексты?</b>\n\n"
+        f"Изменённых сейчас: {edited}. Все они вернутся к тому, что написано "
+        "в коде, — прямо сейчас, без перезапуска.",
+        b.as_markup(),
     )
     await call.answer()
 
 
-@router.callback_query(F.data == "a:cnt:rst:y")
-async def content_reset_execute(call: CallbackQuery) -> None:
-    """Execute content reset."""
-    await db.conn().execute("DELETE FROM custom_texts")
-    await db.conn().execute("DELETE FROM custom_emoji")
-    await db.conn().commit()
-
-    await call.message.edit_text(
-        "✅ Все тексты и эмодзи сброшены.\n\n"
-        "⚠️ Перезапусти бота для применения.",
-        reply_markup=back_kb(),
-    )
-    await call.answer()
+@router.callback_query(F.data == "a:cnt:rst:go")
+async def cb_content_reset_go(call: CallbackQuery, state: FSMContext) -> None:
+    dropped = await text_manager.reset_all()
+    logger.info("custom texts reset by %s (%s)", call.from_user.id, dropped)
+    await call.answer(f"Вернул стандартные: {dropped}")
+    await _edit(call, _content_home_text(), _content_home_kb())

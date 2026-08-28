@@ -471,15 +471,12 @@ def profile_review(user_id: int) -> InlineKeyboardMarkup:
 
 def profile_decided(user_id: int) -> InlineKeyboardMarkup:
     """A verdict is never final: the card keeps a way back to the buttons."""
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="🔄 Изменить решение",
-            callback_data=f"pm:again:{user_id}",
-            style=PRIMARY,
-        )
-    )
-    return b.as_markup()
+    return decided(f"pm:again:{user_id}")
+
+
+def profile_report_decided(user_id: int) -> InlineKeyboardMarkup:
+    """Same, for a card that came from a complaint rather than from the queue."""
+    return decided(f"pm:ragain:{user_id}")
 
 
 def profile_intro() -> InlineKeyboardMarkup:
@@ -612,14 +609,33 @@ def profile_report_reasons(author_id: int) -> InlineKeyboardMarkup:
 
 
 def report_review(circle_id: int) -> InlineKeyboardMarkup:
+    """Hiding sits between the two verdicts: it is the one that can be undone."""
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🗑️ Удалить кружок", callback_data=f"rp:del:{circle_id}", style=DANGER
+            text="🚫 Скрыть", callback_data=f"rp:hide:{circle_id}", style=DANGER
         ),
         InlineKeyboardButton(
             text="✅ Оставить", callback_data=f"rp:keep:{circle_id}", style=SUCCESS
         ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="🗑️ Удалить навсегда",
+            callback_data=f"rp:del:{circle_id}",
+            style=DANGER,
+        )
+    )
+    return b.as_markup()
+
+
+def decided(callback_data: str) -> InlineKeyboardMarkup:
+    """A verdict is never the end of the conversation — except after a delete."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🔄 Изменить решение", callback_data=callback_data, style=PRIMARY
+        )
     )
     return b.as_markup()
 
@@ -713,6 +729,14 @@ def moderation(circle_id: int) -> InlineKeyboardMarkup:
         ),
     )
     return kb.as_markup()
+
+
+def circle_decided(circle_id: int) -> InlineKeyboardMarkup:
+    return decided(f"mod:again:{circle_id}")
+
+
+def report_decided(circle_id: int) -> InlineKeyboardMarkup:
+    return decided(f"rp:again:{circle_id}")
 
 
 
