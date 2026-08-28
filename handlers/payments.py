@@ -45,7 +45,9 @@ async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Buy.waiting_amount, ~F.text.in_(kb.MENU_BUTTONS))
+# A circle recorded while this form is open belongs to the uploader, not here:
+# letting it fall through is what keeps the recording from being lost.
+@router.message(Buy.waiting_amount, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
 async def custom_amount(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if not raw.isdigit() or not (settings.get("min_stars") <= int(raw) <= MAX_STARS):
@@ -59,6 +61,12 @@ async def custom_amount(message: Message, state: FSMContext) -> None:
         texts.buy_choose_method(stars, coins),
         reply_markup=kb.buy_payment_method()
     )
+
+
+@router.message(Buy.choose_method, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
+async def method_hint(message: Message) -> None:
+    """Typing at the payment-method step used to get no answer at all."""
+    await message.answer(texts.BUY_PICK_METHOD, reply_markup=kb.buy_payment_method())
 
 
 @router.callback_query(F.data.startswith("pay:"))

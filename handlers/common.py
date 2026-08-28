@@ -108,13 +108,22 @@ async def profile(message: Message, state: FSMContext) -> None:
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     stats = await db.user_stats(user_id)
-    earned, likes, views = await db.author_earnings(user_id)
+    earned, likes, dislikes, views = await db.author_earnings(user_id)
     done, _ = await db.referral_counts(user_id)
     sales = await db.sales_stats(user_id)
     available = await db.withdrawable(user_id)
     await message.answer(
         texts.profile(
-            user_id, user["coins"], stats, earned, likes, views, done, sales, available
+            user_id,
+            user["coins"],
+            stats,
+            earned,
+            likes,
+            dislikes,
+            views,
+            done,
+            sales,
+            available,
         ),
         reply_markup=kb.profile(access.referral_link(user_id)),
     )

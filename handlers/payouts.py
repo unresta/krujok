@@ -57,12 +57,15 @@ async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
-@router.message(Payout.amount, ~F.text.in_(kb.MENU_BUTTONS))
+# A circle recorded while the form is open goes to the uploader, not here.
+@router.message(Payout.amount, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_amount(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     available = await db.withdrawable(message.from_user.id)
     if not raw.isdigit() or not (settings.get("payout_min") <= int(raw) <= available):
-        await message.answer(texts.payout_ask_amount(available), reply_markup=kb.back())
+        await message.answer(
+            texts.payout_bad_amount(raw, available), reply_markup=kb.back()
+        )
         return
 
     await state.update_data(coins=int(raw))
@@ -70,7 +73,7 @@ async def got_amount(message: Message, state: FSMContext) -> None:
     await message.answer(texts.PAYOUT_ASK_DETAILS, reply_markup=kb.back())
 
 
-@router.message(Payout.details, ~F.text.in_(kb.MENU_BUTTONS))
+@router.message(Payout.details, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_details(message: Message, state: FSMContext) -> None:
     details = (message.text or "").strip()
     if not 3 <= len(details) <= 200:

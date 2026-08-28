@@ -235,7 +235,9 @@ def profile(link: str) -> InlineKeyboardMarkup:
     )
     b.row(
         InlineKeyboardButton(
-            text="Профиль автора",
+            # «Профиль автора» under a circle opens someone else's card; this one
+            # is the user's own shop window, and the two must not share a name.
+            text="Моя анкета",
             callback_data="pf:edit_menu",
             icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
         ),
@@ -438,6 +440,19 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
             text="📝 Заполнить заново", callback_data="pf:start"
         )
     )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def contact_price_edit() -> InlineKeyboardMarkup:
+    """Editing the contact price is also the only way to stop selling it."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🚫 Не продавать личку", callback_data="pc:no", style=DANGER
+        )
+    )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -486,7 +501,7 @@ def refill_profile() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="📝 Заполнить заново", callback_data="pf:edit", style=SUCCESS
+            text="📝 Заполнить заново", callback_data="pf:start", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -611,12 +626,24 @@ def report_review(circle_id: int) -> InlineKeyboardMarkup:
 
 def no_coins() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(
-        _coin_button("Заработать", "upload", SUCCESS),
-        _coin_button("Купить", "buy", SUCCESS),
+    # Uploading only pays while there is a reward for it; with rewards off the
+    # way to earn is an anketa people buy, and the button has to say so.
+    earn = (
+        _coin_button("Заработать", "upload", SUCCESS)
+        if settings.reward("f") or settings.reward("m")
+        else _coin_button("Зарабатывать", "pf:edit_menu", SUCCESS)
     )
+    kb.row(earn, _coin_button("Купить", "buy", SUCCESS))
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
     return kb.as_markup()
+
+
+def empty_feed(pref: str) -> InlineKeyboardMarkup:
+    """Nothing left of this type — the fix is the type switch, not the wallet."""
+    b = InlineKeyboardBuilder()
+    b.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
 
 
 def back() -> InlineKeyboardMarkup:

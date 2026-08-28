@@ -1,4 +1,7 @@
+from contextlib import suppress
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
@@ -19,5 +22,6 @@ async def check(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await access.credit_referral(call.bot, call.from_user.id)
     await call.answer("Готово 🟢")
-    await call.message.delete()
+    with suppress(TelegramAPIError):  # older than 48h, or already gone
+        await call.message.delete()
     await ui.render_menu(call.message, call.from_user.id)

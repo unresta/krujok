@@ -12,6 +12,7 @@ from contextlib import suppress
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
@@ -56,12 +57,14 @@ async def edit_menu(call: CallbackQuery, state: FSMContext) -> None:
     profile = await db.get_profile(call.from_user.id)
     if profile is None:
         await call.message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
-    else:
-        await call.message.answer_photo(
-            profile["photo_id"],
-            caption=texts.profile_status(profile),
-            reply_markup=kb.profile_edit_menu(profile),
-        )
+        await call.answer()
+        return
+
+    await call.message.answer_photo(
+        profile["photo_id"],
+        caption=texts.profile_status(profile),
+        reply_markup=kb.profile_edit_menu(profile),
+    )
     await call.answer()
 
 
@@ -90,6 +93,12 @@ async def edit_field(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("Сначала заполни анкету.", show_alert=True)
         return
 
+    # Selling the contact needs a @username; without one there is nothing to
+    # price, so the question is not asked at all.
+    if field == "price_contact" and not call.from_user.username:
+        await call.answer(texts.PROFILE_NO_USERNAME, show_alert=True)
+        return
+
     await state.update_data(editing_field=field)
 
     if field == "photo":
@@ -106,10 +115,8 @@ async def edit_field(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.answer(texts.profile_price_content(), reply_markup=kb.back())
     elif field == "price_contact":
         await state.set_state(Anketa.price_contact)
-        has_username = bool(call.from_user.username)
         await call.message.answer(
-            texts.PROFILE_CONTACT_ASK if has_username else texts.PROFILE_NO_USERNAME,
-            reply_markup=kb.profile_contact_ask(has_username),
+            texts.profile_price_contact(), reply_markup=kb.contact_price_edit()
         )
     await call.answer()
 
@@ -122,6 +129,9 @@ async def edit_profile(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "pf:start")
 async def start_profile(call: CallbackQuery, state: FSMContext) -> None:
+    # Filling in from scratch, so a half-finished single-field edit must not
+    # linger in the data and swallow the first answer.
+    await state.clear()
     await state.set_state(Anketa.photo)
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(reply_markup=None)
@@ -171,7 +181,11 @@ async def not_a_photo(message: Message) -> None:
 
 @router.message(Anketa.about, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_about(message: Message, state: FSMContext) -> None:
-    about = (message.text or "").strip()
+    if message.text is None:  # a photo here used to pass as an empty description
+        await message.answer(texts.PROFILE_ABOUT_TEXT_ONLY, reply_markup=kb.back())
+        return
+
+    about = message.text.strip()
     if about == "-":
         about = ""
     if len(about) > ABOUT_MAX:
@@ -280,9 +294,41 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(Anketa.contact, F.data.startswith("pc:"))
+@router.callback_query(
+    StateFilter(Anketa.contact, Anketa.price_contact), F.data.startswith("pc:")
+)
 async def got_contact_choice(call: CallbackQuery, state: FSMContext) -> None:
     choice = call.data.split(":")[1]
+    data = await state.get_data()
+
+    # Editing the price is the same screen as switching the sale off.
+    if data.get("editing_field") == "price_contact":
+        if choice != "no":
+            await call.answer()
+            return
+        profile = await db.get_profile(call.from_user.id)
+        if profile is None:
+            await call.answer("Сначала заполни анкету.", show_alert=True)
+            return
+        await db.save_profile(
+            user_id=call.from_user.id,
+            photo_id=profile["photo_id"],
+            photo_unique_id=profile["photo_unique_id"],
+            about=profile["about"],
+            gender=profile["gender"],
+            price_content=profile["price_content"],
+            price_contact=0,
+            contact_ok=False,
+            username=call.from_user.username,
+        )
+        await state.clear()
+        await call.answer("Личка больше не продаётся.")
+        await call.message.answer(
+            "✅ Личка снята с продажи.\n📬 Анкета отправлена на повторную проверку.",
+            reply_markup=kb.back(),
+        )
+        await _resubmit_for_review(call.message, call.from_user.id, call.bot)
+        return
 
     if choice == "recheck":
         # Telegram sends a fresh from_user with every update, so a username set

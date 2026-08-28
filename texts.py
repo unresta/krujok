@@ -73,8 +73,9 @@ def faq() -> str:
         "и открывает по кнопке твою анкету. Чем больше лайков собирает кружок, "
         "тем большему числу людей его показывают.\n\n"
         "<b>Что такое анкета?</b>\n"
-        "Витрина: фото, описание и твои цены. Заполняется в «Мой профиль»,"
-        "проходит проверку, потом её показывают в «Смотреть анкеты».\n\n"
+        "Витрина: фото, описание и твои цены. Заполняется в «Профиле» "
+        "кнопкой «Моя анкета», проходит проверку, потом её показывают "
+        "в «Смотреть анкеты».\n\n"
         "<b>Как вывести заработанное?</b>\n"
         f"В «Профиле» кнопка «Вывести заработок»: от {settings.get('payout_min')} "
         f"монеток, курс {settings.get('payout_rate')} монетки = 1 ⭐. Выводятся "
@@ -99,8 +100,8 @@ def faq() -> str:
         "<b>Что делать с нарушением?</b>\n"
         "Кнопка «Пожаловаться» под кружком. Жалобы уходят модераторам.\n\n"
         "<b>Где почитать оферту и политику конфиденциальности?</b>\n"
-        "Кнопками под этим сообщением, а ещё они есть на экранах согласия и "
-        "в «Магазине»."
+        "Ссылки открываются кнопками на экране согласия, при создании анкеты "
+        "и на шаге выбора способа оплаты."
     )
 
 
@@ -157,7 +158,15 @@ PUSH_TEXTS = (_push_new, _push_missed, _push_waiting)
 
 
 def free_view_left(left: int) -> str:
-    return f"Бесплатный просмотр. Осталось таких: {left}"
+    if left:
+        return (
+            f"🎁 Этот кружок — за счёт заведения. "
+            f"Бесплатных осталось: <b>{left}</b>."
+        )
+    return (
+        "🎁 Это был последний бесплатный кружок — "
+        f'дальше как обычно, {settings.get("watch_cost")} {coin()} за просмотр.'
+    )
 
 
 EMPTY = (
@@ -176,7 +185,10 @@ UPLOAD_NEEDS_PROFILE = (
 def upload_profile_pending(status: str) -> str:
     if status == "pending":
         return "🕒 Анкета на проверке. Как одобрят — можно будет загружать кружочки."
-    return "🔴 Анкета отклонена. Заполни её заново в «Мой профиль», потом загружай."
+    return (
+        "🔴 Анкета отклонена. Заполни её заново: «Профиль» → «Моя анкета», "
+        "потом загружай."
+    )
 
 
 def upload_ask(gender: str) -> str:
@@ -309,6 +321,9 @@ def buy_choose_method(stars: int, coins: int) -> str:
     )
 
 
+BUY_PICK_METHOD = "Способ оплаты выбирается кнопкой под сообщением выше."
+
+
 def buy_bad_input() -> str:
     return f'Нужно целое число от {settings.get("min_stars")}.'
 
@@ -326,13 +341,13 @@ def profile(
     s: dict,
     earned: int,
     likes: int,
+    dislikes: int,
     views: int,
     ref_done: int,
     sales: dict | None = None,
     withdrawable: int = 0,
 ) -> str:
     sales = sales or {"content": 0, "contact": 0, "income": 0}
-    dislikes = 0  # TODO: implement dislike tracking if needed
     return (
         f"{emoji.text(emoji.PROFILE_HEADER)} <b>Твой профиль:</b>\n\n"
         f"{emoji.text(emoji.UPLOADED_COUNT)} Загружено кружков: <b>{s['approved']}</b>\n"
@@ -342,7 +357,7 @@ def profile(
         f"{emoji.text(emoji.BALANCE_ICON)} Баланс: <b>{coins}</b> "
         f"{emoji.text(emoji.COIN_EMOJI)}\n\n"
         f"{emoji.text(emoji.EARNINGS_ICON)} <b>Хочешь зарабатывать в Krujok — жми "
-        "«Профиль автора» 👇</b>\n\n"
+        "«Моя анкета» 👇</b>\n\n"
         f"👥 Приглашено пользователей: {ref_done}\n"
         f"💸 К выводу: <b>{withdrawable}</b> {coin()} "
         f"(~{settings.stars_for(withdrawable)} ⭐)\n"
@@ -372,7 +387,7 @@ PROFILE_INTRO = (
 )
 
 PROFILE_PHOTO = (
-    "🖼 <b>Профиль автора</b>\n\n"
+    "🖼 <b>Моя анкета</b>\n\n"
     "Пришли фото для анкеты — его увидят все, кто листает анкеты.\n"
     "Лицо показывать необязательно."
 )
@@ -384,6 +399,8 @@ def profile_about() -> str:
         f"До {ABOUT_MAX} символов. «-» — оставить пустым."
     )
 
+
+PROFILE_ABOUT_TEXT_ONLY = "Описание — текстом. «-» — оставить пустым."
 
 PROFILE_GENDER = "Кто ты?"
 
@@ -508,7 +525,7 @@ def profile_status(profile) -> str:  # noqa: D401 — the author's own view
         else "не продаётся"
     )
     return (
-        f"<b>Мой профиль</b> · {label}\n\n"
+        f"<b>Моя анкета</b> · {label}\n\n"
         f"{html.escape(profile['about'] or 'Без описания')}\n\n"
         f"Кружочки: {profile['price_content']} {coin()}\n"
         f"Личка: {contact}\n"
@@ -583,6 +600,18 @@ def payout_ask_amount(available: int) -> str:
         f"Сколько монеток вывести? Доступно {available}, "
         f"минимум {settings.get('payout_min')}."
     )
+
+
+def payout_bad_amount(raw: str, available: int) -> str:
+    """Says which of the three ways the number was wrong."""
+    low = settings.get("payout_min")
+    if not raw.isdigit():
+        why = "Нужно число — только цифры, без пробелов и букв."
+    elif int(raw) > available:
+        why = f"Столько нет: к выводу доступно <b>{available}</b> монеток."
+    else:
+        why = f"Это меньше минимума — выводим от <b>{low}</b> монеток."
+    return f"{why}\n\n{payout_ask_amount(available)}"
 
 
 PAYOUT_ASK_DETAILS = (

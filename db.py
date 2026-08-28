@@ -984,15 +984,16 @@ async def pay_author(circle_id: int, uploader_id: int, amount: int) -> None:
     await conn().commit()
 
 
-async def author_earnings(user_id: int) -> tuple[int, int, int]:
-    """(coins earned by circles, total likes, total views)"""
+async def author_earnings(user_id: int) -> tuple[int, int, int, int]:
+    """(coins earned by circles, total likes, total dislikes, total views)"""
     async with conn().execute(
         "SELECT COALESCE(SUM(earned),0) AS earned, COALESCE(SUM(likes),0) AS likes,"
+        " COALESCE(SUM(dislikes),0) AS dislikes,"
         " COALESCE(SUM(views),0) AS views FROM circles WHERE uploader_id = ?",
         (user_id,),
     ) as cur:
         row = await cur.fetchone()
-    return row["earned"], row["likes"], row["views"]
+    return row["earned"], row["likes"], row["dislikes"], row["views"]
 
 
 # --- profiles, purchases, payouts ----------------------------------------

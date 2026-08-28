@@ -52,7 +52,9 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         user_id, user["pref"], settings.get("like_boost")
     )
     if circle is None:
-        await origin.answer(texts.EMPTY, reply_markup=kb.no_coins())
+        # Nothing left of this type is not a money problem: offer the switch the
+        # text itself points at.
+        await origin.answer(texts.EMPTY, reply_markup=kb.empty_feed(user["pref"]))
         return
 
     # Buying an author's profile makes their circles free for that viewer, and a
@@ -89,6 +91,12 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         return
 
     await db.mark_viewed(user_id, circle["id"])
+    if on_the_house:
+        # A gifted circle looks exactly like a paid one; without this line the
+        # reminder's promise of free views is invisible.
+        left = (await db.get_user(user_id))["free_views"]
+        with suppress(TelegramAPIError):
+            await origin.answer(texts.free_view_left(left))
     if not free:  # a free view was already paid for when the profile was bought
         await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
 
