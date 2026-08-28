@@ -8,6 +8,7 @@ chat, so a leaked button id is not enough to use it.
 import asyncio
 import html
 import logging
+import time
 from contextlib import suppress
 
 from aiogram import Bot, F, Router
@@ -27,6 +28,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
+import config
 import db
 import pushes
 import keyboards as kb
@@ -590,17 +592,38 @@ async def cb_payouts(call: CallbackQuery) -> None:
     await call.answer()
 
 
+def _ago(stamp: float) -> str:
+    if not stamp:
+        return "ещё ни разу"
+    seconds = int(time.time() - stamp)
+    if seconds < 90:
+        return f"{seconds} сек назад"
+    if seconds < 5400:
+        return f"{seconds // 60} мин назад"
+    return f"{seconds // 3600} ч назад"
+
+
 @router.callback_query(F.data == "a:push")
 async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     on = bool(settings.get("push_enabled"))
-    waiting = len(
-        await db.idle_users(
-            settings.get("push_idle_hours") * 3600,
-            settings.get("push_cooldown_hours") * 3600,
-            1000,
-        )
+    pool = await db.push_pool(
+        settings.get("push_idle_hours") * 3600,
+        settings.get("push_cooldown_hours") * 3600,
     )
+    run = pushes.last_sweep
+    tick = int(config.PUSH_TICK // 60)
+
+    # A job that quietly died and a job with nobody to nudge look the same from
+    # the outside, so the last pass reports itself.
+    if run["error"]:
+        last = f"🔴 {_ago(run['at'])}, сорвался: {html.escape(run['error'])[:120]}"
+    elif run["skipped"]:
+        last = f"⚪ {_ago(run['at'])} — {run['skipped']}"
+    elif run["at"]:
+        last = f"🟢 {_ago(run['at'])} — отправлено {run['sent']}, не дошло {run['failed']}"
+    else:
+        last = f"⚪ ещё ни разу (первый проход через {int(pushes.FIRST_SWEEP)} сек после старта)"
 
     b = InlineKeyboardBuilder()
     b.row(
@@ -618,12 +641,20 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         call,
         "🔔 <b>Напоминания</b>\n\n"
         f"Статус: {'🟢 включены' if on else '🔴 выключены'}\n"
-        f"Молчал дольше: {settings.get('push_idle_hours')} ч\n"
-        f"Не чаще раза в: {settings.get('push_cooldown_hours')} ч\n"
-        f"За проход: до {settings.get('push_batch')} человек, раз в 15 минут\n"
-        f"В подарок: {settings.get('push_free_views')} кружочков\n"
-        f"Круглые сутки, без перерыва\n\n"
-        f"Ждут напоминания: <b>{waiting}</b>\n\n"
+        f"Последний проход: {last}\n\n"
+        f"<b>Ждут напоминания: {pool['ready']}</b>\n"
+        f"Не в очереди из {pool['total']} человек:\n"
+        f"• были в боте недавно — {pool['still_active']}\n"
+        f"• уже получали, ждут паузы — {pool['cooling']}\n"
+        f"• не приняли правила — {pool['not_accepted']}\n"
+        f"• забанены — {pool['banned']}\n\n"
+        f"Молчал дольше: {settings.get('push_idle_hours')} ч · "
+        f"не чаще раза в {settings.get('push_cooldown_hours')} ч\n"
+        f"За проход: до {settings.get('push_batch')} человек, раз в {tick} мин, "
+        f"круглые сутки\n"
+        f"В подарок: {settings.get('push_free_views')} "
+        f"{texts.circles_word(settings.get('push_free_views'))}\n"
+        f"Всего получали напоминания: {pool['ever_pushed']}\n\n"
         "Цифры правятся в «Экономике».",
         b.as_markup(),
     )

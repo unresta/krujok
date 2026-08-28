@@ -333,20 +333,53 @@ async def touch_seen(user_id: int, stale: int = 300) -> None:
     await conn().commit()
 
 
+# last_seen only started being stamped when the column was added, so a row from
+# before that — or from someone who never came back after accepting — carries a
+# zero. Reading that as «never idle» hid exactly the people a reminder is for,
+# which is why registration time stands in for it.
+_LAST_SEEN = "COALESCE(NULLIF(last_seen, 0), created_at)"
+
+
 async def idle_users(idle: int, cooldown: int, limit: int) -> list[int]:
     """Who went quiet long enough, and was not nudged recently."""
     async with conn().execute(
-        """
+        f"""
         SELECT id FROM users
         WHERE banned = 0 AND accepted = 1
-          AND last_seen > 0
-          AND last_seen < strftime('%s','now') - :idle
+          AND {_LAST_SEEN} < strftime('%s','now') - :idle
           AND last_push < strftime('%s','now') - :cooldown
         ORDER BY RANDOM() LIMIT :limit
         """,
         {"idle": idle, "cooldown": cooldown, "limit": limit},
     ) as cur:
         return [row[0] for row in await cur.fetchall()]
+
+
+async def push_pool(idle: int, cooldown: int) -> dict:
+    """Who is in line for a reminder and who is not — with the reason why."""
+    async with conn().execute(
+        f"""
+        SELECT
+          COUNT(*)                                                  AS total,
+          COALESCE(SUM(banned = 1), 0)                              AS banned,
+          COALESCE(SUM(banned = 0 AND accepted = 0), 0)             AS not_accepted,
+          COALESCE(SUM(banned = 0 AND accepted = 1
+                       AND {_LAST_SEEN} >= strftime('%s','now') - :idle), 0)
+                                                                    AS still_active,
+          COALESCE(SUM(banned = 0 AND accepted = 1
+                       AND {_LAST_SEEN} < strftime('%s','now') - :idle
+                       AND last_push >= strftime('%s','now') - :cooldown), 0)
+                                                                    AS cooling,
+          COALESCE(SUM(banned = 0 AND accepted = 1
+                       AND {_LAST_SEEN} < strftime('%s','now') - :idle
+                       AND last_push < strftime('%s','now') - :cooldown), 0)
+                                                                    AS ready,
+          COALESCE(SUM(last_push > 0), 0)                           AS ever_pushed
+        FROM users
+        """,
+        {"idle": idle, "cooldown": cooldown},
+    ) as cur:
+        return dict(await cur.fetchone())
 
 
 async def mark_pushed(user_id: int, free_views: int) -> None:
