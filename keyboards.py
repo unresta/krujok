@@ -88,12 +88,10 @@ BTN_REF = "Рефералы"
 BTN_RULES = "Правила и FAQ"
 BTN_SHOP = "Магазин"
 BTN_ANKETAS = "Смотреть анкеты"
-BTN_MY_ANKETA = "Мой профиль"
 
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
     BTN_ANKETAS: emoji.PROFILE,
-    BTN_MY_ANKETA: emoji.UPLOAD,
     BTN_UPLOAD: emoji.UPLOAD,
     BTN_PROFILE: emoji.PROFILE,
     BTN_FEED: emoji.FEED,
@@ -108,7 +106,6 @@ MENU_STYLES = {
     BTN_WATCH: SUCCESS,
     BTN_SHOP: SUCCESS,
     BTN_ANKETAS: None,
-    BTN_MY_ANKETA: None,
     BTN_UPLOAD: None,
     BTN_PROFILE: None,
     BTN_FEED: None,
@@ -131,7 +128,6 @@ MENU_BUTTONS = frozenset(
         BTN_WATCH,
         BTN_ANKETAS,
         BTN_UPLOAD,
-        BTN_MY_ANKETA,
         BTN_PROFILE,
         BTN_FEED,
         BTN_REF,
@@ -146,10 +142,9 @@ def main_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [_menu_button(BTN_WATCH)],
             [_menu_button(BTN_ANKETAS)],
-            [_menu_button(BTN_UPLOAD), _menu_button(BTN_MY_ANKETA)],
-            [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
-            [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
-            [_menu_button(BTN_SHOP)],
+            [_menu_button(BTN_UPLOAD), _menu_button(BTN_PROFILE)],
+            [_menu_button(BTN_FEED), _menu_button(BTN_REF)],
+            [_menu_button(BTN_RULES), _menu_button(BTN_SHOP)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -228,6 +223,30 @@ def profile(link: str) -> InlineKeyboardMarkup:
     b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
     b.row(
         InlineKeyboardButton(text="💸 Вывести заработок", callback_data="po:open", style=PRIMARY)
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Загрузить кружок",
+            callback_data="mp:upload",
+            icon_custom_emoji_id=emoji.icon(emoji.UPLOAD),
+        ),
+        InlineKeyboardButton(
+            text="Мои кружки",
+            callback_data="mp:circles",
+            icon_custom_emoji_id=emoji.icon(emoji.MY_CIRCLES),
+        ),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Профиль автора",
+            callback_data="pf:edit_menu",
+            icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
+        ),
+        InlineKeyboardButton(
+            text="Купленные кружочки",
+            callback_data="mp:bought",
+            icon_custom_emoji_id=emoji.icon(emoji.SHOP),
+        ),
     )
     b.row(
         InlineKeyboardButton(
@@ -381,33 +400,6 @@ def profile_contact_ask(has_username: bool) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def my_profile(exists: bool) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="Загрузить кружок",
-            callback_data="mp:upload",
-            icon_custom_emoji_id=emoji.icon(emoji.UPLOAD),
-        ),
-        InlineKeyboardButton(
-            text="Мои кружки",
-            callback_data="mp:circles",
-            icon_custom_emoji_id=emoji.icon(emoji.MY_CIRCLES),
-        ),
-    )
-    b.row(
-        InlineKeyboardButton(
-            text="Профиль автора",
-            callback_data="pf:edit_menu",
-            icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
-        ),
-        InlineKeyboardButton(
-            text="Купленные кружочки",
-            callback_data="mp:bought",
-            icon_custom_emoji_id=emoji.icon(emoji.SHOP),
-        ),
-    )
-    return b.as_markup()
 
 
 def profile_edit_menu(profile) -> InlineKeyboardMarkup:

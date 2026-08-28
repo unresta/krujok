@@ -36,7 +36,7 @@ async def _may_upload(message: Message, user_id: int | None = None) -> bool:
     if profile is not None and profile["status"] == "approved":
         return True
     if profile is None:
-        await message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.my_profile(False))
+        await message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.profile_intro())
     else:
         await message.answer(texts.upload_profile_pending(profile["status"]))
     return False

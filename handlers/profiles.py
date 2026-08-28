@@ -49,20 +49,6 @@ class Anketa(StatesGroup):
 # --- filling it in -------------------------------------------------------
 
 
-@router.message(F.text == kb.BTN_MY_ANKETA)
-async def my_profile(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    profile = await db.get_profile(message.from_user.id)
-    if profile is None:  # no profile yet — pitch it instead of stating the fact
-        await message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
-        return
-    await message.answer_photo(
-        profile["photo_id"],
-        caption=texts.profile_status(profile),
-        reply_markup=kb.my_profile(True),
-    )
-
-
 @router.callback_query(F.data == "pf:edit_menu")
 async def edit_menu(call: CallbackQuery, state: FSMContext) -> None:
     """Show menu to edit individual fields or create new profile."""
@@ -597,7 +583,7 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
         mine = await db.get_profile(viewer_id)
         if mine is None:
             await origin.answer(
-                texts.profile_empty_pitch(), reply_markup=kb.my_profile(False)
+                texts.profile_empty_pitch(), reply_markup=kb.profile_intro()
             )
         else:
             await origin.answer(texts.PROFILE_EMPTY_WAIT, reply_markup=kb.back())
@@ -621,7 +607,7 @@ async def mp_upload(call: CallbackQuery, state: FSMContext) -> None:
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
         if profile is None:
-            await call.message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.my_profile(False))
+            await call.message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.profile_intro())
         else:
             await call.message.answer(texts.upload_profile_pending(profile["status"]))
         await call.answer()
