@@ -5,7 +5,7 @@ from contextlib import suppress
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
@@ -147,29 +147,75 @@ async def react(call: CallbackQuery) -> None:
         )
 
 
+async def _circle_markup(user_id: int, circle) -> InlineKeyboardMarkup:
+    """The circle's own buttons, rebuilt after the reasons menu covered them."""
+    author = circle["uploader_id"]
+    linked = author if author and await db.has_public_profile(author) else 0
+    return kb.circle(
+        circle["id"],
+        circle["likes"],
+        circle["dislikes"],
+        await db.get_reaction(user_id, circle["id"]),
+        linked,
+        archive=not author,
+    )
+
+
 @router.callback_query(F.data.startswith("rep:"))
 async def report(call: CallbackQuery) -> None:
-    circle_id = int(call.data.split(":")[1])
+    """Two taps: «Пожаловаться» asks what for, the reason files the complaint."""
+    parts = call.data.split(":")
+    action = "" if parts[1].isdigit() else parts[1]
+    circle_id = int(parts[-1])
+
     circle = await db.get_circle(circle_id)
     if circle is None:
         await call.answer("Кружок уже удалён.", show_alert=True)
         return
 
+    if action == "back":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=await _circle_markup(call.from_user.id, circle)
+            )
+        await call.answer()
+        return
+
     if not await db.has_viewed(call.from_user.id, circle_id):
         await call.answer("Этот кружок тебе не показывали.", show_alert=True)
         return
+    # Better to say so now than after they picked a reason for nothing.
+    if await db.has_reported(call.from_user.id, circle_id):
+        await call.answer(texts.REPORT_DOUBLE, show_alert=True)
+        return
 
-    count = await db.add_report(call.from_user.id, circle_id)
-    if count is None:
+    if action != "r":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.report_reasons(circle_id)
+            )
+        await call.answer(texts.REPORT_ASK)
+        return
+
+    reason = parts[2] if parts[2] in texts.REPORT_REASONS else "other"
+    count = await db.add_report(call.from_user.id, circle_id, reason)
+    if count is None:  # two taps racing each other
         await call.answer(texts.REPORT_DOUBLE, show_alert=True)
         return
     await call.answer(texts.REPORT_SENT, show_alert=True)
+    with suppress(TelegramAPIError):
+        await call.message.edit_reply_markup(
+            reply_markup=await _circle_markup(call.from_user.id, circle)
+        )
 
     # Enough complaints and the circle leaves rotation before a human looks.
     hidden = count >= settings.get("reports_to_hide")
     if hidden and circle["status"] == "approved":
         await db.set_status(circle_id, "rejected")
 
+    breakdown = texts.reasons_summary(
+        await db.report_reasons(circle_id), texts.REPORT_REASONS
+    )
     chat = settings.reports_chat()
     try:
         await call.bot.send_video_note(
@@ -178,9 +224,11 @@ async def report(call: CallbackQuery) -> None:
         await call.bot.send_message(
             chat,
             f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
+            f"Причина: {texts.REPORT_REASONS[reason]}\n"
             f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
             f"Автор: <code>{circle['uploader_id']}</code>\n"
-            f"Статус: {'скрыт автоматически' if hidden else circle['status']}",
+            f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
+            f"{breakdown}",
             reply_markup=kb.report_review(circle_id),
         )
     except TelegramAPIError as error:

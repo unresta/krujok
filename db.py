@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS reports (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id   INTEGER NOT NULL,
     circle_id INTEGER NOT NULL,
+    reason    TEXT    NOT NULL DEFAULT '',   -- key from texts.REPORT_REASONS
     handled   INTEGER NOT NULL DEFAULT 0,
     ts        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     UNIQUE (user_id, circle_id)
@@ -125,6 +126,7 @@ CREATE TABLE IF NOT EXISTS payouts (
 CREATE TABLE IF NOT EXISTS profile_reports (
     user_id   INTEGER NOT NULL,
     author_id INTEGER NOT NULL,
+    reason    TEXT    NOT NULL DEFAULT '',   -- key from texts.PROFILE_REPORT_REASONS
     handled   INTEGER NOT NULL DEFAULT 0,
     ts        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     PRIMARY KEY (user_id, author_id)
@@ -209,6 +211,12 @@ MIGRATIONS = {
         "likes": "INTEGER NOT NULL DEFAULT 0",
         "dislikes": "INTEGER NOT NULL DEFAULT 0",
         "earned": "INTEGER NOT NULL DEFAULT 0",
+    },
+    "reports": {
+        "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
+    },
+    "profile_reports": {
+        "reason": "TEXT NOT NULL DEFAULT ''",
     },
 }
 
@@ -899,12 +907,12 @@ async def get_reaction(user_id: int, circle_id: int) -> int:
     return row["value"] if row else 0
 
 
-async def add_report(user_id: int, circle_id: int) -> int | None:
+async def add_report(user_id: int, circle_id: int, reason: str = "") -> int | None:
     """None when this user already complained about this circle."""
     try:
         await conn().execute(
-            "INSERT INTO reports(user_id, circle_id) VALUES (?, ?)",
-            (user_id, circle_id),
+            "INSERT INTO reports(user_id, circle_id, reason) VALUES (?, ?, ?)",
+            (user_id, circle_id, reason),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -914,6 +922,28 @@ async def add_report(user_id: int, circle_id: int) -> int | None:
         (circle_id,),
     ) as cur:
         return (await cur.fetchone())[0]
+
+
+async def has_reported(user_id: int, circle_id: int) -> bool:
+    """Checked before the reason menu, so nobody picks one for nothing."""
+    async with conn().execute(
+        "SELECT 1 FROM reports WHERE user_id = ? AND circle_id = ?",
+        (user_id, circle_id),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def report_reasons(circle_id: int) -> list[aiosqlite.Row]:
+    """What the open complaints about this circle were about, most common first."""
+    async with conn().execute(
+        """
+        SELECT reason, COUNT(*) AS count FROM reports
+        WHERE circle_id = ? AND handled = 0
+        GROUP BY reason ORDER BY count DESC
+        """,
+        (circle_id,),
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def clear_reports(circle_id: int) -> None:
@@ -1171,12 +1201,12 @@ async def reset_profile_views(viewer_id: int) -> None:
     await conn().commit()
 
 
-async def report_profile(user_id: int, author_id: int) -> int | None:
+async def report_profile(user_id: int, author_id: int, reason: str = "") -> int | None:
     """None when this user already complained about this profile."""
     try:
         await conn().execute(
-            "INSERT INTO profile_reports(user_id, author_id) VALUES (?, ?)",
-            (user_id, author_id),
+            "INSERT INTO profile_reports(user_id, author_id, reason) VALUES (?, ?, ?)",
+            (user_id, author_id, reason),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -1186,6 +1216,26 @@ async def report_profile(user_id: int, author_id: int) -> int | None:
         (author_id,),
     ) as cur:
         return (await cur.fetchone())[0]
+
+
+async def has_reported_profile(user_id: int, author_id: int) -> bool:
+    async with conn().execute(
+        "SELECT 1 FROM profile_reports WHERE user_id = ? AND author_id = ?",
+        (user_id, author_id),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def profile_report_reasons(author_id: int) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        """
+        SELECT reason, COUNT(*) AS count FROM profile_reports
+        WHERE author_id = ? AND handled = 0
+        GROUP BY reason ORDER BY count DESC
+        """,
+        (author_id,),
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def clear_profile_reports(author_id: int) -> None:

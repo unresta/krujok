@@ -559,6 +559,43 @@ def payout_review(payout_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def report_reasons(circle_id: int) -> InlineKeyboardMarkup:
+    """Replaces the circle's buttons while the complaint is being named."""
+    from texts import REPORT_REASONS
+
+    b = InlineKeyboardBuilder()
+    for key, label in REPORT_REASONS.items():
+        b.row(
+            InlineKeyboardButton(
+                text=label, callback_data=f"rep:r:{key}:{circle_id}", style=DANGER
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"rep:back:{circle_id}", style=SUCCESS
+        )
+    )
+    return b.as_markup()
+
+
+def profile_report_reasons(author_id: int) -> InlineKeyboardMarkup:
+    from texts import PROFILE_REPORT_REASONS
+
+    b = InlineKeyboardBuilder()
+    for key, label in PROFILE_REPORT_REASONS.items():
+        b.row(
+            InlineKeyboardButton(
+                text=label, callback_data=f"pf:rr:{key}:{author_id}", style=DANGER
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"pf:rback:{author_id}", style=SUCCESS
+        )
+    )
+    return b.as_markup()
+
+
 def report_review(circle_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(

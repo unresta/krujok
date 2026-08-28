@@ -31,6 +31,7 @@ import db
 import pushes
 import keyboards as kb
 import settings
+import texts
 from config import ADMIN_IDS, DB_PATH
 
 logger = logging.getLogger(__name__)
@@ -438,6 +439,9 @@ async def cb_reports_show(call: CallbackQuery) -> None:
         return
 
     for circle in rows[:5]:  # a screenful, the rest stay in the queue
+        breakdown = texts.reasons_summary(
+            await db.report_reasons(circle["id"]), texts.REPORT_REASONS
+        )
         with suppress(TelegramAPIError):
             await call.bot.send_video_note(
                 call.from_user.id, circle["file_id"], protect_content=True
@@ -447,7 +451,8 @@ async def cb_reports_show(call: CallbackQuery) -> None:
                 f"#жалоба <b>#{circle['id']}</b> — {circle['complaints']} шт\n"
                 f"Статус: {circle['status']} · просмотров: {circle['views']} · "
                 f"👍 {circle['likes']} / 👎 {circle['dislikes']}\n"
-                f"Автор: <code>{circle['uploader_id']}</code>",
+                f"Автор: <code>{circle['uploader_id']}</code>\n\n"
+                f"{breakdown}",
                 reply_markup=kb.report_review(circle["id"]),
             )
     await call.answer()

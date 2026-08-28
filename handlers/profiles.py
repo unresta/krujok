@@ -826,24 +826,67 @@ async def show_circles(call: CallbackQuery) -> None:
         )
 
 
-@router.callback_query(F.data.startswith("pf:rep:"))
+async def _card_markup(viewer_id: int, profile):
+    """The card's own buttons, rebuilt after the reasons menu covered them."""
+    author_id = profile["user_id"]
+    return kb.profile_card(
+        profile,
+        await db.get_purchase(viewer_id, author_id, "content") is not None,
+        await db.get_purchase(viewer_id, author_id, "contact") is not None,
+    )
+
+
+@router.callback_query(F.data.startswith(("pf:rep:", "pf:rr:", "pf:rback:")))
 async def report_profile(call: CallbackQuery) -> None:
-    author_id = int(call.data.split(":")[2])
+    """Two taps: «Пожаловаться» asks what for, the reason files the complaint."""
+    parts = call.data.split(":")
+    action = parts[1]
+    author_id = int(parts[-1])
+
     profile = await db.get_profile(author_id)
     if profile is None:
         await call.answer("Анкета пропала.", show_alert=True)
         return
 
-    count = await db.report_profile(call.from_user.id, author_id)
-    if count is None:
+    if action == "rback":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=await _card_markup(call.from_user.id, profile)
+            )
+        await call.answer()
+        return
+
+    # Better to say so now than after they picked a reason for nothing.
+    if await db.has_reported_profile(call.from_user.id, author_id):
+        await call.answer(texts.REPORT_DOUBLE_PROFILE, show_alert=True)
+        return
+
+    if action == "rep":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.profile_report_reasons(author_id)
+            )
+        await call.answer(texts.REPORT_ASK)
+        return
+
+    reason = parts[2] if parts[2] in texts.PROFILE_REPORT_REASONS else "other"
+    count = await db.report_profile(call.from_user.id, author_id, reason)
+    if count is None:  # two taps racing each other
         await call.answer(texts.REPORT_DOUBLE_PROFILE, show_alert=True)
         return
     await call.answer(texts.REPORT_SENT, show_alert=True)
+    with suppress(TelegramAPIError):
+        await call.message.edit_reply_markup(
+            reply_markup=await _card_markup(call.from_user.id, profile)
+        )
 
     hidden = count >= settings.get("reports_to_hide")
     if hidden and profile["status"] == "approved":
         await db.set_profile_status(author_id, "rejected")
 
+    breakdown = texts.reasons_summary(
+        await db.profile_report_reasons(author_id), texts.PROFILE_REPORT_REASONS
+    )
     chat = settings.reports_chat()
     try:
         await call.bot.send_photo(
@@ -851,8 +894,10 @@ async def report_profile(call: CallbackQuery) -> None:
             profile["photo_id"],
             caption=(
                 f"#жалоба на анкету <code>{author_id}</code> — {count} шт\n"
+                f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
                 f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
-                f"{html.escape(profile['about'] or 'Без описания')}"
+                f"{html.escape(profile['about'] or 'Без описания')}\n\n"
+                f"{breakdown}"
             ),
             reply_markup=kb.profile_report_review(author_id),
         )

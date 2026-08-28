@@ -235,6 +235,36 @@ REJECTED = "🔴 Кружок отклонён модератором."
 REPORT_SENT = "Жалоба отправлена модераторам."
 REPORT_DOUBLE = "Ты уже жаловался на этот кружок."
 REPORT_DOUBLE_PROFILE = "Ты уже жаловался на эту анкету."
+REPORT_ASK = "За что жалуешься?"
+
+# The keys go into callback data, so they stay short and ascii.
+REPORT_REASONS = {
+    "porn": "🔞 Порно или обнажёнка",
+    "minor": "🧒 На видео несовершеннолетний",
+    "violence": "🩸 Насилие или жестокость",
+    "ads": "📢 Реклама или спам",
+    "stolen": "🎭 Чужой кружок, не свой",
+    "other": "⚠️ Другое нарушение",
+}
+
+PROFILE_REPORT_REASONS = {
+    "photo": "🖼 Фото чужое или не по теме",
+    "minor": "🧒 На фото несовершеннолетний",
+    "ads": "📢 Реклама или ссылки в анкете",
+    "scam": "💸 Обман, деньги мимо бота",
+    "abuse": "🤬 Оскорбления в описании",
+    "other": "⚠️ Другое нарушение",
+}
+
+NO_REASON = "причина не указана"
+
+
+def reasons_summary(rows, labels: dict[str, str]) -> str:
+    """What the complaints were about, for the moderator card."""
+    lines = [
+        f"• {labels.get(row['reason'], NO_REASON)} — {row['count']}" for row in rows
+    ]
+    return "\n".join(lines)
 
 
 def circles_word(count: int) -> str:
