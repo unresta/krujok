@@ -31,7 +31,7 @@ async def watch_callback(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     now = time.monotonic()
     if now - _last_tap.get(call.from_user.id, 0.0) < WATCH_COOLDOWN:
-        await call.answer("Не так быстро 🙂")
+        await call.answer(texts.NOT_SO_FAST)
         return
     _last_tap[call.from_user.id] = now
 
@@ -87,7 +87,7 @@ async def serve(bot, user_id: int, origin: Message) -> None:
             await db.mark_pushed(user_id, 1)  # give the free circle back
         elif not free:
             await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
-        await origin.answer("Не удалось отправить кружок, монетки вернул.")
+        await origin.answer(texts.SEND_FAILED)
         return
 
     await db.mark_viewed(user_id, circle["id"])
@@ -122,15 +122,15 @@ async def react(call: CallbackQuery) -> None:
 
     circle = await db.get_circle(circle_id)
     if circle is None:
-        await call.answer("Кружок удалён.", show_alert=True)
+        await call.answer(texts.CIRCLE_GONE, show_alert=True)
         return
     if circle["uploader_id"] == call.from_user.id:
-        await call.answer("Свой кружок оценивать нечестно 🙂")
+        await call.answer(texts.CIRCLE_OWN_VOTE)
         return
     # A like pays the author, so it has to come from someone who was shown the
     # circle — not from a guessed callback.
     if not await db.has_viewed(call.from_user.id, circle_id):
-        await call.answer("Этот кружок тебе не показывали.", show_alert=True)
+        await call.answer(texts.CIRCLE_NOT_SHOWN, show_alert=True)
         return
 
     vote, likes, dislikes, fresh_like = await db.set_reaction(
@@ -144,14 +144,16 @@ async def react(call: CallbackQuery) -> None:
                 circle_id, likes, dislikes, vote, linked, archive=not author
             )
         )
-    await call.answer("👍" if vote == 1 else "👎" if vote == -1 else "Отменил")
+    await call.answer(
+        texts.VOTE_LIKE if vote == 1 else texts.VOTE_DISLIKE if vote == -1 else texts.VOTE_CANCEL
+    )
 
     if fresh_like:
         await _pay_author(
             call.bot,
             circle,
             settings.get("like_bonus"),
-            lambda amount: f"👍 Твой кружок лайкнули: +{amount}",
+            texts.like_bonus_note,
         )
 
 
@@ -178,7 +180,7 @@ async def report(call: CallbackQuery) -> None:
 
     circle = await db.get_circle(circle_id)
     if circle is None:
-        await call.answer("Кружок уже удалён.", show_alert=True)
+        await call.answer(texts.CIRCLE_GONE, show_alert=True)
         return
 
     if action == "back":
@@ -190,7 +192,7 @@ async def report(call: CallbackQuery) -> None:
         return
 
     if not await db.has_viewed(call.from_user.id, circle_id):
-        await call.answer("Этот кружок тебе не показывали.", show_alert=True)
+        await call.answer(texts.CIRCLE_NOT_SHOWN, show_alert=True)
         return
     # Better to say so now than after they picked a reason for nothing.
     if await db.has_reported(call.from_user.id, circle_id):
@@ -262,7 +264,7 @@ async def review_report(call: CallbackQuery) -> None:
 
     if action == "again":  # hiding and keeping are both reversible
         if circle is None:
-            await call.answer("Кружок уже удалён.", show_alert=True)
+            await call.answer(texts.CIRCLE_GONE, show_alert=True)
             return
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(

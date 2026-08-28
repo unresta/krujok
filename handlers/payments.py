@@ -91,7 +91,7 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     stars = data.get("stars")
     if not stars:
-        await call.answer("Ошибка: сумма не выбрана", show_alert=True)
+        await call.answer(texts.BUY_NO_AMOUNT, show_alert=True)
         return
     await state.clear()
     await call.answer()
@@ -100,7 +100,7 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "pay_method:card")
 async def pay_with_card(call: CallbackQuery, state: FSMContext) -> None:
-    await call.answer("⚠️ Оплата картой пока недоступна. Используйте Telegram Stars.", show_alert=True)
+    await call.answer(texts.BUY_CARD_SOON, show_alert=True)
 
 
 async def send_invoice(message: Message, stars: int) -> None:

@@ -22,11 +22,17 @@ class Item(NamedTuple):
     description: str
     category: str
     plain: bool = False  # lives in a toast/alert, where formatting is not shown
+    # {vstavka} -> what the bot puts there. An edit may move them around or drop
+    # them, but may not invent new ones — save() checks that.
+    vars: dict[str, str] = {}
 
 
 CATEGORY_ICON = {
+    "Меню и лента": "🏠",
+    "Правила и FAQ": "ℹ️",
     "Система": "⚙️",
-    "Профиль": "👤",
+    "Профиль": "🧾",
+    "Анкета автора": "👤",
     "Загрузка": "🎥",
     "Просмотр": "👀",
     "Жалобы": "⚠️",
@@ -34,34 +40,298 @@ CATEGORY_ICON = {
     "Выплаты": "💸",
     "Рефералы": "👥",
     "Подписка": "📢",
+    "Короткие ответы": "💬",
 }
 
+# Values that show up again and again, described once.
+_COIN = {"coin": "значок монетки"}
+_PRICE_RANGE = {"price_min": "мин. цена", "price_max": "макс. цена"}
+
 EDITABLE: dict[str, Item] = {
+    # --- Меню и лента ---
+    "MENU": Item(
+        "Главное меню",
+        "Меню и лента",
+        vars={
+            "coin": "значок монетки",
+            "coins": "баланс",
+            "film": "значок ленты",
+            "pref": "какие кружки показываем",
+        },
+    ),
+    "FEED": Item("Экран «Лента»", "Меню и лента", vars={"pref": "выбранный тип"}),
+    "EMPTY": Item("Кружочки этого типа кончились", "Меню и лента"),
+    "ARCHIVE_NOTE": Item("Кружок из архива бота", "Меню и лента", plain=True),
+    "NOT_ENOUGH": Item(
+        "Не хватает монеток на просмотр",
+        "Меню и лента",
+        vars={
+            "coin": "значок монетки",
+            "coins": "баланс",
+            "watch_cost": "цена просмотра",
+            "earn": "подсказка, как заработать (ниже)",
+        },
+    ),
+    "NOT_ENOUGH_UPLOAD": Item(
+        "…подсказка, когда за загрузку платят",
+        "Меню и лента",
+        vars={"reward": "размер награды"},
+    ),
+    "NOT_ENOUGH_SELL": Item(
+        "…подсказка, когда зарабатывают продажей",
+        "Меню и лента",
+        vars={"author_share": "доля автора, %"},
+    ),
+    "FREE_VIEW_LEFT": Item(
+        "Просмотр в подарок", "Меню и лента", vars={"left": "сколько осталось"}
+    ),
+    "FREE_VIEW_LAST": Item(
+        "Последний подарочный просмотр",
+        "Меню и лента",
+        vars={"watch_cost": "цена просмотра", "coin": "значок монетки"},
+    ),
+    "PUSH_NEW": Item(
+        "Напоминание: появились новые",
+        "Меню и лента",
+        vars={"free": "сколько бесплатных", "circles": "«кружочка/кружочков»"},
+    ),
+    "PUSH_MISSED": Item(
+        "Напоминание: давно не заходил",
+        "Меню и лента",
+        vars={"free": "сколько бесплатных", "circles": "«кружочка/кружочков»"},
+    ),
+    "PUSH_WAITING": Item(
+        "Напоминание: записали новый кружок",
+        "Меню и лента",
+        vars={"free": "сколько бесплатных", "circles": "«кружочка/кружочков»"},
+    ),
+    # --- Правила и FAQ ---
+    "RULES": Item(
+        "Правила сервиса", "Правила и FAQ", vars={"min_duration": "минимум секунд"}
+    ),
+    "FAQ": Item(
+        "FAQ",
+        "Правила и FAQ",
+        vars={
+            "author_share": "доля автора, %",
+            "ref_reward": "награда за реферала",
+            "watch_cost": "цена просмотра",
+            "payout_min": "минимум вывода",
+            "payout_rate": "монеток за 1 ⭐",
+            "max_pending": "кружков на проверке",
+        },
+    ),
+    "WELCOME": Item(
+        "Приветствие и согласие",
+        "Правила и FAQ",
+        vars={"rules": "текст правил", "gift": "строка про бонус (ниже)"},
+    ),
+    "WELCOME_GIFT": Item(
+        "…строка про бонус за согласие",
+        "Правила и FAQ",
+        vars={"bonus": "размер бонуса"},
+    ),
+    "WELCOME_BONUS": Item(
+        "Начислили бонус новичку",
+        "Правила и FAQ",
+        vars={
+            "amount": "сколько монеток",
+            "coin": "значок монетки",
+            "views": "на сколько просмотров",
+            "circles": "«кружочка/кружочков»",
+        },
+    ),
+    "ACCEPTED": Item("Согласие принято", "Правила и FAQ", plain=True),
     # --- Система ---
-    "ACCEPTED": Item("Согласие принято", "Система", plain=True),
     "BANNED": Item("Сообщение забаненному", "Система", plain=True),
     "MAINTENANCE": Item("Режим техработ", "Система", plain=True),
-    # --- Профиль ---
-    "PROFILE_INTRO": Item("Приглашение завести анкету", "Профиль"),
-    "PROFILE_PHOTO": Item("Просьба прислать фото", "Профиль"),
-    "PROFILE_GENDER": Item("Вопрос о поле", "Профиль"),
-    "PROFILE_ABOUT_TEXT_ONLY": Item("Описание — только текстом", "Профиль"),
-    "PROFILE_CONTACT_ASK": Item("Продавать ли личку", "Профиль"),
-    "PROFILE_NO_USERNAME": Item("Нужен @username", "Профиль", plain=True),
-    "PROFILE_STILL_NO_USERNAME": Item("@username так и нет", "Профиль", plain=True),
-    "PROFILE_SENT": Item("Анкета ушла на проверку", "Профиль"),
-    "PROFILE_NOT_PHOTO": Item("Прислали не фото", "Профиль"),
-    "PROFILE_APPROVED": Item("Анкета одобрена", "Профиль"),
-    "PROFILE_EMPTY_WAIT": Item("Анкеты кончились", "Профиль"),
+    "STALE_BUTTON": Item("Кнопка устарела", "Система", plain=True),
+    "NOT_SO_FAST": Item("Слишком частые нажатия", "Система", plain=True),
+    "SEND_FAILED": Item("Кружок не отправился", "Система"),
+    # --- Профиль пользователя ---
+    "PROFILE": Item(
+        "Экран «Профиль»",
+        "Профиль",
+        vars={
+            "icon_profile": "значок профиля",
+            "icon_uploaded": "значок загрузок",
+            "icon_ratings": "значок оценок",
+            "icon_like": "значок лайка",
+            "icon_dislike": "значок дизлайка",
+            "icon_views": "значок просмотров",
+            "icon_balance": "значок баланса",
+            "icon_coin": "значок монеты",
+            "icon_earnings": "значок заработка",
+            "coin": "значок монетки",
+            "approved": "одобрено кружков",
+            "watched": "просмотрено кружков",
+            "likes": "лайков",
+            "dislikes": "дизлайков",
+            "coins": "баланс",
+            "earned": "заработано всего",
+            "ref_done": "приглашено друзей",
+            "withdrawable": "доступно к выводу",
+            "stars": "это же в ⭐",
+            "sold_content": "продано доступов",
+            "sold_contact": "продано контактов",
+            "views": "просмотров его кружков",
+            "user_id": "id пользователя",
+        },
+    ),
+    "MY_CIRCLES": Item(
+        "Мои загруженные кружки",
+        "Профиль",
+        vars={
+            "approved": "одобрено",
+            "pending": "на проверке",
+            "rejected": "отклонено",
+            "total": "всего",
+        },
+    ),
+    "MY_CIRCLES_EMPTY": Item("Мои кружки: пусто", "Профиль"),
+    "BOUGHT_HEADER": Item("Купленные кружочки: заголовок", "Профиль"),
+    "BOUGHT_ROW": Item(
+        "Купленные кружочки: строка автора",
+        "Профиль",
+        vars={"author_id": "id автора", "count": "сколько кружков"},
+    ),
+    "BOUGHT_EMPTY": Item("Купленные кружочки: пусто", "Профиль"),
+    # --- Анкета автора ---
+    "PROFILE_INTRO": Item("Приглашение завести анкету", "Анкета автора"),
+    "PROFILE_PHOTO": Item("Просьба прислать фото", "Анкета автора"),
+    "PROFILE_ABOUT": Item(
+        "Просьба написать описание", "Анкета автора", vars={"limit": "лимит символов"}
+    ),
+    "PROFILE_ABOUT_TEXT_ONLY": Item("Описание — только текстом", "Анкета автора"),
+    "PROFILE_GENDER": Item("Вопрос о поле", "Анкета автора"),
+    "PROFILE_PRICE_CONTENT": Item(
+        "Вопрос о цене кружочков",
+        "Анкета автора",
+        vars={**_PRICE_RANGE, "author_share": "доля автора, %"},
+    ),
+    "PROFILE_CONTACT_ASK": Item("Продавать ли личку", "Анкета автора"),
+    "PROFILE_PRICE_CONTACT": Item(
+        "Вопрос о цене лички", "Анкета автора", vars=_PRICE_RANGE
+    ),
+    "PROFILE_BAD_PRICE": Item("Цена не подходит", "Анкета автора", vars=_PRICE_RANGE),
+    "PROFILE_NO_USERNAME": Item("Нужен @username", "Анкета автора", plain=True),
+    "PROFILE_STILL_NO_USERNAME": Item(
+        "@username так и нет", "Анкета автора", plain=True
+    ),
+    "PROFILE_SENT": Item("Анкета ушла на проверку", "Анкета автора"),
+    "PROFILE_NOT_PHOTO": Item("Прислали не фото", "Анкета автора"),
+    "PROFILE_APPROVED": Item("Анкета одобрена", "Анкета автора"),
+    "PROFILE_FIELD_SAVED": Item(
+        "Поле анкеты обновлено",
+        "Анкета автора",
+        vars={"field": "что поменяли"},
+    ),
+    "PROFILE_CONTACT_OFF": Item("Личка снята с продажи", "Анкета автора"),
+    "PROFILE_REVERTED": Item(
+        "Правки отклонены, вернули прошлую",
+        "Анкета автора",
+        vars={"reason": "причина, если её указали"},
+    ),
+    "PROFILE_REJECTED": Item(
+        "Анкета отклонена",
+        "Анкета автора",
+        vars={"reason": "причина, если её указали"},
+    ),
+    "PROFILE_REASON_TAIL": Item(
+        "…строка с причиной отказа",
+        "Анкета автора",
+        vars={"reason": "текст причины"},
+    ),
+    "PROFILE_STATUS": Item(
+        "Своя анкета: карточка",
+        "Анкета автора",
+        vars={
+            "status": "статус словами",
+            "about": "описание",
+            "price_content": "цена кружочков",
+            "coin": "значок монетки",
+            "contact": "цена лички или «не продаётся»",
+            "views": "показов",
+            "sold": "покупок",
+        },
+    ),
+    "STATUS_PENDING": Item("Статус: на проверке", "Анкета автора", plain=True),
+    "STATUS_APPROVED": Item("Статус: показывается", "Анкета автора", plain=True),
+    "STATUS_REJECTED": Item("Статус: отклонена", "Анкета автора", plain=True),
+    "CONTACT_NOT_SOLD": Item("Личка не продаётся (в карточке)", "Анкета автора"),
+    "PROFILE_EMPTY_WAIT": Item("Анкеты кончились", "Анкета автора"),
+    "PROFILE_EMPTY_PITCH": Item(
+        "Анкет нет — стань первым",
+        "Анкета автора",
+        vars={"author_share": "доля автора, %", "payout_min": "минимум вывода"},
+    ),
+    "PROFILE_CARD": Item(
+        "Чужая анкета: карточка",
+        "Анкета автора",
+        vars={
+            "who": "«Девушка»/«Парень»",
+            "icon_about": "значок описания",
+            "about": "описание",
+            "icon_count": "значок количества",
+            "circles": "сколько кружочков",
+            "icon_price": "значок цены",
+            "price_content": "цена доступа",
+            "coin": "значок монетки",
+            "contact": "цена лички или «не продаётся»",
+            "icon_sold": "значок покупок",
+            "sold": "сколько раз купили",
+            "icon_info": "значок сноски",
+        },
+    ),
     # --- Загрузка ---
     "UPLOAD_NEEDS_PROFILE": Item("Сначала анкета", "Загрузка"),
+    "UPLOAD_WAIT_REVIEW": Item("Анкета ещё на проверке", "Загрузка"),
+    "UPLOAD_PROFILE_REJECTED": Item("Анкета отклонена — загрузка закрыта", "Загрузка"),
+    "UPLOAD_ASK": Item(
+        "Просьба прислать кружок",
+        "Загрузка",
+        vars={
+            "kind": "женский/мужской",
+            "min_duration": "минимум секунд",
+            "payoff": "что за это будет (ниже)",
+        },
+    ),
+    "UPLOAD_ASK_PAID": Item(
+        "…когда за кружок платят",
+        "Загрузка",
+        vars={"reward": "награда", "coin": "значок монетки"},
+    ),
+    "UPLOAD_ASK_FREE": Item("…когда не платят", "Загрузка"),
     "NOT_A_CIRCLE": Item("Прислали не кружок", "Загрузка"),
+    "TOO_SHORT": Item(
+        "Кружок слишком короткий",
+        "Загрузка",
+        vars={"duration": "его длина", "min_duration": "минимум"},
+    ),
     "DUPLICATE": Item("Кружок уже есть в базе", "Загрузка"),
     "TOO_MANY_PENDING": Item("Слишком много на проверке", "Загрузка"),
+    "UPLOAD_SENT": Item(
+        "Кружок ушёл на проверку",
+        "Загрузка",
+        vars={"circle_id": "номер кружка", "tail": "что будет после одобрения"},
+    ),
+    "UPLOAD_SENT_PAID": Item(
+        "…с наградой", "Загрузка", vars={"reward": "награда", "coin": "значок монетки"}
+    ),
+    "UPLOAD_SENT_FREE": Item("…без награды", "Загрузка"),
+    "APPROVED_PAID": Item(
+        "Кружок одобрен, с наградой",
+        "Загрузка",
+        vars={"reward": "награда", "coin": "значок монетки", "coins": "баланс"},
+    ),
+    "APPROVED_FREE": Item("Кружок одобрен, без награды", "Загрузка"),
     "REJECTED": Item("Кружок отклонён", "Загрузка"),
-    # --- Просмотр ---
-    "EMPTY": Item("Кружки этого типа кончились", "Просмотр"),
-    "ARCHIVE_NOTE": Item("Кружок из архива бота", "Просмотр", plain=True),
+    "EARNED_TOAST": Item(
+        "Кружок посмотрели", "Просмотр", vars={"amount": "сколько начислили"}
+    ),
+    "LIKE_BONUS_NOTE": Item(
+        "Кружок лайкнули", "Просмотр", vars={"amount": "сколько начислили"}
+    ),
     # --- Жалобы ---
     "REPORT_ASK": Item("Вопрос «за что жалуешься»", "Жалобы", plain=True),
     "REPORT_SENT": Item("Жалоба отправлена", "Жалобы", plain=True),
@@ -71,17 +341,201 @@ EDITABLE: dict[str, Item] = {
     "CIRCLE_RESTORED": Item("Кружок вернули в показ", "Жалобы"),
     "CIRCLE_REMOVED": Item("Кружок удалён по жалобам", "Жалобы"),
     # --- Покупки ---
+    "BUY": Item(
+        "Магазин монеток",
+        "Покупки",
+        vars={
+            "coin": "значок монетки",
+            "coins": "баланс",
+            "stars_rate": "монеток за 1 ⭐",
+            "min_stars": "минимум ⭐",
+        },
+    ),
+    "BUY_CUSTOM": Item("Своя сумма: вопрос", "Покупки", vars={"min_stars": "минимум ⭐"}),
+    "BUY_BAD_INPUT": Item(
+        "Своя сумма: не то число", "Покупки", vars={"min_stars": "минимум ⭐"}
+    ),
+    "BUY_CHOOSE_METHOD": Item(
+        "Выбор способа оплаты",
+        "Покупки",
+        vars={"stars": "сколько ⭐", "coins": "сколько монеток", "coin": "значок монетки"},
+    ),
+    "BUY_PICK_METHOD": Item("Подсказка: жми кнопку оплаты", "Покупки"),
+    "BUY_NO_AMOUNT": Item("Сумма потерялась", "Покупки", plain=True),
+    "BUY_CARD_SOON": Item("Оплата картой пока не работает", "Покупки", plain=True),
+    "PAID": Item(
+        "Оплата прошла",
+        "Покупки",
+        vars={
+            "stars": "сколько ⭐",
+            "added": "сколько начислили",
+            "coin": "значок монетки",
+            "coins": "баланс",
+        },
+    ),
+    "BOUGHT_CONTENT": Item(
+        "Куплен доступ к кружочкам",
+        "Покупки",
+        vars={
+            "count": "сколько кружочков",
+            "circles": "«кружочка/кружочков»",
+            "share": "доля автора",
+        },
+    ),
+    "BOUGHT_CONTACT": Item(
+        "Куплена личка", "Покупки", vars={"username": "@username автора"}
+    ),
+    "SALE_NOTE": Item(
+        "Автору: у тебя купили",
+        "Покупки",
+        vars={"what": "что купили", "share": "сколько начислили", "coin": "значок монетки"},
+    ),
+    "SALE_KIND_CONTENT": Item("…«доступ к кружочкам»", "Покупки"),
+    "SALE_KIND_CONTACT": Item("…«личка»", "Покупки"),
+    "MORE_CIRCLES": Item(
+        "Осталось ещё кружочков",
+        "Покупки",
+        vars={"left": "сколько осталось", "circles": "«кружочка/кружочков»"},
+    ),
+    "SENDING_CIRCLES": Item(
+        "Отправляю кружочки", "Покупки", plain=True, vars={"count": "сколько"}
+    ),
     "CONTACT_NOT_FOR_SALE": Item("Личка не продаётся", "Покупки", plain=True),
     "NOTHING_TO_SELL": Item("У автора нет кружочков", "Покупки", plain=True),
     "ALREADY_BOUGHT": Item("Уже куплено", "Покупки", plain=True),
-    "BUY_PICK_METHOD": Item("Выбери способ оплаты", "Покупки"),
+    "BUY_FIRST": Item("Сначала купи доступ", "Покупки", plain=True),
+    "AUTHOR_EMPTY": Item("У автора нечего смотреть", "Покупки", plain=True),
+    "NOT_ENOUGH_COINS_TOAST": Item("Не хватает монеток", "Покупки", plain=True),
+    "BOUGHT_TOAST": Item("Куплено", "Покупки", plain=True),
     # --- Выплаты ---
+    "PAYOUT_SCREEN": Item(
+        "Экран вывода",
+        "Выплаты",
+        vars={
+            "available": "доступно к выводу",
+            "coin": "значок монетки",
+            "stars": "это же в ⭐",
+            "rate": "монеток за 1 ⭐",
+            "low": "минимум",
+            "pending": "строка про заявки в работе",
+        },
+    ),
+    "PAYOUT_SCREEN_PENDING": Item(
+        "…строка «заявок в работе»", "Выплаты", vars={"pending": "сколько заявок"}
+    ),
+    "PAYOUT_ASK_AMOUNT": Item(
+        "Сколько вывести",
+        "Выплаты",
+        vars={"available": "доступно", "low": "минимум"},
+    ),
+    "PAYOUT_NOT_A_NUMBER": Item("Сумма не число", "Выплаты"),
+    "PAYOUT_OVER_AVAILABLE": Item(
+        "Сумма больше доступного", "Выплаты", vars={"available": "доступно"}
+    ),
+    "PAYOUT_UNDER_MIN": Item("Сумма меньше минимума", "Выплаты", vars={"low": "минимум"}),
     "PAYOUT_ASK_DETAILS": Item("Запрос реквизитов", "Выплаты"),
+    "PAYOUT_CREATED": Item(
+        "Заявка создана",
+        "Выплаты",
+        vars={
+            "payout_id": "номер заявки",
+            "coins": "сколько монеток",
+            "coin": "значок монетки",
+            "stars": "сколько ⭐",
+        },
+    ),
+    "PAYOUT_PAID": Item(
+        "Заявка выплачена",
+        "Выплаты",
+        vars={"payout_id": "номер заявки", "stars": "сколько ⭐"},
+    ),
+    "PAYOUT_REJECTED": Item(
+        "Заявка отклонена",
+        "Выплаты",
+        vars={"payout_id": "номер заявки", "coins": "сколько вернули"},
+    ),
+    "PAYOUT_SPENT": Item(
+        "Монетки уже потрачены",
+        "Выплаты",
+        vars={"balance": "баланс", "wanted": "сколько просили"},
+    ),
+    "PAYOUT_TOO_SMALL": Item(
+        "Меньше минимума вывода",
+        "Выплаты",
+        vars={"low": "минимум", "available": "доступно"},
+    ),
     # --- Рефералы ---
+    "REFERRALS": Item(
+        "Экран «Рефералы»",
+        "Рефералы",
+        vars={
+            "done": "приглашено",
+            "waiting": "строка «ждут подписки»",
+            "ref_reward": "награда за друга",
+            "coin": "значок монетки",
+            "link": "ссылка-приглашение",
+        },
+    ),
+    "REFERRALS_WAITING": Item(
+        "…строка «ждут подписки»", "Рефералы", vars={"waiting": "сколько ждут"}
+    ),
+    "REFERRAL_PAID": Item(
+        "По ссылке пришёл друг",
+        "Рефералы",
+        vars={"reward": "награда", "done": "всего приглашено"},
+    ),
     "TRAFFER_UNKNOWN": Item("Неизвестная команда траффера", "Рефералы"),
+    "TRAFFER_REPORT": Item(
+        "Отчёт по рекламной ссылке",
+        "Рефералы",
+        vars={
+            "title": "название ссылки",
+            "users": "новых людей",
+            "subscribed": "прошли подписку",
+            "subscribed_pct": "их доля",
+            "accepted": "приняли правила",
+            "accepted_pct": "их доля",
+            "payers": "платили",
+            "payers_pct": "их доля",
+            "week_users": "людей за 7 дней",
+            "week_subscribed": "подписок за 7 дней",
+            "day_users": "людей за сутки",
+            "day_subscribed": "подписок за сутки",
+            "link": "сама ссылка",
+        },
+    ),
     # --- Подписка ---
+    "SUBSCRIBE": Item(
+        "Требование подписки", "Подписка", vars={"gift": "строка про бонус (ниже)"}
+    ),
+    "SUBSCRIBE_GIFT": Item(
+        "…строка про бонус за подписку", "Подписка", vars={"bonus": "размер бонуса"}
+    ),
     "SUBSCRIBE_MISSING": Item("Подписки не видно", "Подписка", plain=True),
+    "SUBSCRIBE_OK": Item("Подписка засчитана", "Подписка", plain=True),
+    "SUB_BONUS": Item(
+        "Бонус за подписку начислен",
+        "Подписка",
+        vars={"amount": "сколько", "coin": "значок монетки"},
+    ),
+    # --- Короткие ответы на нажатия ---
+    "VOTE_LIKE": Item("Поставил лайк", "Короткие ответы", plain=True),
+    "VOTE_DISLIKE": Item("Поставил дизлайк", "Короткие ответы", plain=True),
+    "VOTE_CANCEL": Item("Отменил оценку", "Короткие ответы", plain=True),
+    "CIRCLE_OWN_VOTE": Item("Свой кружок не оценить", "Короткие ответы", plain=True),
+    "CIRCLE_NOT_SHOWN": Item("Кружок тебе не показывали", "Короткие ответы", plain=True),
+    "CIRCLE_GONE": Item("Кружка больше нет", "Короткие ответы", plain=True),
+    "PROFILE_GONE": Item("Анкета пропала", "Короткие ответы", plain=True),
+    "PROFILE_OWN": Item("Это твоя анкета", "Короткие ответы", plain=True),
+    "PROFILE_NONE_YET": Item("У автора нет анкеты", "Короткие ответы", plain=True),
+    "PROFILE_NOTHING_TO_HIDE": Item("Скрывать нечего", "Короткие ответы", plain=True),
+    "PROFILE_HIDDEN_TOAST": Item("Анкета скрыта", "Короткие ответы", plain=True),
+    "PROFILE_SAVED_TOAST": Item("Сохранено", "Короткие ответы", plain=True),
+    "CONTACT_OFF_TOAST": Item("Личка снята с продажи", "Короткие ответы", plain=True),
+    "USERNAME_SEEN": Item("@username увидели", "Короткие ответы", plain=True),
+    "NEED_PROFILE_FIRST": Item("Сначала заполни анкету", "Короткие ответы", plain=True),
 }
+
 
 _defaults: dict[str, str] = {}
 _custom: dict[str, str] = {}
@@ -154,6 +608,43 @@ def categories() -> list[tuple[str, int, int]]:
 
 def custom_count() -> int:
     return len(_custom)
+
+
+def sample(key: str, value: str) -> str:
+    """The template with its placeholders spelled out, so it can be previewed."""
+    return value.format(**{name: f"«{what}»" for name, what in EDITABLE[key].vars.items()})
+
+
+def vars_hint(key: str) -> str:
+    item = EDITABLE[key]
+    if not item.vars:
+        return "Вставок в этом тексте нет."
+    pairs = [f"<code>{{{name}}}</code> — {what}" for name, what in item.vars.items()]
+    # A screen like the profile has two dozen of them; a bullet each turns the
+    # card into a wall, so long lists go inline.
+    if len(pairs) > 6:
+        return "Можно вставить: " + " · ".join(pairs)
+    return "Можно вставить:\n" + "\n".join(f"• {pair}" for pair in pairs)
+
+
+def check(key: str, value: str) -> str | None:
+    """What is wrong with this template, or None when it is fine."""
+    item = EDITABLE[key]
+    try:
+        sample(key, value)
+    except KeyError as error:
+        name = error.args[0]
+        allowed = ", ".join(f"{{{v}}}" for v in item.vars) or "никаких"
+        return (
+            f"Нет такой вставки: <code>{{{name}}}</code>.\n"
+            f"В этом тексте доступны: {allowed}"
+        )
+    except (IndexError, ValueError):
+        return (
+            "Фигурные скобки не на месте. Вставка пишется как "
+            "<code>{coins}</code>; обычная скобка — <code>{{</code>."
+        )
+    return None
 
 
 async def save(key: str, value: str) -> None:

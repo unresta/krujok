@@ -180,10 +180,6 @@ async def credit_referral(bot: Bot, user_id: int) -> None:
 
     done, _ = await db.referral_counts(referrer)
     try:
-        await bot.send_message(
-            referrer,
-            f"🟢 По твоей ссылке пришёл друг: <b>+{reward}</b> монеток.\n"
-            f"Всего приглашено: {done}",
-        )
+        await bot.send_message(referrer, texts.referral_paid(reward, done))
     except TelegramAPIError:  # blocked the bot, nothing to do about it
         pass

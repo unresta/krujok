@@ -19,6 +19,7 @@ import db
 import emoji
 import pushes
 import settings
+import texts
 import ui
 from config import ADMIN_IDS, BOT_TOKEN
 from handlers import (
@@ -46,7 +47,7 @@ async def anything_else(message: Message) -> None:
 @fallback.callback_query()
 async def stale_button(call: CallbackQuery) -> None:
     """Button from a message whose state is gone — never leave a spinner hanging."""
-    await call.answer("Кнопка устарела")
+    await call.answer(texts.STALE_BUTTON)
     with suppress(TelegramAPIError):
         await call.message.delete()
 

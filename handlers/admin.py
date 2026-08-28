@@ -2034,8 +2034,10 @@ def _content_home_text() -> str:
     return (
         "📝 <b>Тексты бота</b>\n\n"
         f"Всего можно править: <b>{total}</b> · изменено: <b>{edited}</b>\n\n"
-        "Правка применяется сразу, перезапускать бота не нужно. "
-        "Тексты со счётчиками и ценами собираются из настроек — их тут нет.\n\n"
+        "Здесь всё, что видит пользователь. Правка применяется сразу, "
+        "перезапускать бота не нужно.\n"
+        "Числа и значки подставляются на месте вставок вида "
+        "<code>{coins}</code> — их список показан у каждого текста.\n\n"
         "Выбери раздел:"
     )
 
@@ -2092,7 +2094,8 @@ def _text_card(key: str, note: str = "") -> str:
     return (
         f"{_cat_icon(item.category)} <b>{item.description}</b>\n"
         f"<code>{key}</code> · {status}\n\n"
-        f"<pre>{body}</pre>{warning}"
+        f"<pre>{body}</pre>\n\n"
+        f"{text_manager.vars_hint(key)}{warning}"
         + (f"\n\n{note}" if note else "")
     )
 
@@ -2140,7 +2143,9 @@ async def cb_text_preview(call: CallbackQuery) -> None:
         await call.answer("Такого текста нет.", show_alert=True)
         return
 
-    value = text_manager.get(key)
+    # Placeholders are filled with their own description: the real numbers are
+    # only known when a user opens the screen.
+    value = text_manager.sample(key, text_manager.get(key))
     if text_manager.EDITABLE[key].plain:
         await call.answer(value, show_alert=True)  # exactly where it lives
         return
@@ -2176,10 +2181,16 @@ async def cb_text_edit(call: CallbackQuery, state: FSMContext) -> None:
             text="❌ Отмена", callback_data=f"a:cnt:t:{key}", style=kb.DANGER
         )
     )
+    # The block is long on purpose: it is copyable, so editing means copying it,
+    # fixing a line and sending it back.
+    current = html.escape(text_manager.get(key))
+    if len(current) > 2800:
+        current = current[:2800] + "…"
     await _edit(
         call,
         f"✏️ <b>{item.description}</b>\n\n"
-        f"Сейчас:\n<pre>{html.escape(text_manager.get(key))}</pre>\n\n{how}",
+        f"Сейчас:\n<pre>{current}</pre>\n\n"
+        f"{text_manager.vars_hint(key)}\n\n{how}",
         b.as_markup(),
     )
     await call.answer()
@@ -2199,10 +2210,17 @@ async def got_content(message: Message, state: FSMContext) -> None:
         return
     value = message.text.strip() if item.plain else message.html_text.strip()
 
+    # A template that asks for a value the bot cannot supply would break the
+    # screen it belongs to, so it never gets saved.
+    complaint = text_manager.check(key, value)
+    if complaint:
+        await message.answer(f"⚠️ {complaint}\n\nПоправь и пришли ещё раз.")
+        return
+
     # Sending it once before saving is what keeps a text Telegram refuses to
     # parse from reaching users — the bot would fail silently on every send.
     try:
-        await message.answer(value)
+        await message.answer(text_manager.sample(key, value))
     except TelegramBadRequest as error:
         await message.answer(
             "⚠️ Телеграм не принял этот текст:\n"
