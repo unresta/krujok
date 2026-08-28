@@ -292,10 +292,6 @@ def rules() -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(text="❓ Прочитать FAQ", callback_data="faq", style=PRIMARY)
     )
-    b.row(
-        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
-        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
-    )
     return b.as_markup()
 
 
@@ -305,10 +301,6 @@ def faq() -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="ℹ️ Прочитать Правила", callback_data="rules", style=PRIMARY
         )
-    )
-    b.row(
-        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
-        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
     )
     return b.as_markup()
 
