@@ -56,10 +56,17 @@ async def main() -> None:
     await db.connect()
     await settings.load()
 
+    # Load custom emoji and texts from database
+    import emoji_manager
+    import text_manager
+    await emoji_manager.load_from_db()
+    await text_manager.load_from_db()
+
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
+    await emoji_manager.resolve(bot)  # resolve custom emoji too
     access.bot_username = (await bot.me()).username  # referral links need it
 
     dp.message.middleware(UserMiddleware())

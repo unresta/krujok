@@ -11,6 +11,8 @@ turns custom emoji off wholesale.
 
 On a button the icon lives in `icon_custom_emoji_id` — one per button, always
 rendered before the label, and free of the placeholder problem.
+
+NOW WITH DATABASE OVERRIDE SUPPORT: emoji_manager can override these defaults.
 """
 
 import logging
@@ -22,6 +24,7 @@ from config import PREMIUM_EMOJI
 
 logger = logging.getLogger(__name__)
 
+# Default values - can be overridden via emoji_manager
 COIN = "5471952986970267163"
 FEMALE = "5834515786588229330"
 MALE = "5834583952014184479"

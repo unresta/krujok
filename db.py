@@ -156,6 +156,19 @@ CREATE TABLE IF NOT EXISTS settings_text (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS custom_emoji (
+    key   TEXT PRIMARY KEY,
+    emoji_id TEXT NOT NULL,
+    fallback TEXT NOT NULL,
+    description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS custom_texts (
+    key   TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    description TEXT
+);
+
 CREATE TABLE IF NOT EXISTS payments (
     charge_id TEXT PRIMARY KEY,
     user_id   INTEGER NOT NULL,
@@ -1379,6 +1392,60 @@ async def save_setting(key: str, value: int) -> None:
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+    await conn().commit()
+
+
+# --- custom emoji and texts ----------------------------------------------
+
+
+async def load_custom_emoji() -> dict[str, dict]:
+    """Returns {key: {'emoji_id': str, 'fallback': str, 'description': str}}"""
+    async with conn().execute("SELECT * FROM custom_emoji") as cur:
+        return {
+            row["key"]: {
+                "emoji_id": row["emoji_id"],
+                "fallback": row["fallback"],
+                "description": row["description"],
+            }
+            for row in await cur.fetchall()
+        }
+
+
+async def save_custom_emoji(key: str, emoji_id: str, fallback: str, description: str = "") -> None:
+    await conn().execute(
+        "INSERT INTO custom_emoji(key, emoji_id, fallback, description) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET emoji_id = excluded.emoji_id, "
+        "fallback = excluded.fallback, description = excluded.description",
+        (key, emoji_id, fallback, description),
+    )
+    await conn().commit()
+
+
+async def load_custom_texts() -> dict[str, dict]:
+    """Returns {key: {'text': str, 'description': str}}"""
+    async with conn().execute("SELECT * FROM custom_texts") as cur:
+        return {
+            row["key"]: {"text": row["text"], "description": row["description"]}
+            for row in await cur.fetchall()
+        }
+
+
+async def save_custom_text(key: str, text: str, description: str = "") -> None:
+    await conn().execute(
+        "INSERT INTO custom_texts(key, text, description) VALUES (?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET text = excluded.text, description = excluded.description",
+        (key, text, description),
+    )
+    await conn().commit()
+
+
+async def delete_custom_emoji(key: str) -> None:
+    await conn().execute("DELETE FROM custom_emoji WHERE key = ?", (key,))
+    await conn().commit()
+
+
+async def delete_custom_text(key: str) -> None:
+    await conn().execute("DELETE FROM custom_texts WHERE key = ?", (key,))
     await conn().commit()
 
 
