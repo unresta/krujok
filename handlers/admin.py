@@ -1784,20 +1784,108 @@ async def content_menu(call: CallbackQuery, state: FSMContext) -> None:
     # Get all texts
     texts_list = text_manager.list_all_texts()
 
-    # Build menu with all editable items
+    # Group by category
+    categories = {}
+    for key, data in texts_list.items():
+        category = data.get("category", "Разное")
+        if category not in categories:
+            categories[category] = []
+        categories[category].append((key, data))
+
+    # Build menu with categories
     text = "📝 <b>Тексты и эмодзи</b>\n\n"
+    text += "Выбери категорию:\n\n"
+
+    b = InlineKeyboardBuilder()
+
+    # Category emojis
+    category_emoji = {
+        "Система": "⚙️",
+        "Профиль": "👤",
+        "Загрузка": "⬆️",
+        "Просмотр": "👀",
+        "Жалобы": "⚠️",
+        "Покупки": "💰",
+        "Выплаты": "💸",
+        "Рефералы": "👥",
+        "Подписка": "📢",
+        "Разное": "📋"
+    }
+
+    # Show categories in grid (2 per row)
+    buttons = []
+    for category in sorted(categories.keys()):
+        count = len(categories[category])
+        emoji = category_emoji.get(category, "📋")
+        buttons.append(
+            InlineKeyboardButton(
+                text=f"{emoji} {category} ({count})",
+                callback_data=f"a:cnt:cat:{category}"
+            )
+        )
+
+    # Add buttons in rows of 2
+    for i in range(0, len(buttons), 2):
+        if i + 1 < len(buttons):
+            b.row(buttons[i], buttons[i + 1])
+        else:
+            b.row(buttons[i])
+
+    b.row(InlineKeyboardButton(text="🔄 Сбросить все", callback_data="a:cnt:rst"))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home", style=kb.DANGER))
+
+    await call.message.edit_text(text, reply_markup=b.as_markup())
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:cnt:cat:"))
+async def content_category(call: CallbackQuery, state: FSMContext) -> None:
+    """Show texts in selected category."""
+    category = call.data[10:]  # Remove "a:cnt:cat:" prefix
+
+    import text_manager
+
+    # Get all texts
+    texts_list = text_manager.list_all_texts()
+
+    # Filter by category
+    category_texts = {
+        key: data for key, data in texts_list.items()
+        if data.get("category", "Разное") == category
+    }
+
+    if not category_texts:
+        await call.answer("❌ Нет текстов в этой категории", show_alert=True)
+        return
+
+    # Build menu
+    category_emoji = {
+        "Система": "⚙️",
+        "Профиль": "👤",
+        "Загрузка": "⬆️",
+        "Просмотр": "👀",
+        "Жалобы": "⚠️",
+        "Покупки": "💰",
+        "Выплаты": "💸",
+        "Рефералы": "👥",
+        "Подписка": "📢",
+        "Разное": "📋"
+    }
+
+    emoji = category_emoji.get(category, "📋")
+    text = f"{emoji} <b>{category}</b>\n\n"
     text += "Выбери текст для редактирования:\n\n"
 
     b = InlineKeyboardBuilder()
 
-    # Show all texts in a grid (2 per row)
+    # Show all texts in this category
     buttons = []
-    for key in sorted(texts_list.keys()):
-        data = texts_list[key]
+    for key in sorted(category_texts.keys()):
+        data = category_texts[key]
         status = "✏️" if data["is_custom"] else "📋"
         # Truncate description to fit button
-        short_desc = data['description'][:25]
-        if len(data['description']) > 25:
+        short_desc = data['description'][:22]
+        if len(data['description']) > 22:
             short_desc += "..."
         buttons.append(
             InlineKeyboardButton(
@@ -1813,8 +1901,7 @@ async def content_menu(call: CallbackQuery, state: FSMContext) -> None:
         else:
             b.row(buttons[i])
 
-    b.row(InlineKeyboardButton(text="🔄 Сбросить все", callback_data="a:cnt:rst"))
-    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ К категориям", callback_data="a:content"))
 
     await call.message.edit_text(text, reply_markup=b.as_markup())
     await call.answer()

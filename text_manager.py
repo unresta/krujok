@@ -1,147 +1,178 @@
 """Dynamic text management system with database overrides."""
 
-# Default texts (fallback values)
+# Default texts organized by category
 DEFAULT_TEXTS = {
-    # Welcome and intro
+    # === Система ===
     "WELCOME": {
         "text": "Привет! 👋\n\nЭто бот для обмена кружочками.",
-        "description": "Приветственное сообщение"
+        "description": "Приветственное сообщение",
+        "category": "Система"
     },
     "ACCEPTED": {
         "text": "Готово. Приятного просмотра 🙂",
-        "description": "Подтверждение согласия с правилами"
+        "description": "Подтверждение согласия",
+        "category": "Система"
     },
     "BANNED": {
         "text": "Доступ закрыт.",
-        "description": "Сообщение для забаненных"
+        "description": "Сообщение для забаненных",
+        "category": "Система"
     },
     "MAINTENANCE": {
         "text": "🔧 Бот на техработах. Загляни чуть позже.",
-        "description": "Режим обслуживания"
+        "description": "Режим обслуживания",
+        "category": "Система"
     },
 
-    # Profile
-    "UPLOAD_NEEDS_PROFILE": {
-        "text": "🎬 Сначала анкета.\n\nКружочки показываются вместе с анкетой автора: зритель может её открыть и купить доступ ко всем твоим кружочкам. Без анкеты продавать нечего.",
-        "description": "Нужна анкета для загрузки"
-    },
+    # === Профиль автора ===
     "PROFILE_INTRO": {
         "text": "📋 Создай анкету автора, чтобы зарабатывать на своих кружочках.",
-        "description": "Введение в создание профиля"
+        "description": "Введение в профиль",
+        "category": "Профиль"
     },
     "PROFILE_PHOTO": {
         "text": "🖼 <b>Профиль автора</b>\n\nПришли фото для анкеты — его увидят все, кто листает кружочки. Чем лучше смотрится, тем больше шансов на покупку.",
-        "description": "Запрос фото профиля"
+        "description": "Запрос фото профиля",
+        "category": "Профиль"
     },
     "PROFILE_GENDER": {
         "text": "Кто ты?",
-        "description": "Выбор пола в профиле"
+        "description": "Выбор пола",
+        "category": "Профиль"
     },
     "PROFILE_CONTACT_ASK": {
         "text": "Продавать личку? Её купят — откроется username, пишут напрямую.",
-        "description": "Вопрос о продаже контакта"
+        "description": "Вопрос о продаже контакта",
+        "category": "Профиль"
     },
     "PROFILE_NO_USERNAME": {
         "text": "У тебя нет username — личку продать не получится. Заведи его в настройках Telegram и возвращайся.",
-        "description": "Нет username для продажи"
+        "description": "Нет username",
+        "category": "Профиль"
     },
     "PROFILE_STILL_NO_USERNAME": {
         "text": "Username всё ещё нет. Заведи его и возвращайся.",
-        "description": "Повтор - нет username"
+        "description": "Повтор - нет username",
+        "category": "Профиль"
     },
     "PROFILE_SENT": {
         "text": "📬 Анкета отправлена на проверку. Как одобрят — придёт уведомление.",
-        "description": "Анкета на модерацию"
+        "description": "Анкета на модерацию",
+        "category": "Профиль"
     },
     "PROFILE_NOT_PHOTO": {
         "text": "Нужно именно фото.",
-        "description": "Ошибка типа файла профиля"
+        "description": "Ошибка типа файла",
+        "category": "Профиль"
     },
     "PROFILE_APPROVED": {
         "text": "🟢 Твоя анкета одобрена — её уже показывают.",
-        "description": "Анкета одобрена"
+        "description": "Анкета одобрена",
+        "category": "Профиль"
     },
     "PROFILE_EMPTY_WAIT": {
         "text": "Анкет пока нет — все просмотрены. Загляни позже.",
-        "description": "Нет анкет для просмотра"
+        "description": "Нет анкет для просмотра",
+        "category": "Профиль"
     },
 
-    # Upload
+    # === Загрузка кружков ===
+    "UPLOAD_NEEDS_PROFILE": {
+        "text": "🎬 Сначала анкета.\n\nКружочки показываются вместе с анкетой автора: зритель может её открыть и купить доступ ко всем твоим кружочкам. Без анкеты продавать нечего.",
+        "description": "Нужна анкета для загрузки",
+        "category": "Загрузка"
+    },
     "NOT_A_CIRCLE": {
         "text": "Это не кружок. Зажми 🎥 в поле ввода и запиши видеосообщение.",
-        "description": "Неверный формат загрузки"
+        "description": "Неверный формат",
+        "category": "Загрузка"
     },
     "DUPLICATE": {
         "text": "Такой кружок уже есть в базе.",
-        "description": "Дубликат кружка"
+        "description": "Дубликат кружка",
+        "category": "Загрузка"
     },
     "TOO_MANY_PENDING": {
         "text": "У тебя уже несколько кружков на проверке. Дождись решения.",
-        "description": "Слишком много на модерации"
+        "description": "Слишком много на модерации",
+        "category": "Загрузка"
     },
     "REJECTED": {
         "text": "🔴 Кружок отклонён модератором.",
-        "description": "Кружок отклонён"
+        "description": "Кружок отклонён",
+        "category": "Загрузка"
     },
 
-    # Viewing
+    # === Просмотр ===
     "EMPTY": {
         "text": "Свежих кружочков этого типа пока нет — ты посмотрел все.\nЗагляни позже или смени тип.",
-        "description": "Нет новых кружков"
+        "description": "Нет новых кружков",
+        "category": "Просмотр"
     },
     "ARCHIVE_NOTE": {
         "text": "Это кружок из архива бота — он без автора, анкеты у него нет.",
-        "description": "Архивный кружок"
+        "description": "Архивный кружок",
+        "category": "Просмотр"
     },
 
-    # Reports
+    # === Жалобы ===
     "REPORT_SENT": {
         "text": "Жалоба отправлена модераторам.",
-        "description": "Жалоба отправлена"
+        "description": "Жалоба отправлена",
+        "category": "Жалобы"
     },
     "REPORT_DOUBLE": {
         "text": "Ты уже жаловался на этот кружок.",
-        "description": "Повторная жалоба на кружок"
+        "description": "Повторная жалоба на кружок",
+        "category": "Жалобы"
     },
     "REPORT_DOUBLE_PROFILE": {
         "text": "Ты уже жаловался на эту анкету.",
-        "description": "Повторная жалоба на анкету"
+        "description": "Повторная жалоба на анкету",
+        "category": "Жалобы"
     },
     "CIRCLE_REMOVED": {
         "text": "🔴 Твой кружок удалён по жалобам.",
-        "description": "Кружок удалён модератором"
+        "description": "Кружок удалён",
+        "category": "Жалобы"
     },
 
-    # Purchases
+    # === Покупки ===
     "CONTACT_NOT_FOR_SALE": {
         "text": "Автор не продаёт личку.",
-        "description": "Контакт не продаётся"
+        "description": "Контакт не продаётся",
+        "category": "Покупки"
     },
     "NOTHING_TO_SELL": {
         "text": "У автора пока нет кружочков — покупать нечего.",
-        "description": "Нет контента для покупки"
+        "description": "Нет контента",
+        "category": "Покупки"
     },
     "ALREADY_BOUGHT": {
         "text": "Уже куплено.",
-        "description": "Уже куплен доступ"
+        "description": "Уже куплен доступ",
+        "category": "Покупки"
     },
 
-    # Payouts
+    # === Выплаты ===
     "PAYOUT_ASK_DETAILS": {
         "text": "💸 <b>Вывод средств</b>\n\nПришли реквизиты для перевода и сумму.\n\nПример:\n<code>СБП 79991234567 500₽</code>",
-        "description": "Запрос реквизитов выплаты"
+        "description": "Запрос реквизитов",
+        "category": "Выплаты"
     },
 
-    # Referrals
+    # === Рефералы ===
     "TRAFFER_UNKNOWN": {
         "text": "Команда не подходит — проверь её у того, кто выдал ссылку.",
-        "description": "Неизвестная реф-команда"
+        "description": "Неизвестная команда",
+        "category": "Рефералы"
     },
 
-    # Channel subscription
+    # === Подписка ===
     "SUBSCRIBE_MISSING": {
         "text": "Подписки не вижу. Подпишись на канал и нажми ещё раз.",
-        "description": "Нет подписки на канал"
+        "description": "Нет подписки",
+        "category": "Подписка"
     },
 }
 
@@ -181,6 +212,7 @@ def list_all_texts() -> dict:
         result[key] = {
             "text": custom["text"] if custom else data["text"],
             "description": custom.get("description") if custom else data["description"],
+            "category": data.get("category", "Разное"),
             "is_custom": key in _custom_texts,
         }
     # Add custom texts not in defaults
@@ -189,6 +221,7 @@ def list_all_texts() -> dict:
             result[key] = {
                 "text": _custom_texts[key]["text"],
                 "description": _custom_texts[key].get("description", ""),
+                "category": "Разное",
                 "is_custom": True,
             }
     return result
