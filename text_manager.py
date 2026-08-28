@@ -2,57 +2,170 @@
 
 # Default texts (fallback values)
 DEFAULT_TEXTS = {
+    # Welcome and intro
     "WELCOME": {
         "text": "Привет! 👋\n\nЭто бот для обмена кружочками.",
         "description": "Приветственное сообщение"
     },
+    "ACCEPTED": {
+        "text": "Готово. Приятного просмотра 🙂",
+        "description": "Подтверждение согласия с правилами"
+    },
+    "BANNED": {
+        "text": "Доступ закрыт.",
+        "description": "Сообщение для забаненных"
+    },
+    "MAINTENANCE": {
+        "text": "🔧 Бот на техработах. Загляни чуть позже.",
+        "description": "Режим обслуживания"
+    },
+
+    # Profile
     "UPLOAD_NEEDS_PROFILE": {
-        "text": "Чтобы загружать кружочки, нужно сначала заполнить анкету автора.",
-        "description": "Сообщение когда нет профиля"
+        "text": "🎬 Сначала анкета.\n\nКружочки показываются вместе с анкетой автора: зритель может её открыть и купить доступ ко всем твоим кружочкам. Без анкеты продавать нечего.",
+        "description": "Нужна анкета для загрузки"
     },
     "PROFILE_INTRO": {
         "text": "📋 Создай анкету автора, чтобы зарабатывать на своих кружочках.",
         "description": "Введение в создание профиля"
     },
     "PROFILE_PHOTO": {
-        "text": "🖼 <b>Профиль автора</b>\n\nПришли фото для анкеты — его увидят все, кто листает анкеты.\nЛицо показывать необязательно.",
-        "description": "Запрос фото для профиля"
+        "text": "🖼 <b>Профиль автора</b>\n\nПришли фото для анкеты — его увидят все, кто листает кружочки. Чем лучше смотрится, тем больше шансов на покупку.",
+        "description": "Запрос фото профиля"
     },
     "PROFILE_GENDER": {
-        "text": "👤 Выбери пол для анкеты:",
-        "description": "Запрос пола"
-    },
-    "PROFILE_NOT_PHOTO": {
-        "text": "❌ Это не фото. Пришли фото для анкеты.",
-        "description": "Ошибка - не фото"
-    },
-    "PROFILE_NO_USERNAME": {
-        "text": "⚠️ У тебя нет username в Telegram. Без него покупатели не смогут написать тебе.\n\nУстанови username в настройках Telegram, потом нажми «Проверить».",
-        "description": "Нет username"
-    },
-    "PROFILE_STILL_NO_USERNAME": {
-        "text": "Всё ещё не вижу username. Установи его в настройках Telegram.",
-        "description": "Username всё ещё нет"
+        "text": "Кто ты?",
+        "description": "Выбор пола в профиле"
     },
     "PROFILE_CONTACT_ASK": {
-        "text": "💬 Хочешь продавать свой username?\n\nПокупатель сможет написать тебе напрямую.",
-        "description": "Спросить про продажу контакта"
+        "text": "Продавать личку? Её купят — откроется username, пишут напрямую.",
+        "description": "Вопрос о продаже контакта"
+    },
+    "PROFILE_NO_USERNAME": {
+        "text": "У тебя нет username — личку продать не получится. Заведи его в настройках Telegram и возвращайся.",
+        "description": "Нет username для продажи"
+    },
+    "PROFILE_STILL_NO_USERNAME": {
+        "text": "Username всё ещё нет. Заведи его и возвращайся.",
+        "description": "Повтор - нет username"
+    },
+    "PROFILE_SENT": {
+        "text": "📬 Анкета отправлена на проверку. Как одобрят — придёт уведомление.",
+        "description": "Анкета на модерацию"
+    },
+    "PROFILE_NOT_PHOTO": {
+        "text": "Нужно именно фото.",
+        "description": "Ошибка типа файла профиля"
+    },
+    "PROFILE_APPROVED": {
+        "text": "🟢 Твоя анкета одобрена — её уже показывают.",
+        "description": "Анкета одобрена"
+    },
+    "PROFILE_EMPTY_WAIT": {
+        "text": "Анкет пока нет — все просмотрены. Загляни позже.",
+        "description": "Нет анкет для просмотра"
+    },
+
+    # Upload
+    "NOT_A_CIRCLE": {
+        "text": "Это не кружок. Зажми 🎥 в поле ввода и запиши видеосообщение.",
+        "description": "Неверный формат загрузки"
+    },
+    "DUPLICATE": {
+        "text": "Такой кружок уже есть в базе.",
+        "description": "Дубликат кружка"
+    },
+    "TOO_MANY_PENDING": {
+        "text": "У тебя уже несколько кружков на проверке. Дождись решения.",
+        "description": "Слишком много на модерации"
+    },
+    "REJECTED": {
+        "text": "🔴 Кружок отклонён модератором.",
+        "description": "Кружок отклонён"
+    },
+
+    # Viewing
+    "EMPTY": {
+        "text": "Свежих кружочков этого типа пока нет — ты посмотрел все.\nЗагляни позже или смени тип.",
+        "description": "Нет новых кружков"
+    },
+    "ARCHIVE_NOTE": {
+        "text": "Это кружок из архива бота — он без автора, анкеты у него нет.",
+        "description": "Архивный кружок"
+    },
+
+    # Reports
+    "REPORT_SENT": {
+        "text": "Жалоба отправлена модераторам.",
+        "description": "Жалоба отправлена"
+    },
+    "REPORT_DOUBLE": {
+        "text": "Ты уже жаловался на этот кружок.",
+        "description": "Повторная жалоба на кружок"
+    },
+    "REPORT_DOUBLE_PROFILE": {
+        "text": "Ты уже жаловался на эту анкету.",
+        "description": "Повторная жалоба на анкету"
+    },
+    "CIRCLE_REMOVED": {
+        "text": "🔴 Твой кружок удалён по жалобам.",
+        "description": "Кружок удалён модератором"
+    },
+
+    # Purchases
+    "CONTACT_NOT_FOR_SALE": {
+        "text": "Автор не продаёт личку.",
+        "description": "Контакт не продаётся"
+    },
+    "NOTHING_TO_SELL": {
+        "text": "У автора пока нет кружочков — покупать нечего.",
+        "description": "Нет контента для покупки"
+    },
+    "ALREADY_BOUGHT": {
+        "text": "Уже куплено.",
+        "description": "Уже куплен доступ"
+    },
+
+    # Payouts
+    "PAYOUT_ASK_DETAILS": {
+        "text": "💸 <b>Вывод средств</b>\n\nПришли реквизиты для перевода и сумму.\n\nПример:\n<code>СБП 79991234567 500₽</code>",
+        "description": "Запрос реквизитов выплаты"
+    },
+
+    # Referrals
+    "TRAFFER_UNKNOWN": {
+        "text": "Команда не подходит — проверь её у того, кто выдал ссылку.",
+        "description": "Неизвестная реф-команда"
+    },
+
+    # Channel subscription
+    "SUBSCRIBE_MISSING": {
+        "text": "Подписки не вижу. Подпишись на канал и нажми ещё раз.",
+        "description": "Нет подписки на канал"
     },
 }
 
-# Runtime storage
+# Cache for custom texts loaded from database
 _custom_texts = {}
 
 
 async def load_from_db():
     """Load custom texts from database."""
     import db
-    _custom_texts.clear()
-    _custom_texts.update(await db.load_custom_texts())
+
+    global _custom_texts
+    _custom_texts = {}
+
+    async with db.conn().execute("SELECT key, text, description FROM custom_texts") as cur:
+        async for row in cur:
+            _custom_texts[row["key"]] = {
+                "text": row["text"],
+                "description": row["description"] or "",
+            }
 
 
 def get(key: str) -> str:
-    """Get text from custom or default."""
+    """Get text by key, returning custom version if available."""
     if key in _custom_texts:
         return _custom_texts[key]["text"]
     if key in DEFAULT_TEXTS:
