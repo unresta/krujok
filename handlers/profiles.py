@@ -393,7 +393,7 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
                 + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
                 f"Кружочки: {data['price_content']} · "
                 f"личка: {data.get('price_contact') or 'нет'}\n\n"
-                f"{data.get('about') or 'Без описания'}"
+                f"{html.escape(data.get('about') or 'Без описания')}"
             ),
             reply_markup=kb.profile_review(author.id),
         )
@@ -426,8 +426,8 @@ async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
                 f"♻️ Отредактирована\n"
                 f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
                 f"Кружочки: {profile['price_content']} · "
-                f"личка: {profile.get('price_contact') or 'нет'}\n\n"
-                f"{profile.get('about') or 'Без описания'}"
+                f"личка: {profile['price_contact'] or 'нет'}\n\n"
+                f"{html.escape(profile['about'] or 'Без описания')}"
             ),
             reply_markup=kb.profile_review(user_id),
         )

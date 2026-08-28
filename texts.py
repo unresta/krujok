@@ -239,7 +239,6 @@ REPORT_ASK = "За что жалуешься?"
 
 # The keys go into callback data, so they stay short and ascii.
 REPORT_REASONS = {
-    "porn": "🔞 Порно или обнажёнка",
     "minor": "🧒 На видео несовершеннолетний",
     "violence": "🩸 Насилие или жестокость",
     "ads": "📢 Реклама или спам",

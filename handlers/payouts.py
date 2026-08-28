@@ -6,6 +6,7 @@ payouts chat, an admin pays outside the bot and marks it done. A rejected
 request puts the coins back.
 """
 
+import html
 import logging
 from contextlib import suppress
 
@@ -102,7 +103,7 @@ async def got_details(message: Message, state: FSMContext) -> None:
             f"#выплата <b>#{payout_id}</b>\n"
             f"{coins} монеток → <b>{stars} ⭐</b>\n"
             f"Кому: <code>{message.from_user.id}</code> {who}\n"
-            f"Реквизиты: <code>{details}</code>",
+            f"Реквизиты: <code>{html.escape(details)}</code>",
             reply_markup=kb.payout_review(payout_id),
         )
         await db.set_payout_admin_msg(payout_id, card.message_id)
