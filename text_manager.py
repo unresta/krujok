@@ -191,11 +191,19 @@ EDITABLE: dict[str, Item] = {
     ),
     "MY_CIRCLES_EMPTY": Item("Мои кружки: пусто", "Профиль"),
     "BOUGHT_HEADER": Item("Купленные кружочки: заголовок", "Профиль"),
+    # No {author_id} on purpose: an id identifies a person, and the buyer paid
+    # for circles. Leaving it out of the registry keeps it out of an edit too.
     "BOUGHT_ROW": Item(
         "Купленные кружочки: строка автора",
         "Профиль",
-        vars={"author_id": "id автора", "count": "сколько кружков"},
+        vars={
+            "index": "номер по списку",
+            "who": "«Девушка»/«Парень»",
+            "count": "сколько кружков",
+            "circles": "«кружочка/кружочков»",
+        },
     ),
+    "AUTHOR_NO_PROFILE": Item("Автор без анкеты", "Профиль"),
     "BOUGHT_EMPTY": Item("Купленные кружочки: пусто", "Профиль"),
     # --- Анкета автора ---
     "PROFILE_INTRO": Item("Приглашение завести анкету", "Анкета автора"),

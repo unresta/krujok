@@ -722,14 +722,19 @@ async def mp_bought(call: CallbackQuery) -> None:
     text_lines = [texts.BOUGHT_HEADER]
     buttons = []
 
-    for p in purchases:
-        circles = await db.author_circles(p["author_id"], p["max_circle_id"])
+    for index, p in enumerate(purchases, 1):
+        author_id = p["author_id"]
+        circles = await db.author_circles(author_id, p["max_circle_id"])
         count = len(circles)
-        text_lines.append(texts.bought_row(p["author_id"], count))
+        # The buyer bought circles, not the person: an author is «♀️ Девушка»
+        # here, and their id stays where it belongs — in the callback.
+        profile = await db.get_profile(author_id)
+        who = kb.PERSON_TITLE(profile["gender"]) if profile else texts.AUTHOR_NO_PROFILE
+        text_lines.append(texts.bought_row(index, who, count))
         buttons.append(
             InlineKeyboardButton(
-                text=f"👤 Автор {p['author_id']} ({count})",
-                callback_data=f"pf:show:{p['author_id']}",
+                text=f"{index}. {who} · {count}",
+                callback_data=f"pf:show:{author_id}",
                 style=PRIMARY,
             )
         )

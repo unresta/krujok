@@ -1132,11 +1132,21 @@ def sending_circles(count: int) -> str:
     return _fmt("SENDING_CIRCLES", SENDING_CIRCLES, count=count)
 
 
-BOUGHT_ROW = "• Автор <code>{author_id}</code> — {count} кружков"
+# The author's telegram id has no business here: the buyer paid for circles, and
+# an id is enough to look a person up. Only a bought contact opens the username.
+AUTHOR_NO_PROFILE = "Автор без анкеты"
+BOUGHT_ROW = "{index}. {who} — {count} {circles}"
 
 
-def bought_row(author_id: int, count: int) -> str:
-    return _fmt("BOUGHT_ROW", BOUGHT_ROW, author_id=author_id, count=count)
+def bought_row(index: int, who: str, count: int) -> str:
+    return _fmt(
+        "BOUGHT_ROW",
+        BOUGHT_ROW,
+        index=index,
+        who=who,
+        count=count,
+        circles=circles_word(count),
+    )
 
 
 # --- what the code says when something is off ----------------------------
