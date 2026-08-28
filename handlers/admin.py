@@ -2203,8 +2203,10 @@ async def cb_text_edit(call: CallbackQuery, state: FSMContext) -> None:
         "Пришли новый текст одним сообщением — <b>только текст</b>, без "
         "форматирования: он показывается всплывашкой."
         if item.plain
-        else "Пришли новый текст одним сообщением. Жирный, курсив, ссылки и "
-        "премиум-эмодзи сохранятся как есть."
+        else "Нажми на блок выше, чтобы скопировать, поправь и пришли обратно "
+        "одним сообщением — теги вроде <code>&lt;b&gt;жирный&lt;/b&gt;</code> "
+        "сработают как надо.\nМожно и просто написать текст, выделив жирным "
+        "или курсивом прямо в Telegram, — форматирование сохранится."
     )
     b = InlineKeyboardBuilder()
     b.row(
@@ -2235,11 +2237,11 @@ async def got_content(message: Message, state: FSMContext) -> None:
         await message.answer("Текст потерялся, начни заново.", reply_markup=back_kb())
         return
 
-    item = text_manager.EDITABLE[key]
     if not (message.text or "").strip():
         await message.answer("Нужен текст одним сообщением.")
         return
-    value = message.text.strip() if item.plain else message.html_text.strip()
+
+    value, escaped = text_manager.incoming(key, message.text, message.html_text)
 
     # A template that asks for a value the bot cannot supply would break the
     # screen it belongs to, so it never gets saved.
@@ -2250,22 +2252,40 @@ async def got_content(message: Message, state: FSMContext) -> None:
 
     # Sending it once before saving is what keeps a text Telegram refuses to
     # parse from reaching users — the bot would fail silently on every send.
-    try:
-        await message.answer(text_manager.sample(key, value))
-    except TelegramBadRequest as error:
+    # The second candidate is the same message with «<» left as a symbol, for
+    # when it was a «меньше» and not the start of a tag.
+    stored, failure, fell_back = None, "", False
+    for index, candidate in enumerate((value, escaped)):
+        if candidate is None or text_manager.check(key, candidate):
+            continue
+        try:
+            await message.answer(text_manager.sample(key, candidate))
+        except TelegramBadRequest as error:
+            failure = failure or str(error)
+            continue
+        stored, fell_back = candidate, index == 1
+        break
+
+    if stored is None:
         await message.answer(
             "⚠️ Телеграм не принял этот текст:\n"
-            f"<code>{html.escape(str(error))}</code>\n\n"
+            f"<code>{html.escape(failure)}</code>\n\n"
             "Поправь и пришли ещё раз."
         )
         return
 
-    await text_manager.save(key, value)
+    await text_manager.save(key, stored)
     await state.clear()
-    await message.answer(
-        _text_card(key, "🟢 Сохранено и уже работает."),
-        reply_markup=_text_card_kb(key),
-    )
+    note = "🟢 Сохранено и уже работает."
+    if fell_back:
+        # They wrote tags, but not ones Telegram accepts — so the angle brackets
+        # were kept as symbols, and the preview above shows exactly that.
+        note = (
+            "🟢 Сохранено, но теги не сошлись — оставил их обычными символами.\n"
+            "Если нужен жирный, пришли ещё раз с парными "
+            "<code>&lt;b&gt;…&lt;/b&gt;</code>."
+        )
+    await message.answer(_text_card(key, note), reply_markup=_text_card_kb(key))
 
 
 @router.callback_query(F.data.startswith("a:cnt:r:"))

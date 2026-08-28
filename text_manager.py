@@ -10,6 +10,7 @@ HTML there, so bold and premium emoji would arrive as visible tags.
 """
 
 import logging
+import re
 from typing import NamedTuple
 
 import db
@@ -610,9 +611,151 @@ def custom_count() -> int:
     return len(_custom)
 
 
-def sample(key: str, value: str) -> str:
-    """The template with its placeholders spelled out, so it can be previewed."""
-    return value.format(**{name: f"«{what}»" for name, what in EDITABLE[key].vars.items()})
+# A preview is only useful if it looks like the real message, so the inserts are
+# filled with what actually goes there: live settings, real emoji, plausible
+# numbers — and for a text built out of others, that other text.
+_ICONS = {
+    "coin": "COIN",
+    "icon_coin": "COIN_EMOJI",
+    "film": "FILM",
+    "icon_profile": "PROFILE_HEADER",
+    "icon_uploaded": "UPLOADED_COUNT",
+    "icon_ratings": "RATINGS_ICON",
+    "icon_like": "LIKE_EMOJI",
+    "icon_dislike": "DISLIKE_EMOJI",
+    "icon_views": "VIEWS_COUNT",
+    "icon_balance": "BALANCE_ICON",
+    "icon_earnings": "EARNINGS_ICON",
+    "icon_about": "ABOUT",
+    "icon_count": "CIRCLE_COUNT",
+    "icon_price": "PRICE",
+    "icon_sold": "SOLD",
+    "icon_info": "INFO",
+}
+
+_FROM_SETTINGS = {
+    "watch_cost": "watch_cost",
+    "author_share": "author_share",
+    "ref_reward": "ref_reward",
+    "payout_rate": "payout_rate",
+    "payout_min": "payout_min",
+    "max_pending": "max_pending",
+    "min_duration": "min_duration",
+    "price_min": "price_min",
+    "price_max": "price_max",
+    "stars_rate": "stars_rate",
+    "min_stars": "min_stars",
+    "rate": "payout_rate",
+    "low": "payout_min",
+}
+
+_NUMBERS = {
+    "coins": "128",
+    "approved": "12",
+    "pending": "2",
+    "rejected": "1",
+    "total": "15",
+    "watched": "34",
+    "likes": "42",
+    "dislikes": "3",
+    "ref_done": "5",
+    "done": "5",
+    "waiting": "2",
+    "withdrawable": "1500",
+    "available": "1500",
+    "balance": "40",
+    "wanted": "1000",
+    "stars": "500",
+    "sold_content": "7",
+    "sold_contact": "2",
+    "sold": "9",
+    "views": "310",
+    "earned": "900",
+    "user_id": "123456789",
+    "author_id": "123456789",
+    "circle_id": "417",
+    "payout_id": "12",
+    "count": "8",
+    "left": "4",
+    "free": "1",
+    "amount": "3",
+    "added": "300",
+    "share": "25",
+    "bonus": "10",
+    "reward": "5",
+    "duration": "3",
+    "limit": "300",
+    "price_content": "50",
+    "circles": "9",
+    "users": "100",
+    "subscribed": "60",
+    "accepted": "55",
+    "payers": "5",
+    "week_users": "20",
+    "week_subscribed": "12",
+    "day_users": "5",
+    "day_subscribed": "3",
+    "subscribed_pct": "60.0%",
+    "accepted_pct": "55.0%",
+    "payers_pct": "5.0%",
+}
+
+_WORDS = {
+    "pref": "♀️ женские",
+    "who": "♀️ Девушка",
+    "kind": "женский",
+    "about": "пара строк о себе",
+    "username": "durov",
+    "link": "https://t.me/bot?start=r1",
+    "title": "Реклама в канале",
+    "field": "Фото",
+    "reason": "реклама в анкете",
+}
+
+# {gift}, {tail}, {earn}… hold another editable text, and the same name means
+# different things in different messages.
+_COMPOSED = {
+    ("WELCOME", "rules"): "RULES",
+    ("WELCOME", "gift"): "WELCOME_GIFT",
+    ("SUBSCRIBE", "gift"): "SUBSCRIBE_GIFT",
+    ("NOT_ENOUGH", "earn"): "NOT_ENOUGH_SELL",
+    ("UPLOAD_SENT", "tail"): "UPLOAD_SENT_PAID",
+    ("UPLOAD_ASK", "payoff"): "UPLOAD_ASK_PAID",
+    ("REFERRALS", "waiting"): "REFERRALS_WAITING",
+    ("PAYOUT_SCREEN", "pending"): "PAYOUT_SCREEN_PENDING",
+    ("PROFILE_REVERTED", "reason"): "PROFILE_REASON_TAIL",
+    ("PROFILE_REJECTED", "reason"): "PROFILE_REASON_TAIL",
+    ("PROFILE_STATUS", "status"): "STATUS_APPROVED",
+    ("PROFILE_STATUS", "contact"): "CONTACT_NOT_SOLD",
+    ("PROFILE_CARD", "contact"): "CONTACT_NOT_SOLD",
+    ("SALE_NOTE", "what"): "SALE_KIND_CONTENT",
+}
+
+
+def _sample_value(key: str, name: str, depth: int = 0) -> str:
+    import emoji  # late: emoji resolves against Telegram at startup
+
+    if (key, name) in _COMPOSED and depth < 2:
+        inner = _COMPOSED[(key, name)]
+        return sample(inner, get(inner), depth + 1)
+    if name in _ICONS:
+        return emoji.text(getattr(emoji, _ICONS[name]))
+    if name in _FROM_SETTINGS:
+        import settings
+
+        return str(settings.get(_FROM_SETTINGS[name]))
+    if name in _NUMBERS:
+        return _NUMBERS[name]
+    if name in _WORDS:
+        return _WORDS[name]
+    return f"«{EDITABLE[key].vars.get(name, name)}»"
+
+
+def sample(key: str, value: str, depth: int = 0) -> str:
+    """The template as the user would see it, with real values in the inserts."""
+    return value.format(
+        **{name: _sample_value(key, name, depth) for name in EDITABLE[key].vars}
+    )
 
 
 def vars_hint(key: str) -> str:
@@ -625,6 +768,30 @@ def vars_hint(key: str) -> str:
     if len(pairs) > 6:
         return "Можно вставить: " + " · ".join(pairs)
     return "Можно вставить:\n" + "\n".join(f"• {pair}" for pair in pairs)
+
+
+# Tags the bot's own texts are written with. Seeing one typed out as plain text
+# means the admin is editing the markup itself — most likely they copied the
+# block from the card, changed a word and sent it straight back.
+_TAG = re.compile(
+    r"</?(b|strong|i|em|u|s|code|pre|a|tg-emoji|blockquote|span)\b[^>]*>", re.I
+)
+
+
+def incoming(key: str, text: str, html_text: str) -> tuple[str, str | None]:
+    """What to store for this message, and what to fall back to if it fails.
+
+    Telegram gives the same message two ways: as typed, and with the sender's
+    own bold/links/emoji already turned into tags. Tags that were typed by hand
+    would come back escaped from the second one — «<b>» as visible letters — so
+    a message that carries them is taken as written.
+    """
+    text = (text or "").strip()
+    if EDITABLE[key].plain:
+        return text, None
+    if _TAG.search(text):
+        return text, html_text.strip()
+    return html_text.strip(), None
 
 
 def check(key: str, value: str) -> str | None:
