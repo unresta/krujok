@@ -4,6 +4,8 @@ Everything that shows an emoji is built at call time — placeholders are only
 known after emoji.resolve() has run against Telegram.
 """
 
+import html
+
 import emoji
 import settings
 from config import ABOUT_MAX
@@ -470,7 +472,7 @@ def profile_status(profile) -> str:  # noqa: D401 — the author's own view
     )
     return (
         f"<b>Мой профиль</b> · {label}\n\n"
-        f"{profile['about'] or 'Без описания'}\n\n"
+        f"{html.escape(profile['about'] or 'Без описания')}\n\n"
         f"Кружочки: {profile['price_content']} {coin()}\n"
         f"Личка: {contact}\n"
         f"Показов: {profile['views']} · покупок: {profile['sold']}"
@@ -485,7 +487,7 @@ def profile_card(profile, circles: int) -> str:
     )
     return (
         f"<b>{PERSON_TITLE(profile['gender'])}</b>\n\n"
-        f"{emoji.text(emoji.ABOUT)} {profile['about'] or 'Без описания'}\n\n"
+        f"{emoji.text(emoji.ABOUT)} {html.escape(profile['about'] or 'Без описания')}\n\n"
         f"{emoji.text(emoji.CIRCLE_COUNT)} Кружочков у автора: <b>{circles}</b>\n"
         f"{emoji.text(emoji.PRICE)} Доступ ко всем: "
         f"<b>{profile['price_content']}</b> {coin()}\n"

@@ -6,6 +6,7 @@ chat, so a leaked button id is not enough to use it.
 """
 
 import asyncio
+import html
 import logging
 from contextlib import suppress
 
@@ -530,7 +531,7 @@ async def cb_anketas_next(call: CallbackQuery) -> None:
             f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
             f"Кружочки: {profile['price_content']} · "
             f"личка: {profile['price_contact'] or 'нет'}\n\n"
-            f"{profile['about'] or 'Без описания'}"
+            f"{html.escape(profile['about'] or 'Без описания')}"
         ),
         reply_markup=kb.profile_review(profile["user_id"]),
     )

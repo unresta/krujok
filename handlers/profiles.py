@@ -6,6 +6,7 @@ the moment of purchase, and, if the author opted in, their @username.
 """
 
 import asyncio
+import html
 import logging
 from contextlib import suppress
 
@@ -842,7 +843,7 @@ async def report_profile(call: CallbackQuery) -> None:
             caption=(
                 f"#жалоба на анкету <code>{author_id}</code> — {count} шт\n"
                 f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
-                f"{profile['about'] or 'Без описания'}"
+                f"{html.escape(profile['about'] or 'Без описания')}"
             ),
             reply_markup=kb.profile_report_review(author_id),
         )
