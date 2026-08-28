@@ -70,75 +70,71 @@ def home_kb(
     maintenance: bool, pending: int, reports: int, anketas: int, payouts: int
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(text="Статистика", callback_data="a:stats", style=kb.PRIMARY),
-        InlineKeyboardButton(
-            text=f"Очередь · {pending}",
-            callback_data="a:queue",
-            style=kb.SUCCESS if pending else None,
-        ),
-    )
+
+    # Moderation section - только здесь используем цвета для важности
     b.row(
         InlineKeyboardButton(
-            text="Массовая загрузка", callback_data="a:bulk", style=kb.SUCCESS
-        )
-    )
-    b.row(
-        InlineKeyboardButton(text="Пользователь", callback_data="a:user", style=kb.PRIMARY),
-        InlineKeyboardButton(text="Кружок", callback_data="a:circle", style=kb.PRIMARY),
-    )
-    b.row(
-        InlineKeyboardButton(text="Рассылка", callback_data="a:cast", style=kb.PRIMARY),
-        InlineKeyboardButton(text="Экономика", callback_data="a:econ", style=kb.PRIMARY),
-    )
-    b.row(
-        InlineKeyboardButton(text="Платежи", callback_data="a:pay", style=kb.PRIMARY),
-        InlineKeyboardButton(text="Топ авторов", callback_data="a:top", style=kb.PRIMARY),
-    )
-    b.row(
-        InlineKeyboardButton(
-            text=f"Жалобы · {reports}",
+            text=f"⚠️ Жалобы · {reports}",
             callback_data="a:reports",
             style=kb.DANGER if reports else None,
         ),
         InlineKeyboardButton(
-            text=f"Анкеты · {anketas}",
+            text=f"📋 Анкеты · {anketas}",
             callback_data="a:anketas",
             style=kb.SUCCESS if anketas else None,
         ),
     )
     b.row(
         InlineKeyboardButton(
-            text=f"Выплаты · {payouts}",
+            text=f"🎬 Очередь · {pending}",
+            callback_data="a:queue",
+            style=kb.SUCCESS if pending else None,
+        ),
+        InlineKeyboardButton(
+            text=f"💸 Выплаты · {payouts}",
             callback_data="a:payouts",
             style=kb.SUCCESS if payouts else None,
-        )
-    )
-    b.row(
-        InlineKeyboardButton(
-            text="Подписка на канал", callback_data="a:chan", style=kb.PRIMARY
-        ),
-        InlineKeyboardButton(
-            text="Ссылки", callback_data="a:links", style=kb.PRIMARY
         ),
     )
+
+    # Management section - без цветов
     b.row(
-        InlineKeyboardButton(
-            text="Напоминания", callback_data="a:push", style=kb.PRIMARY
-        )
+        InlineKeyboardButton(text="📊 Статистика", callback_data="a:stats"),
+        InlineKeyboardButton(text="👤 Пользователь", callback_data="a:user"),
     )
     b.row(
-        InlineKeyboardButton(text="📝 Тексты и эмодзи", callback_data="a:content", style=kb.PRIMARY),
+        InlineKeyboardButton(text="🎥 Кружок", callback_data="a:circle"),
+        InlineKeyboardButton(text="📢 Рассылка", callback_data="a:cast"),
     )
     b.row(
-        InlineKeyboardButton(text="Бэкап базы", callback_data="a:db", style=kb.PRIMARY),
+        InlineKeyboardButton(text="💰 Экономика", callback_data="a:econ"),
+        InlineKeyboardButton(text="💳 Платежи", callback_data="a:pay"),
+    )
+    b.row(
+        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
+        InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
+    )
+
+    # Settings section - без цветов
+    b.row(
+        InlineKeyboardButton(text="📝 Тексты и эмодзи", callback_data="a:content"),
+        InlineKeyboardButton(text="📢 Канал", callback_data="a:chan"),
+    )
+    b.row(
+        InlineKeyboardButton(text="🔗 Ссылки", callback_data="a:links"),
+        InlineKeyboardButton(text="🔔 Напоминания", callback_data="a:push"),
+    )
+    b.row(
+        InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
         InlineKeyboardButton(
-            text="Техработы: вкл" if maintenance else "Техработы: выкл",
+            text=f"🔧 Техработы: {'вкл' if maintenance else 'выкл'}",
             callback_data="a:maint",
             style=kb.DANGER if maintenance else None,
         ),
     )
-    b.row(InlineKeyboardButton(text="Закрыть", callback_data="a:close", style=kb.DANGER))
+
+    # Close button - DANGER только для закрытия
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="a:close", style=kb.DANGER))
     return b.as_markup()
 
 
@@ -146,19 +142,19 @@ def back_kb(extra: list[InlineKeyboardButton] | None = None) -> InlineKeyboardMa
     b = InlineKeyboardBuilder()
     for button in extra or []:
         b.row(button)
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return b.as_markup()
 
 
 async def home_text() -> str:
     d = await db.dashboard()
     return (
-        "<b>Админ-панель</b>\n\n"
+        "⚙️ <b>Админ-панель</b>\n\n"
         f"👤 {d['users']} польз. (+{d['users_today']} за сутки), "
-        f"бан: {d['banned']}\n"
+        f"🚫 бан: {d['banned']}\n"
         f"🎞 {d['approved']} в базе · {d['pending']} ждут · {d['rejected']} отказ\n"
         f"👀 {d['views']} просмотров (+{d['views_today']} за сутки)\n"
-        f"⭐ {d['stars']} звёзд · 🪙 {d['coins']} на руках"
+        f"⭐ {d['stars']} звёзд · 🪙 {d['coins']} монет на руках"
     )
 
 
@@ -268,16 +264,16 @@ async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Изменить канал", callback_data="a:chan:set", style=kb.PRIMARY
+            text="✏️ Изменить канал", callback_data="a:chan:set"
         )
     )
     if channel:
         b.row(
             InlineKeyboardButton(
-                text="Выключить подписку", callback_data="a:chan:off", style=kb.DANGER
+                text="❌ Выключить подписку", callback_data="a:chan:off", style=kb.DANGER
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"<b>Обязательная подписка</b>\n\n{body}\n\n"
@@ -372,18 +368,18 @@ async def cb_reports(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Чат жалоб", callback_data="a:reports:chat", style=kb.PRIMARY
+            text="⚙️ Чат жалоб", callback_data="a:reports:chat"
         )
     )
     if rows:
         b.row(
             InlineKeyboardButton(
-                text=f"Показать {min(len(rows), 5)}",
+                text=f"👁 Показать {min(len(rows), 5)}",
                 callback_data="a:reports:show",
                 style=kb.DANGER,
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"<b>Жалобы</b>\n\nЧат: <code>{chat}</code>\n{status}\n\n"
@@ -466,18 +462,18 @@ async def cb_anketas(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Чат анкет", callback_data="a:anketas:chat", style=kb.PRIMARY
+            text="⚙️ Чат анкет", callback_data="a:anketas:chat"
         )
     )
     if waiting:
         b.row(
             InlineKeyboardButton(
-                text="Показать следующую",
+                text="➡️ Показать следующую",
                 callback_data="a:anketas:next",
                 style=kb.SUCCESS,
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"<b>Анкеты</b>\n\nЧат: <code>{chat}</code>\n"
@@ -592,15 +588,15 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Выключить" if on else "Включить",
+            text=f"{'❌ Выключить' if on else '✅ Включить'}",
             callback_data="a:push:toggle",
             style=kb.DANGER if on else kb.SUCCESS,
         ),
         InlineKeyboardButton(
-            text="Отправить сейчас", callback_data="a:push:now", style=kb.PRIMARY
+            text="▶️ Отправить сейчас", callback_data="a:push:now"
         ),
     )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         "<b>Напоминания</b>\n\n"
@@ -652,18 +648,17 @@ async def cb_links(call: CallbackQuery, state: FSMContext) -> None:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="Новая ссылка", callback_data="a:links:new", style=kb.SUCCESS
+            text="➕ Новая ссылка", callback_data="a:links:new", style=kb.SUCCESS
         )
     )
     for row in rows[:20]:  # a callback list, not a report — keep it scannable
         b.row(
             InlineKeyboardButton(
-                text=f"{row['title'] or row['code']} · {row['users']} чел",
+                text=f"🔗 {row['title'] or row['code']} · {row['users']} чел",
                 callback_data=f"a:link:{row['code']}",
-                style=kb.PRIMARY,
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
 
     total_users = sum(row["users"] for row in rows)
     await _edit(
@@ -712,25 +707,25 @@ async def got_campaign(message: Message, state: FSMContext) -> None:
 def _link_kb(code: str, link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="Скопировать", copy_text=CopyTextButton(text=link))
+        InlineKeyboardButton(text="📋 Скопировать", copy_text=CopyTextButton(text=link))
     )
     b.row(
         InlineKeyboardButton(
-            text="Расход", callback_data=f"a:link:spend:{code}", style=kb.PRIMARY
+            text="💰 Расход", callback_data=f"a:link:spend:{code}"
         ),
         InlineKeyboardButton(
-            text="Обновить", callback_data=f"a:link:{code}", style=kb.PRIMARY
+            text="🔄 Обновить", callback_data=f"a:link:{code}"
         ),
     )
     b.row(
         InlineKeyboardButton(
-            text="Команда трафферу", callback_data=f"a:link:token:{code}", style=kb.PRIMARY
+            text="🔑 Команда трафферу", callback_data=f"a:link:token:{code}"
         ),
         InlineKeyboardButton(
-            text="Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
+            text="🗑 Удалить", callback_data=f"a:link:del:{code}", style=kb.DANGER
         ),
     )
-    b.row(InlineKeyboardButton(text="К ссылкам", callback_data="a:links", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ К ссылкам", callback_data="a:links"))
     return b.as_markup()
 
 
@@ -982,7 +977,7 @@ async def cb_queue(call: CallbackQuery, state: FSMContext) -> None:
                 style=kb.SUCCESS,
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         f"<b>Кружочки на проверке</b>\n\nЧат: <code>{chat}</code>\n"
@@ -1073,7 +1068,7 @@ def bulk_kb() -> InlineKeyboardMarkup:
             text="♂ Мужские", callback_data="a:bulk:m", style=kb.SUCCESS
         ),
     )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return b.as_markup()
 
 
@@ -1342,7 +1337,7 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             style=kb.SUCCESS if user["banned"] else kb.DANGER,
         ),
     )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return text, b.as_markup()
 
 
@@ -1421,7 +1416,7 @@ async def got_circle_id(message: Message, state: FSMContext) -> None:
         )
     )
     b.row(
-        InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.PRIMARY)
+        InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home")
     )
     await message.answer(
         f"<b>#{circle['id']}</b> · {kb.PREF_TITLE(circle['gender'])} · "
@@ -1593,12 +1588,11 @@ async def cb_econ(call: CallbackQuery, state: FSMContext) -> None:
     for key, title in settings.TITLES.items():
         b.row(
             InlineKeyboardButton(
-                text=f"{title}: {settings.get(key)}",
+                text=f"💰 {title}: {settings.get(key)}",
                 callback_data=f"a:econ:{key}",
-                style=kb.PRIMARY,
             )
         )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         "<b>Экономика</b>\n\nЖми на параметр, чтобы поменять. "
@@ -1671,7 +1665,7 @@ async def cb_db(call: CallbackQuery) -> None:
             text="Прислать файл", callback_data="a:db:go", style=kb.DANGER
         )
     )
-    b.row(InlineKeyboardButton(text="В панель", callback_data="a:home", style=kb.PRIMARY))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
         "<b>Бэкап базы</b>\n\nВ файле лежат балансы, платежи и file_id всех "
@@ -1832,7 +1826,7 @@ async def content_menu(call: CallbackQuery, state: FSMContext) -> None:
             b.row(buttons[i])
 
     b.row(InlineKeyboardButton(text="🔄 Сбросить все", callback_data="a:cnt:rst"))
-    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home", style=kb.DANGER))
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
 
     await call.message.edit_text(text, reply_markup=b.as_markup())
     await call.answer()
