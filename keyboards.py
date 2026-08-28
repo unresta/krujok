@@ -23,7 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
 import settings
-from config import PRIVACY_URL, STAR_PACKS, TERMS_URL
+from config import STAR_PACKS
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -61,18 +61,6 @@ def _coin_button(text: str, callback_data: str, style: str, icon: str | None = N
         callback_data=callback_data,
         icon_custom_emoji_id=emoji_id,
         style=style,
-    )
-
-
-# --- legal documents -----------------------------------------------------
-
-# One row, plain links, always last: the offer and the privacy policy have to be
-# one tap from consent and from checkout, without earning a place in the menu.
-# Left unstyled on purpose — colour here would compete with the screen's action.
-def _legal_row(b: InlineKeyboardBuilder) -> None:
-    b.row(
-        InlineKeyboardButton(text="Оферта", url=TERMS_URL),
-        InlineKeyboardButton(text="Конфиденциальность", url=PRIVACY_URL),
     )
 
 
@@ -285,7 +273,6 @@ def accept() -> InlineKeyboardMarkup:
             style=SUCCESS,
         )
     )
-    _legal_row(b)  # the documents that button accepts, readable before the tap
     return b.as_markup()
 
 
@@ -489,7 +476,6 @@ def profile_intro() -> InlineKeyboardMarkup:
         )
     )
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
-    _legal_row(b)  # an author agrees to the same offer, and it pays them
     return b.as_markup()
 
 
@@ -708,7 +694,6 @@ def buy_payment_method() -> InlineKeyboardMarkup:
         )
     )
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
-    _legal_row(kb)  # terms of the purchase, readable before paying
     return kb.as_markup()
 
 
