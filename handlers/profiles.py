@@ -13,13 +13,16 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
 import keyboards as kb
 import settings
 import texts
 from config import ABOUT_MAX, ADMIN_CHAT_ID, ADMIN_IDS
+from keyboards import PRIMARY, DANGER
+from handlers.upload import Upload
 
 logger = logging.getLogger(__name__)
 
@@ -612,10 +615,21 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
 
 
 @router.callback_query(F.data == "mp:upload")
-async def mp_upload(call: CallbackQuery) -> None:
+async def mp_upload(call: CallbackQuery, state: FSMContext) -> None:
     """Redirect to upload flow."""
+    profile = await db.get_profile(call.from_user.id)
+    if profile is None or profile["status"] != "approved":
+        if profile is None:
+            await call.message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.my_profile(False))
+        else:
+            await call.message.answer(texts.upload_profile_pending(profile["status"]))
+        await call.answer()
+        return
+
+    await state.set_state(Upload.waiting_video)
+    await state.update_data(gender=profile["gender"])
+    await call.message.answer(texts.upload_ask(profile["gender"]), reply_markup=kb.back())
     await call.answer()
-    await call.message.answer(texts.UPLOAD_INTRO, reply_markup=kb.back())
 
 
 @router.callback_query(F.data == "mp:circles")
