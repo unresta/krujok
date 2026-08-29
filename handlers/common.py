@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Message
 import access
 import db
 import posts
-from handlers import cheques
+from handlers import cheques, watch
 import keyboards as kb
 import settings
 import texts
@@ -50,6 +50,13 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.answer(texts.welcome_bonus(bonus))
 
     await ui.render_menu(call.message, call.from_user.id)
+
+    # The first circle comes on its own, and on the house — this is the first
+    # moment the bot is allowed to show one, since the age was just confirmed.
+    # It goes after the menu so the circle, with its own buttons, stays last.
+    if first_time and settings.get("welcome_circle"):
+        await db.grant_free_views(call.from_user.id, 1)
+        await watch.serve(call.bot, call.from_user.id, call.message, notice=False)
 
 
 @router.message(Command("menu", "cancel"))

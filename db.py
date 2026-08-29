@@ -551,6 +551,15 @@ async def push_pool(idle: int, cooldown: int) -> dict:
         return dict(await cur.fetchone())
 
 
+async def grant_free_views(user_id: int, count: int) -> None:
+    """Circles owed to a user, without touching the reminder's own stamp."""
+    await conn().execute(
+        "UPDATE users SET free_views = free_views + ? WHERE id = ?",
+        (count, user_id),
+    )
+    await conn().commit()
+
+
 async def mark_pushed(user_id: int, free_views: int) -> None:
     await conn().execute(
         "UPDATE users SET last_push = strftime('%s','now'),"

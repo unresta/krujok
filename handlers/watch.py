@@ -43,8 +43,13 @@ async def watch_callback(call: CallbackQuery, state: FSMContext) -> None:
     await serve(call.bot, call.from_user.id, call.message)
 
 
-async def serve(bot, user_id: int, origin: Message) -> None:
-    """Charge, send one circle, pay its author."""
+async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None:
+    """Charge, send one circle, pay its author.
+
+    `notice` is what tells a user the circle was on the house — true for the
+    reminder's gift, false for the welcome one, where «последний бесплатный»
+    would only confuse someone who still has their starting coins.
+    """
     user = await db.get_user(user_id)
     cost = settings.get("watch_cost")
 
@@ -92,7 +97,7 @@ async def serve(bot, user_id: int, origin: Message) -> None:
         return
 
     await db.mark_viewed(user_id, circle["id"])
-    if on_the_house:
+    if on_the_house and notice:
         # A gifted circle looks exactly like a paid one; without this line the
         # reminder's promise of free views is invisible.
         left = (await db.get_user(user_id))["free_views"]

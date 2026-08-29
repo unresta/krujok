@@ -57,6 +57,9 @@ WATCH_COOLDOWN = 1.0  # seconds between "watch" taps
 
 STAR_PACKS = (20, 50, 100, 250)
 WELCOME_BONUS = 6  # coins handed to a newcomer, enough for a few circles
+# The first circle arrives on its own, right after the rules are accepted:
+# a newcomer who has to find the button first often never sees one.
+WELCOME_CIRCLE = 1
 SUB_BONUS = 4  # paid once, when the channel subscription is first confirmed
 REF_REWARD = 3  # coins for a referral that made it through the subscription gate
 VIEW_PAYOUT = 0  # views and likes buy reach, not coins
