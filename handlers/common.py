@@ -25,9 +25,11 @@ async def start(message: Message, state: FSMContext) -> None:
     await access.credit_referral(message.bot, message.from_user.id)
     # …and a cheque they opened is now theirs to take: either straight from the
     # link, or the one that waited on their row while they were at the gate.
-    code = cheques.parse_link(
-        message.text.split(maxsplit=1)[1] if " " in (message.text or "") else ""
-    ) or await db.take_pending_cheque(message.from_user.id)
+    payload = message.text.split(maxsplit=1)[1] if " " in (message.text or "") else ""
+    kind, value = access.parse_start(payload)
+    code = value if kind == "cheque" else await db.take_pending_cheque(
+        message.from_user.id
+    )
     if code:
         await cheques.redeem(message.bot, message.from_user.id, code, message)
     # A welcome post is shown before the menu and only ever once per person.

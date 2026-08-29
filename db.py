@@ -850,9 +850,22 @@ async def campaign_by_token(token: str) -> str | None:
     return row["code"] if row else None
 
 
-async def touch_campaign(code: str, user_id: int) -> None:
-    """Count the click and stamp the user, but only the first link they used."""
-    await create_campaign(code)  # links made outside the panel still count
+async def get_campaign(code: str) -> aiosqlite.Row | None:
+    async with conn().execute(
+        "SELECT * FROM campaigns WHERE code = ?", (code,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def touch_campaign(code: str, user_id: int) -> bool:
+    """Count the click and stamp the user, but only the first link they used.
+
+    A code nobody created is ignored rather than turned into a campaign: with
+    three kinds of link sharing ?start=, auto-creation meant every stray or
+    mistyped payload showed up in the panel as an ad link of its own.
+    """
+    if await get_campaign(code) is None:
+        return False
     await conn().execute(
         "UPDATE campaigns SET hits = hits + 1 WHERE code = ?", (code,)
     )
@@ -865,6 +878,7 @@ async def touch_campaign(code: str, user_id: int) -> None:
         (code, user_id),
     )
     await conn().commit()
+    return True
 
 
 async def set_campaign_spend(code: str, spend: int) -> None:

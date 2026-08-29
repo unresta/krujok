@@ -1078,9 +1078,15 @@ async def cb_link_new(call: CallbackQuery, state: FSMContext) -> None:
 async def got_campaign(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     code, _, title = raw.partition(" ")
+    reserved = code.lower().startswith(access.RESERVED)
     code = access.parse_campaign(code)
     if code is None:
-        await message.answer("Код не подходит: латиница, цифры, _ и -, до 32 знаков.")
+        await message.answer(
+            "Код занят: <code>chq_…</code> — это чеки, <code>r123</code> — "
+            "реферальные ссылки. Возьми другой."
+            if reserved
+            else "Код не подходит: латиница, цифры, _ и -, до 32 знаков."
+        )
         return
 
     await state.clear()

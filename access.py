@@ -213,14 +213,42 @@ def parse_payload(payload: str) -> int | None:
     return int(payload[1:])
 
 
+# Three kinds of link share one ?start= field, so the prefixes that mark them
+# are reserved: a campaign may not be called «r12» or «chq_sale», or a click on
+# it would be read as somebody's referral or as a cheque that does not exist.
+RESERVED = ("chq_",)
+
+
 def parse_campaign(payload: str) -> str | None:
-    """Anything that is not a referral link is treated as an ad campaign code."""
+    """An ad campaign code — anything that is not a referral or a cheque."""
     code = (payload or "").strip().lower()
     if not code or parse_payload(code) is not None:
+        return None
+    if code.startswith(RESERVED):
         return None
     if len(code) > 32 or not set(code) <= CODE_ALLOWED:
         return None
     return code
+
+
+def parse_start(payload: str) -> tuple[str, str]:
+    """What a /start payload actually is: («referral»|«cheque»|«campaign»|«»).
+
+    One place decides, so the middleware and the /start handler can never read
+    the same link two different ways.
+    """
+    from handlers import cheques
+
+    payload = (payload or "").strip()
+    if not payload:
+        return "", ""
+    if parse_payload(payload) is not None:
+        return "referral", payload
+    code = cheques.parse_link(payload)
+    if code:
+        return "cheque", code
+    campaign = parse_campaign(payload)
+    return ("campaign", campaign) if campaign else ("", "")
 
 
 def campaign_link(code: str) -> str:
