@@ -18,6 +18,7 @@ import access
 import db
 import emoji
 import invoices
+import outbox
 import pushes
 import settings
 import texts
@@ -112,6 +113,7 @@ async def main() -> None:
     finally:
         reminders.cancel()
         watcher.cancel()
+        await outbox.close()  # the moderation chats' senders
         await db.close()
         await bot.session.close()
 

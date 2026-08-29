@@ -16,6 +16,7 @@ from aiogram.exceptions import (
     TelegramAPIError,
     TelegramBadRequest,
     TelegramForbiddenError,
+    TelegramRetryAfter,
 )
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
@@ -37,6 +38,7 @@ import config
 import crypto
 import db
 import invoices
+import outbox
 import people
 import posts
 import pushes
@@ -1578,10 +1580,14 @@ async def cb_queue(call: CallbackQuery, state: FSMContext) -> None:
             )
         )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    # A queue here means the chat is being fed at Telegram's pace, not that
+    # anything is broken — but a number that keeps growing is worth seeing.
+    queued = outbox.pending(chat)
     await _edit(
         call,
         f"🎬 <b>Кружочки на проверке</b>\n\nЧат: <code>{chat}</code>\n"
-        f"{await _chat_status(call.bot, chat)}\n\nЖдут проверки: {waiting}",
+        f"{await _chat_status(call.bot, chat)}\n\nЖдут проверки: {waiting}"
+        + (f"\nВ очереди на отправку в чат: {queued}" if queued else ""),
         b.as_markup(),
     )
     await call.answer()
@@ -2401,6 +2407,17 @@ async def _broadcast(
                 chat_id=user_id, from_chat_id=from_chat, message_id=message_id
             )
             sent += 1
+        except TelegramRetryAfter as error:
+            # Counting this as «не дошло» skipped a live user over a limit that
+            # passes by itself — so wait it out and hand them the message.
+            await asyncio.sleep(error.retry_after + 1)
+            try:
+                await bot.copy_message(
+                    chat_id=user_id, from_chat_id=from_chat, message_id=message_id
+                )
+                sent += 1
+            except TelegramAPIError:
+                failed += 1
         except TelegramAPIError:  # blocked, deleted, never started the bot
             failed += 1
         if i % BROADCAST_PROGRESS_EVERY == 0:

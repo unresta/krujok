@@ -1,13 +1,13 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, User
 
 import db
 import keyboards as kb
+import outbox
 import people
 import texts
 import ui
@@ -81,7 +81,12 @@ async def wrong_content(message: Message) -> None:
 
 
 async def _submit(bot, author: User, data: dict, gender: str) -> str:
-    """Store the circle and drop it into the moderation chat."""
+    """Store the circle and drop it into the moderation chat.
+
+    The chat takes twenty messages a minute and every upload costs two of them,
+    so the card is queued rather than sent: the author is told «принято» right
+    away, and the moderation chat is fed at a pace it can take.
+    """
     circle_id = await db.add_circle(
         file_id=data["file_id"],
         file_unique_id=data["file_unique_id"],
@@ -94,22 +99,30 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
 
     reward = settings.reward(gender)
     chat = settings.circles_chat()
-    who = author.username and f"@{author.username}" or "—"
-    try:
-        await bot.send_video_note(chat, data["file_id"], protect_content=True)
-        card = await bot.send_message(
-            chat,
-            f"#на_проверку <b>#{circle_id}</b>\n"
-            f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
-            f"Длина: {data['duration']} сек\n"
-            f"Автор: {await people.of(author.id)}",
-            reply_markup=kb.moderation(circle_id),
-        )
-        await db.set_admin_msg(circle_id, card.message_id)
-    except TelegramAPIError as error:
+    card_text = (
+        f"#на_проверку <b>#{circle_id}</b>\n"
+        f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
+        f"Длина: {data['duration']} сек\n"
+        f"Автор: {await people.of(author.id)}"
+    )
+
+    async def deliver() -> None:
         # The circle is saved and waits in the panel's queue either way; silence
         # here is exactly what made a broken chat look like a broken upload.
-        logger.error(
-            "circle #%s not delivered to %s: %s", circle_id, chat, error
+        await outbox.call(
+            chat,
+            lambda: bot.send_video_note(chat, data["file_id"], protect_content=True),
+            f"кружок #{circle_id}",
         )
+        card = await outbox.call(
+            chat,
+            lambda: bot.send_message(
+                chat, card_text, reply_markup=kb.moderation(circle_id)
+            ),
+            f"карточка кружка #{circle_id}",
+        )
+        if card is not None:
+            await db.set_admin_msg(circle_id, card.message_id)
+
+    outbox.post(chat, deliver, f"кружок #{circle_id}")
     return texts.upload_sent(circle_id, reward)

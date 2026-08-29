@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
+import outbox
 import people
 import settings
 import texts
@@ -235,23 +236,33 @@ async def report(call: CallbackQuery) -> None:
         await db.report_reasons(circle_id), texts.REPORT_REASONS
     )
     chat = settings.reports_chat()
-    try:
-        await call.bot.send_video_note(
-            chat, circle["file_id"], protect_content=True
-        )
-        await call.bot.send_message(
-            chat,
-            f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
-            f"Причина: {texts.REPORT_REASONS[reason]}\n"
-            f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
-            f"Автор: {await people.of(circle['uploader_id'])}\n"
-            f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
-            f"{breakdown}",
-            reply_markup=kb.report_review(circle_id),
-        )
-    except TelegramAPIError as error:
+    card_text = (
+        f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
+        f"Причина: {texts.REPORT_REASONS[reason]}\n"
+        f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
+        f"Автор: {await people.of(circle['uploader_id'])}\n"
+        f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
+        f"{breakdown}"
+    )
+
+    async def deliver() -> None:
         # The complaint is already in the base; only the card failed to land.
-        logger.error("report card for #%s not delivered to %s: %s", circle_id, chat, error)
+        await outbox.call(
+            chat,
+            lambda: call.bot.send_video_note(
+                chat, circle["file_id"], protect_content=True
+            ),
+            f"кружок по жалобе #{circle_id}",
+        )
+        await outbox.call(
+            chat,
+            lambda: call.bot.send_message(
+                chat, card_text, reply_markup=kb.report_review(circle_id)
+            ),
+            f"жалоба на #{circle_id}",
+        )
+
+    outbox.post(chat, deliver, f"жалоба на #{circle_id}")
 
 
 @router.callback_query(F.data.startswith("rp:"))

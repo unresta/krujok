@@ -16,7 +16,11 @@ import random
 import time
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 
 import db
 import keyboards as kb
@@ -59,13 +63,19 @@ async def sweep(bot: Bot) -> tuple[int, int]:
         # The stamp goes down before the send: a failure must not queue the
         # same person up again on the next tick.
         await db.mark_pushed(user_id, free)
+        text = random.choice(texts.PUSH_TEXTS)(free)
         try:
-            await bot.send_message(
-                user_id,
-                random.choice(texts.PUSH_TEXTS)(free),
-                reply_markup=kb.push(free),
-            )
+            await bot.send_message(user_id, text, reply_markup=kb.push(free))
             sent += 1
+        except TelegramRetryAfter as error:
+            # The gift is already on their account; giving up here would waste
+            # it on a limit that passes on its own.
+            await asyncio.sleep(error.retry_after + 1)
+            try:
+                await bot.send_message(user_id, text, reply_markup=kb.push(free))
+                sent += 1
+            except TelegramAPIError:
+                failed += 1
         except TelegramForbiddenError:  # blocked the bot
             failed += 1
         except TelegramAPIError as error:

@@ -18,6 +18,7 @@ from aiogram.types import CallbackQuery, Message
 
 import db
 import keyboards as kb
+import outbox
 import people
 import settings
 import texts
@@ -99,20 +100,26 @@ async def got_details(message: Message, state: FSMContext) -> None:
 
     await message.answer(texts.payout_created(payout_id, coins, stars))
 
-    who = message.from_user.username and f"@{message.from_user.username}" or "—"
     chat = settings.reports_chat()  # payouts share the moderation-side chat
-    try:
-        card = await message.bot.send_message(
+    card_text = (
+        f"#выплата <b>#{payout_id}</b>\n"
+        f"{coins} монеток → <b>{stars} ⭐</b>\n"
+        f"Кому: {await people.of(message.from_user.id)}\n"
+        f"Реквизиты: <code>{html.escape(details)}</code>"
+    )
+
+    async def deliver() -> None:
+        card = await outbox.call(
             chat,
-            f"#выплата <b>#{payout_id}</b>\n"
-            f"{coins} монеток → <b>{stars} ⭐</b>\n"
-            f"Кому: {await people.of(message.from_user.id)}\n"
-            f"Реквизиты: <code>{html.escape(details)}</code>",
-            reply_markup=kb.payout_review(payout_id),
+            lambda: message.bot.send_message(
+                chat, card_text, reply_markup=kb.payout_review(payout_id)
+            ),
+            f"выплата #{payout_id}",
         )
-        await db.set_payout_admin_msg(payout_id, card.message_id)
-    except TelegramAPIError as error:
-        logger.error("payout card #%s not delivered to %s: %s", payout_id, chat, error)
+        if card is not None:
+            await db.set_payout_admin_msg(payout_id, card.message_id)
+
+    outbox.post(chat, deliver, f"выплата #{payout_id}")
 
 
 @router.callback_query(F.data.startswith("pw:"))

@@ -20,6 +20,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
 import keyboards as kb
+import outbox
 import people
 import settings
 import texts
@@ -414,35 +415,40 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
     await message.answer(texts.PROFILE_SENT, reply_markup=kb.back())
 
     chat = settings.profiles_chat()
-    try:
-        card = await message.bot.send_photo(
-            chat,
-            data["photo_id"],
-            caption=(
-                ("#анкета_изменена" if previous else "#анкета")
-                + f" от <code>{author.id}</code>"
-                f"{' @' + author.username if author.username else ''}\n"
-                + (
-                    f"♻️ Поменялось: <b>{', '.join(changes)}</b>\n"
-                    if changes
-                    else "♻️ Прислана заново без правок\n"
-                    if previous
-                    else ""
-                )
-                + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
-                f"Кружочки: {data['price_content']} · "
-                f"личка: {data.get('price_contact') or 'нет'}\n\n"
-                f"{html.escape(data.get('about') or 'Без описания')}"
-            ),
-            reply_markup=kb.profile_review(author.id),
+    caption = (
+        ("#анкета_изменена" if previous else "#анкета")
+        + f" от <code>{author.id}</code>"
+        f"{' @' + author.username if author.username else ''}\n"
+        + (
+            f"♻️ Поменялось: <b>{', '.join(changes)}</b>\n"
+            if changes
+            else "♻️ Прислана заново без правок\n"
+            if previous
+            else ""
         )
-        await db.set_profile_admin_msg(author.id, card.message_id)
-    except TelegramAPIError as error:
+        + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
+        f"Кружочки: {data['price_content']} · "
+        f"личка: {data.get('price_contact') or 'нет'}\n\n"
+        f"{html.escape(data.get('about') or 'Без описания')}"
+    )
+
+    async def deliver() -> None:
         # The profile is saved and shows up in the panel's queue regardless —
         # only the card is missing, and silence here is what hides that.
-        logger.error(
-            "profile card for %s not delivered to %s: %s", author.id, chat, error
+        card = await outbox.call(
+            chat,
+            lambda: message.bot.send_photo(
+                chat,
+                data["photo_id"],
+                caption=caption,
+                reply_markup=kb.profile_review(author.id),
+            ),
+            f"анкета {author.id}",
         )
+        if card is not None:
+            await db.set_profile_admin_msg(author.id, card.message_id)
+
+    outbox.post(chat, deliver, f"анкета {author.id}")
 
 
 async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
@@ -455,25 +461,30 @@ async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
     await db.set_profile_status(user_id, "pending")
 
     chat = settings.profiles_chat()
-    try:
-        card = await bot.send_photo(
+    caption = (
+        f"#анкета_изменена от {await people.of(user_id)}\n"
+        f"♻️ Отредактирована\n"
+        f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
+        f"Кружочки: {profile['price_content']} · "
+        f"личка: {profile['price_contact'] or 'нет'}\n\n"
+        f"{html.escape(profile['about'] or 'Без описания')}"
+    )
+
+    async def deliver() -> None:
+        card = await outbox.call(
             chat,
-            profile["photo_id"],
-            caption=(
-                f"#анкета_изменена от {await people.of(user_id)}\n"
-                f"♻️ Отредактирована\n"
-                f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
-                f"Кружочки: {profile['price_content']} · "
-                f"личка: {profile['price_contact'] or 'нет'}\n\n"
-                f"{html.escape(profile['about'] or 'Без описания')}"
+            lambda: bot.send_photo(
+                chat,
+                profile["photo_id"],
+                caption=caption,
+                reply_markup=kb.profile_review(user_id),
             ),
-            reply_markup=kb.profile_review(user_id),
+            f"анкета {user_id}",
         )
-        await db.set_profile_admin_msg(user_id, card.message_id)
-    except TelegramAPIError as error:
-        logger.error(
-            "profile card for %s not delivered to %s: %s", user_id, chat, error
-        )
+        if card is not None:
+            await db.set_profile_admin_msg(user_id, card.message_id)
+
+    outbox.post(chat, deliver, f"анкета {user_id}")
 
 
 # --- moderation ----------------------------------------------------------
@@ -942,21 +953,27 @@ async def report_profile(call: CallbackQuery) -> None:
         await db.profile_report_reasons(author_id), texts.PROFILE_REPORT_REASONS
     )
     chat = settings.reports_chat()
-    try:
-        await call.bot.send_photo(
+    caption = (
+        f"#жалоба на анкету {await people.of(author_id)} — {count} шт\n"
+        f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
+        f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
+        f"{html.escape(profile['about'] or 'Без описания')}\n\n"
+        f"{breakdown}"
+    )
+    outbox.post(
+        chat,
+        lambda: outbox.call(
             chat,
-            profile["photo_id"],
-            caption=(
-                f"#жалоба на анкету {await people.of(author_id)} — {count} шт\n"
-                f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
-                f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
-                f"{html.escape(profile['about'] or 'Без описания')}\n\n"
-                f"{breakdown}"
+            lambda: call.bot.send_photo(
+                chat,
+                profile["photo_id"],
+                caption=caption,
+                reply_markup=kb.profile_report_review(author_id),
             ),
-            reply_markup=kb.profile_report_review(author_id),
-        )
-    except TelegramAPIError as error:
-        logger.error("profile report for %s not delivered: %s", author_id, error)
+            f"жалоба на анкету {author_id}",
+        ),
+        f"жалоба на анкету {author_id}",
+    )
 
 
 async def _fresh_username(bot, author_id: int, profile) -> str:
