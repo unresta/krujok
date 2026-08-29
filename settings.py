@@ -12,7 +12,7 @@ DEFAULTS: dict[str, int] = {
     "watch_cost": config.WATCH_COST,
     "reward_f": config.REWARD["f"],
     "reward_m": config.REWARD["m"],
-    "stars_rate": config.STARS_RATE,
+    "star_cost": config.STAR_COST,
     "min_stars": config.MIN_STARS,
     "min_duration": config.MIN_DURATION,
     "max_pending": config.MAX_PENDING,
@@ -56,7 +56,7 @@ TITLES: dict[str, str] = {
     "watch_cost": "Просмотр, монеток",
     "reward_f": "Награда за женский",
     "reward_m": "Награда за мужской",
-    "stars_rate": "Монеток за 1 ⭐",
+    "star_cost": "⭐ за 1 монетку",
     "min_stars": "Минимум ⭐ за раз",
     "min_duration": "Минимум, сек",
     "max_pending": "Кружков на проверке",
@@ -96,7 +96,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "reward_m",
     ),
     "💰 Продажи": ("author_share", "price_min", "price_max"),
-    "⭐ Покупка монеток": ("stars_rate", "min_stars", "star_price", "usdt_rate"),
+    "⭐ Покупка монеток": ("star_cost", "min_stars", "star_price", "usdt_rate"),
     "💸 Вывод": ("payout_min", "payout_rate"),
     "🎁 Бонусы": ("welcome_bonus", "welcome_circle", "sub_bonus", "ref_reward"),
     "🔔 Напоминания": (
@@ -114,7 +114,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "watch_cost": (1, 1000),
     "reward_f": (0, 1000),
     "reward_m": (0, 1000),
-    "stars_rate": (1, 1000),
+    "star_cost": (1, 1000),
     "min_stars": (1, 10_000),
     "min_duration": (1, 60),
     "max_pending": (1, 100),
@@ -167,7 +167,22 @@ def author_share(price: int) -> int:
     return price * _values["author_share"] // 100
 
 
+def coins_for(stars: int) -> int:
+    """What that many stars buy. A coin costs whole stars, so this rounds down."""
+    return stars // _values["star_cost"]
+
+
+def stars_of(coins: int) -> int:
+    """The other way: what those coins cost, and what the invoice is issued for.
+
+    Money is only ever taken for whole coins — charging for the remainder of a
+    star would be charging for nothing.
+    """
+    return coins * _values["star_cost"]
+
+
 def stars_for(coins: int) -> int:
+    """Cashing out, which runs on its own rate — see «Вывод» in the panel."""
     return coins // _values["payout_rate"]
 
 

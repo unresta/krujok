@@ -49,7 +49,7 @@ WATCH_COST = 2
 # and the only way to earn coins is selling access to it.
 REWARD = {"f": 0, "m": 0}
 MIN_DURATION = 8  # seconds; anything shorter is refused
-STARS_RATE = 3  # coins per star
+STAR_COST = 2  # stars for one coin
 MIN_STARS = 20
 MAX_STARS = 100_000
 MAX_PENDING = 5  # unmoderated uploads a user may hold at once

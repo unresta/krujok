@@ -356,7 +356,7 @@ EDITABLE: dict[str, Item] = {
         vars={
             "coin": "значок монетки",
             "coins": "баланс",
-            "stars_rate": "монеток за 1 ⭐",
+            "star_cost": "⭐ за 1 монетку",
             "min_stars": "минимум ⭐",
         },
     ),
@@ -705,7 +705,7 @@ _FROM_SETTINGS = {
     "min_duration": "min_duration",
     "price_min": "price_min",
     "price_max": "price_max",
-    "stars_rate": "stars_rate",
+    "star_cost": "star_cost",
     "min_stars": "min_stars",
     "rate": "payout_rate",
     "low": "payout_min",

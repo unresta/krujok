@@ -58,10 +58,17 @@ async def custom_amount(message: Message, state: FSMContext) -> None:
     if not raw.isdigit() or not (settings.get("min_stars") <= int(raw) <= MAX_STARS):
         await message.answer(texts.buy_bad_input(), reply_markup=kb.buy_cancel())
         return
-    stars = int(raw)
+    # A coin costs whole stars, so 21 ⭐ at 2 ⭐ apiece is ten coins and one star
+    # left over. The leftover is given back rather than pocketed: the invoice is
+    # cut down to what was actually bought.
+    coins = settings.coins_for(int(raw))
+    if not coins:
+        await message.answer(texts.buy_bad_input(), reply_markup=kb.buy_cancel())
+        return
+    stars = settings.stars_of(coins)
+
     await state.update_data(stars=stars)
     await state.set_state(Buy.choose_method)
-    coins = stars * settings.get("stars_rate")
     await message.answer(
         texts.buy_choose_method(stars, coins),
         reply_markup=kb.buy_payment_method()
@@ -80,8 +87,8 @@ async def pay_pack(call: CallbackQuery, state: FSMContext) -> None:
         return  # handled by buy_custom
 
     await state.clear()
-    stars = int(call.data.split(":", 1)[1])
-    coins = stars * settings.get("stars_rate")
+    coins = settings.coins_for(int(call.data.split(":", 1)[1]))
+    stars = settings.stars_of(coins)
     await state.update_data(stars=stars)
     await state.set_state(Buy.choose_method)
     await call.message.answer(
@@ -117,7 +124,7 @@ async def pay_with_crypto(call: CallbackQuery, state: FSMContext) -> None:
         return
     await state.clear()
     await call.answer()
-    coins = stars * settings.get("stars_rate")
+    coins = settings.coins_for(stars)
     await invoices.start(call.bot, call.from_user.id, provider, coins, call.message)
 
 
@@ -153,7 +160,7 @@ async def invoice_action(call: CallbackQuery) -> None:
 
 
 async def send_invoice(message: Message, stars: int) -> None:
-    coins = stars * settings.get("stars_rate")
+    coins = settings.coins_for(stars)
     await message.answer_invoice(
         title=f"{coins} монеток",
         description=f"{stars} ⭐ → {coins} 🪙 на баланс в боте.",
@@ -173,7 +180,7 @@ async def paid(message: Message, state: FSMContext) -> None:
     await state.clear()
     payment = message.successful_payment
     stars = payment.total_amount
-    coins = stars * settings.get("stars_rate")
+    coins = settings.coins_for(stars)
 
     fresh = await db.add_payment(
         payment.telegram_payment_charge_id, message.from_user.id, stars, coins

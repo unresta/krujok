@@ -437,7 +437,7 @@ CIRCLE_RESTORED = "🟢 Твой кружок проверили и вернул
 
 BUY = (
     "{coin} Баланс: <b>{coins}</b>\n\n"
-    "1 ⭐ = <b>{stars_rate}</b> {coin}, минимум {min_stars} ⭐."
+    "1 {coin} = <b>{star_cost}</b> ⭐, минимум {min_stars} ⭐."
 )
 
 
@@ -447,7 +447,7 @@ def buy(coins: int) -> str:
         BUY,
         coin=coin(),
         coins=coins,
-        stars_rate=settings.get("stars_rate"),
+        star_cost=settings.get("star_cost"),
         min_stars=settings.get("min_stars"),
     )
 

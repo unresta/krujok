@@ -660,7 +660,7 @@ def buy() -> InlineKeyboardMarkup:
     # renders first) — a plain emoji in the label is the only way round it.
     packs = [
         InlineKeyboardButton(
-            text=f'{stars} ⭐ = {stars * settings.get("stars_rate")} {emoji.plain(emoji.COIN)}',
+            text=f'{stars} ⭐ = {settings.coins_for(stars)} {emoji.plain(emoji.COIN)}',
             callback_data=f"pay:{stars}",
             style=SUCCESS,
         )
