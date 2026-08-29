@@ -12,7 +12,11 @@ import time
 from contextlib import suppress
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+)
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -60,6 +64,7 @@ class Admin(StatesGroup):
     bulk = State()
     user_id = State()
     give = State()
+    dm = State()  # a message to one person, written from the user card
     broadcast = State()
     setting = State()
     circle_id = State()
@@ -1970,6 +1975,11 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             style=kb.SUCCESS if user["banned"] else kb.DANGER,
         ),
     )
+    b.row(
+        InlineKeyboardButton(
+            text="✉️ Написать", callback_data=f"a:u:dm:{user_id}", style=kb.PRIMARY
+        )
+    )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return text, b.as_markup()
 
@@ -2006,6 +2016,82 @@ async def got_give(message: Message, state: FSMContext) -> None:
     await db.add_coins(user_id, int(raw))
     text, markup = await user_card(user_id)
     await message.answer(text, reply_markup=markup)
+
+
+@router.callback_query(F.data.startswith("a:u:dm:"))
+async def cb_user_dm(call: CallbackQuery, state: FSMContext) -> None:
+    """A message to one person, sent by the bot as its own."""
+    user_id = int(call.data.split(":")[3])
+    await state.set_state(Admin.dm)
+    await state.update_data(dm_to=user_id)
+    await _edit(
+        call,
+        f"✉️ <b>Сообщение для {await people.of(user_id)}</b>\n\n"
+        "Пришли текст, фото, кружок — что угодно. Уйдёт от имени бота, "
+        "без пометки «переслано», как обычное сообщение от него.\n\n"
+        "Перед отправкой покажу, что именно уйдёт.",
+        back_kb(
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Назад", callback_data=f"a:u:card:{user_id}"
+                )
+            ]
+        ),
+    )
+    await call.answer()
+
+
+@router.message(Admin.dm, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_dm(message: Message, state: FSMContext) -> None:
+    """Nothing is sent yet: a person is on the other end, so it is shown first."""
+    user_id = (await state.get_data())["dm_to"]
+    await state.update_data(from_chat=message.chat.id, message_id=message.message_id)
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="✉️ Отправить", callback_data="a:u:dmgo", style=kb.SUCCESS
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"a:u:card:{user_id}", style=kb.DANGER
+        )
+    )
+    await message.answer(
+        f"Выше — то, что уйдёт {await people.of(user_id)}. Отправляем?\n\n"
+        "Можно прислать другое сообщение — тогда уйдёт оно.",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:u:dmgo")
+async def cb_user_dm_go(call: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.clear()
+    if "message_id" not in data or "dm_to" not in data:
+        await call.answer("Нечего отправлять.", show_alert=True)
+        return
+
+    user_id = data["dm_to"]
+    try:
+        await call.bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=data["from_chat"],
+            message_id=data["message_id"],
+        )
+    except TelegramForbiddenError:
+        await call.answer("Заблокировал бота", show_alert=True)
+        note = "🔴 Не дошло: заблокировал бота или не запускал его."
+    except TelegramAPIError as error:
+        await call.answer("Не отправилось", show_alert=True)
+        note = f"🔴 Не дошло: {html.escape(str(error))[:120]}"
+    else:
+        await call.answer("Отправлено")
+        note = "🟢 Отправлено."
+
+    text, markup = await user_card(user_id)
+    await _edit(call, f"{note}\n\n{text}", markup)
 
 
 @router.callback_query(F.data.startswith("a:u:ban:"))
