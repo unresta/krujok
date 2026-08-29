@@ -77,6 +77,15 @@ PUSH_TICK = 900.0  # seconds between sweeps
 PROMO_ENABLED = 1
 PROMO_EVERY_HOURS = 6  # how rarely one person meets a promo post
 
+# --- paid subscriptions ---
+# Priced per day in coins. A+ buys a daily allowance of free circles, the two
+# above it buy the allowance away entirely and let circles be saved.
+TIER_A1_PRICE = 80
+TIER_A2_PRICE = 100
+TIER_PRO_PRICE = 150
+TIER_A1_VIEWS = 100  # free circles a day on A+
+TIER_PRO_PENDING = 50  # unmoderated uploads Premium may hold at once
+
 # --- cheques ---
 CHEQUE_MIN_REFS = 3  # invited friends a «refs» cheque asks for
 

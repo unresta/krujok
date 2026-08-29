@@ -76,6 +76,7 @@ BTN_REF = "Рефералы"
 BTN_RULES = "Правила и FAQ"
 BTN_SHOP = "Магазин"
 BTN_ANKETAS = "Смотреть анкеты"
+BTN_SUBS = "Подписка"
 
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
@@ -85,6 +86,7 @@ MENU_ICONS = {
     BTN_REF: emoji.REF,
     BTN_RULES: emoji.RULES,
     BTN_SHOP: emoji.SHOP,
+    BTN_SUBS: emoji.SHOP,
 }
 
 # Only the two money-making buttons are coloured; the rest stay plain, so the
@@ -92,6 +94,7 @@ MENU_ICONS = {
 MENU_STYLES = {
     BTN_WATCH: SUCCESS,
     BTN_SHOP: SUCCESS,
+    BTN_SUBS: SUCCESS,
     BTN_ANKETAS: None,
     BTN_PROFILE: None,
     BTN_FEED: None,
@@ -118,6 +121,7 @@ MENU_BUTTONS = frozenset(
         BTN_REF,
         BTN_RULES,
         BTN_SHOP,
+        BTN_SUBS,
     }
 )
 
@@ -129,7 +133,7 @@ def main_menu() -> ReplyKeyboardMarkup:
             [_menu_button(BTN_ANKETAS)],
             [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
             [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
-            [_menu_button(BTN_SHOP)],
+            [_menu_button(BTN_SHOP), _menu_button(BTN_SUBS)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -751,6 +755,46 @@ def crypto_invoice(provider: str, invoice_id: str, link: str) -> InlineKeyboardM
 def buy_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
+    return kb.as_markup()
+
+
+def tiers_menu() -> InlineKeyboardMarkup:
+    """One button per tier, each carrying its own price a day."""
+    import tiers
+
+    kb = InlineKeyboardBuilder()
+    for code in tiers.ORDER:
+        mark = "⭐ " if code == tiers.PRO else ""
+        kb.row(
+            InlineKeyboardButton(
+                text=f"{mark}Подписка {tiers.title(code)} · "
+                f"{tiers.price_of(code, 1)} {emoji.plain(emoji.COIN)}/день",
+                callback_data=f"tier:{code}",
+                style=SUCCESS if code == tiers.PRO else PRIMARY,
+            )
+        )
+    kb.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return kb.as_markup()
+
+
+def tier_buy(code: str) -> InlineKeyboardMarkup:
+    """A day, a week, a month — the same price a day, counted out."""
+    import tiers
+
+    kb = InlineKeyboardBuilder()
+    for days in tiers.DAYS:
+        kb.row(
+            InlineKeyboardButton(
+                text=f"{days} дн · {tiers.price_of(code, days)} "
+                f"{emoji.plain(emoji.COIN)}",
+                callback_data=f"tier:buy:{code}:{days}",
+                style=SUCCESS,
+            )
+        )
+    kb.row(
+        InlineKeyboardButton(text="⬅️ К подпискам", callback_data="tier:list"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
+    )
     return kb.as_markup()
 
 

@@ -39,6 +39,11 @@ DEFAULTS: dict[str, int] = {
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_hours": config.PROMO_EVERY_HOURS,
     "cheque_min_refs": config.CHEQUE_MIN_REFS,
+    "tier_a1_price": config.TIER_A1_PRICE,
+    "tier_a2_price": config.TIER_A2_PRICE,
+    "tier_pro_price": config.TIER_PRO_PRICE,
+    "tier_a1_views": config.TIER_A1_VIEWS,
+    "tier_pro_pending": config.TIER_PRO_PENDING,
     "maintenance": 0,
 }
 
@@ -81,6 +86,11 @@ TITLES: dict[str, str] = {
     "usdt_rate": "Монеток за 1 USDT",
     "promo_every_hours": "Показ раз в, ч",
     "cheque_min_refs": "Рефералов для чека",
+    "tier_a1_price": "A+ монеток в день",
+    "tier_a2_price": "A++ монеток в день",
+    "tier_pro_price": "Premium монеток в день",
+    "tier_a1_views": "A+ кружков в день",
+    "tier_pro_pending": "Premium кружков на проверке",
 }
 
 # Twenty-four knobs in one column is a wall; the panel shows them by subject.
@@ -104,6 +114,13 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "push_cooldown_hours",
         "push_batch",
         "push_free_views",
+    ),
+    "💎 Подписки": (
+        "tier_a1_price",
+        "tier_a2_price",
+        "tier_pro_price",
+        "tier_a1_views",
+        "tier_pro_pending",
     ),
     "⚠️ Модерация": ("reports_to_hide",),
     "📰 Посты": ("promo_every_hours",),
@@ -141,6 +158,11 @@ LIMITS: dict[str, tuple[int, int]] = {
     "promo_enabled": (0, 1),
     "promo_every_hours": (1, 720),
     "cheque_min_refs": (1, 1000),
+    "tier_a1_price": (1, 100_000),
+    "tier_a2_price": (1, 100_000),
+    "tier_pro_price": (1, 100_000),
+    "tier_a1_views": (1, 10_000),
+    "tier_pro_pending": (1, 1000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

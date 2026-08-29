@@ -47,6 +47,7 @@ import keyboards as kb
 import settings
 import text_manager
 import texts
+import tiers
 from config import ADMIN_IDS, DB_PATH
 
 logger = logging.getLogger(__name__)
@@ -295,7 +296,10 @@ async def cb_sec_reports(call: CallbackQuery, state: FSMContext) -> None:
                     InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
                 ],
                 [
+                    InlineKeyboardButton(text="💎 Подписки", callback_data="a:tiers"),
                     InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
+                ],
+                [
                     InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
                 ],
             ]
@@ -364,6 +368,40 @@ async def cb_stats(call: CallbackQuery) -> None:
         f"Платежи: {d['payments']} шт, {d['stars']} ⭐\n"
         f"Рефералы: {confirmed} подтверждено из {invited}",
         back_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:tiers")
+async def cb_tiers(call: CallbackQuery, state: FSMContext) -> None:
+    """What the subscriptions are doing: who holds one, and what they took in."""
+    await state.clear()
+    stats = await db.tier_stats()
+    held = {row["tier"]: row["people"] for row in await db.tiers_in_force()}
+
+    lines = []
+    for code in tiers.ORDER:
+        tier = tiers.get(code)
+        lines.append(
+            f"<b>{tier.title}</b> · {tier.price} 🪙/день — "
+            f"сейчас у {held.get(code, 0)}"
+        )
+
+    await _edit(
+        call,
+        "💎 <b>Подписки</b>\n\n"
+        f"Действуют сейчас: <b>{stats['active']}</b>\n"
+        f"Продаж всего: {stats['sales']} на {stats['coins']} 🪙 "
+        f"(за сутки {stats['coins_today']} 🪙)\n\n"
+        + "\n".join(lines)
+        + "\n\nЦены и лимиты — в «Экономике» → 💎 Подписки.",
+        back_kb(
+            [
+                InlineKeyboardButton(
+                    text="⬅️ К отчётам", callback_data="a:sec:reports"
+                )
+            ]
+        ),
     )
     await call.answer()
 
@@ -1935,6 +1973,18 @@ async def got_user_id(message: Message, state: FSMContext) -> None:
     )
 
 
+def _tier_line(user) -> str:
+    """«A++ до 03.09.2026 12:40 (осталось 5 дней)», or that there is none."""
+    code = db.active_tier(user)
+    if not code:
+        return "нет"
+    line = f"<b>{tiers.title(code)}</b> до {texts.when(user['tier_until'])}"
+    left = tiers.daily_views(code)
+    if left:
+        line += f" · сегодня осталось {db.tier_views_left(user, left)} из {left}"
+    return line
+
+
 async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     user = await db.get_user(user_id)
     stats = await db.user_stats(user_id)
@@ -1948,7 +1998,8 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         + "\n\n"
         f"🪙 Баланс: <b>{user['coins']}</b>\n"
         f"Тип: {kb.PREF_TITLE(user['pref'])}\n"
-        f"Статус: {'🔴 забанен' if user['banned'] else '🟢 активен'}\n\n"
+        f"Статус: {'🔴 забанен' if user['banned'] else '🟢 активен'}\n"
+        f"Подписка: {_tier_line(user)}\n\n"
         f"👀 Просмотрено: {stats['watched']}\n"
         f"📤 Загружено: {stats['approved']} одобрено · {stats['pending']} ждут · "
         f"{stats['rejected']} отказ\n"

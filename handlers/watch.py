@@ -13,11 +13,14 @@ import outbox
 import people
 import settings
 import texts
+import tiers
 from config import ADMIN_CHAT_ID, ADMIN_IDS, WATCH_COOLDOWN
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+LOW_ALLOWANCE = 10  # circles left before the daily count is worth showing
 
 _last_tap: dict[int, float] = {}
 
@@ -64,11 +67,24 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         await origin.answer(texts.EMPTY, reply_markup=kb.empty_feed(user["pref"]))
         return
 
-    # Buying an author's profile makes their circles free for that viewer, and a
-    # reminder may have left a free one owed; coins are the last resort.
+    # Buying an author's profile makes their circles free for that viewer, then
+    # a subscription, then a reminder's gift; coins are the last resort. The
+    # gift comes after the subscription on purpose — it keeps for later instead
+    # of being spent on a circle that was free anyway.
+    tier = db.active_tier(user)
+    limit = tiers.daily_views(tier)
     free = await db.has_content_access(user_id, circle["uploader_id"], circle["id"])
-    on_the_house = not free and await db.use_free_view(user_id)
-    free = free or on_the_house
+    on_subscription = not free and tier and await db.use_tier_view(user_id, limit)
+    if tier and not free and not on_subscription:
+        # A+ ran out its allowance for today. The feed still works, it just
+        # costs again — and saying why is better than silently charging.
+        with suppress(TelegramAPIError):
+            await origin.answer(texts.tier_limit_hit(limit))
+
+    on_the_house = (
+        not free and not on_subscription and await db.use_free_view(user_id)
+    )
+    free = free or on_subscription or on_the_house
     if not free and not await db.try_spend(user_id, cost):  # raced with another tap
         await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
         return
@@ -79,7 +95,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         await bot.send_video_note(
             chat_id=user_id,
             video_note=circle["file_id"],
-            protect_content=True,  # no forwarding, no saving
+            # Forwarding and saving are what A++ and Premium are sold on;
+            # for everyone else a circle stays inside the bot.
+            protect_content=not tiers.savable(tier),
             reply_markup=kb.circle(
                 circle["id"],
                 circle["likes"],
@@ -90,7 +108,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
             ),
         )
     except TelegramAPIError:
-        if on_the_house:
+        if on_subscription:
+            await db.refund_tier_view(user_id)  # a circle nobody got costs nothing
+        elif on_the_house:
             # Give the free circle back without re-stamping the reminder: a
             # failed send must not push the next nudge a whole cooldown away.
             await db.grant_free_views(user_id, 1)
@@ -106,6 +126,13 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         left = (await db.get_user(user_id))["free_views"]
         with suppress(TelegramAPIError):
             await origin.answer(texts.free_view_left(left))
+    elif on_subscription and limit and notice:
+        # A daily allowance is worth mentioning only as it runs out — a counter
+        # under every one of a hundred circles is noise.
+        left = db.tier_views_left(await db.get_user(user_id), limit)
+        if left <= LOW_ALLOWANCE:
+            with suppress(TelegramAPIError):
+                await origin.answer(texts.tier_views_left(left))
     if not free:  # a free view was already paid for when the profile was bought
         await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
 

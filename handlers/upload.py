@@ -10,6 +10,7 @@ import keyboards as kb
 import outbox
 import people
 import texts
+import tiers
 import ui
 import settings
 router = Router()
@@ -52,7 +53,10 @@ async def got_video(message: Message, state: FSMContext) -> None:
 
     if not await _may_upload(message):
         return
-    if await db.pending_count(message.from_user.id) >= settings.get("max_pending"):
+    # Premium is sold on a longer queue, so the ceiling is the tier's, not one
+    # number for everybody.
+    limit = tiers.max_pending(db.active_tier(await db.get_user(message.from_user.id)))
+    if await db.pending_count(message.from_user.id) >= limit:
         await message.answer(texts.TOO_MANY_PENDING, reply_markup=kb.back())
         return
     if note.duration < settings.get("min_duration"):

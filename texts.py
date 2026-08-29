@@ -14,6 +14,7 @@ shipped one instead of taking the message down — see _fmt.
 
 import html
 import logging
+import time
 
 import emoji
 import settings
@@ -137,7 +138,13 @@ FAQ = (
     "Обычно недолго. Пока кружок на проверке, можно загружать следующие — "
     "до {max_pending} штук.\n\n"
     "<b>Можно ли скачать или переслать кружок?</b>\n"
-    "Нет: кружочки уходят с защитой от пересылки и сохранения.\n\n"
+    "По умолчанию нет: кружочки уходят с защитой от пересылки и сохранения. "
+    "Защита снимается подпиской A++ или Premium — они в «Подписке».\n\n"
+    "<b>Что дают подписки?</b>\n"
+    "Просмотр кружочков перестаёт стоить монетки: A+ даёт бесплатный лимит "
+    "в день, A++ и Premium — без лимита, плюс пересылка и скачивание. "
+    "Premium ещё поднимает потолок кружочков на проверке. "
+    "Платятся монетками за день, кнопка «Подписка» в меню.\n\n"
     "<b>Почему для загрузки нужна анкета?</b>\n"
     "Потому что кружок и автор связаны: под каждым кружком есть кнопка "
     "«Профиль автора», через неё зритель покупает доступ ко всем твоим "
@@ -1269,3 +1276,141 @@ NOT_ENOUGH_COINS_TOAST = "Не хватает монеток."
 BOUGHT_TOAST = "Куплено 🟢"
 STALE_BUTTON = "Кнопка устарела"
 
+
+
+# --- paid subscriptions ---------------------------------------------------
+
+TIERS_HEADER = "⭐ <b>Выберите тип подписки:</b>"
+TIERS_ACTIVE = "🟢 Сейчас у тебя <b>{tier}</b> — до {until} ({left})."
+TIERS_BALANCE = "{coin} Баланс: <b>{coins}</b>"
+
+
+def tiers_screen(coins: int, tier: str, until: int) -> str:
+    import tiers
+
+    blocks = [TIERS_HEADER]
+    if tier:
+        blocks.append(
+            _fmt(
+                "TIERS_ACTIVE",
+                TIERS_ACTIVE,
+                tier=tiers.title(tier),
+                until=when(until),
+                left=days_left(until),
+            )
+        )
+    for code in tiers.ORDER:
+        lines = "\n".join(f"   -<i>{perk}</i>" for perk in tiers.perks(code))
+        mark = "⭐ " if code == tiers.PRO else ""
+        blocks.append(f"<b>{mark}{tiers.title(code)}</b>\n{lines}")
+    blocks.append(_fmt("TIERS_BALANCE", TIERS_BALANCE, coin=coin(), coins=coins))
+    return "\n\n".join(blocks)
+
+
+TIER_CARD = (
+    "<b>{tier}</b> · {price} {coin}/день\n\n"
+    "{perks}\n\n"
+    "{coin} Баланс: <b>{coins}</b>\n"
+    "Выбери, на сколько берёшь:"
+)
+
+
+def tier_card(code: str, coins: int) -> str:
+    import tiers
+
+    return _fmt(
+        "TIER_CARD",
+        TIER_CARD,
+        tier=tiers.title(code),
+        price=tiers.price_of(code, 1),
+        coin=coin(),
+        perks="\n".join(f"• {perk}" for perk in tiers.perks(code)),
+        coins=coins,
+    )
+
+
+TIER_SWITCH = (
+    "⚠️ Сейчас работает <b>{current}</b>, и до конца {left}.\n"
+    "Другая подписка встанет на её место — оставшиеся дни сгорят."
+)
+
+
+def tier_switch(current: str, until: int) -> str:
+    import tiers
+
+    return _fmt(
+        "TIER_SWITCH", TIER_SWITCH, current=tiers.title(current), left=days_left(until)
+    )
+
+
+TIER_BOUGHT = (
+    "🟢 <b>{tier}</b> на {days} — списано {price} {coin}.\n"
+    "Работает до <b>{until}</b>."
+)
+
+
+def tier_bought(code: str, days: int, price: int, until: int) -> str:
+    import tiers
+
+    return _fmt(
+        "TIER_BOUGHT",
+        TIER_BOUGHT,
+        tier=tiers.title(code),
+        days=day_word(days),
+        price=price,
+        coin=coin(),
+        until=when(until),
+    )
+
+
+TIER_POOR = "Не хватает монеток: нужно {price}, на балансе {coins}."
+
+
+def tier_poor(price: int, coins: int) -> str:
+    return _fmt("TIER_POOR", TIER_POOR, price=price, coins=coins)
+
+
+TIER_LIMIT_HIT = (
+    "Бесплатные {views} {circles} на сегодня кончились — дальше как обычно, "
+    "{watch_cost} {coin} за просмотр. Лимит обнулится завтра, "
+    "а на A++ и Premium его нет вовсе."
+)
+
+
+def tier_limit_hit(views: int) -> str:
+    return _fmt(
+        "TIER_LIMIT_HIT",
+        TIER_LIMIT_HIT,
+        views=views,
+        circles=circles_word(views),
+        watch_cost=settings.get("watch_cost"),
+        coin=coin(),
+    )
+
+
+TIER_VIEWS_LEFT = "🎁 По подписке. Бесплатных сегодня осталось: <b>{left}</b>."
+
+
+def tier_views_left(left: int) -> str:
+    return _fmt("TIER_VIEWS_LEFT", TIER_VIEWS_LEFT, left=left)
+
+
+def day_word(days: int) -> str:
+    tail = days % 100
+    if 11 <= tail <= 14:
+        return f"{days} дней"
+    return f"{days} " + ("день" if tail % 10 == 1 else
+                         "дня" if 2 <= tail % 10 <= 4 else "дней")
+
+
+def days_left(until: int) -> str:
+    left = max(0, until - int(time.time()))
+    if left >= 86400:
+        return f"осталось {day_word(left // 86400)}"
+    if left >= 3600:
+        return f"осталось {left // 3600} ч"
+    return "меньше часа"
+
+
+def when(stamp: int) -> str:
+    return time.strftime("%d.%m.%Y %H:%M", time.localtime(stamp))

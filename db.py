@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- Every subscription ever sold, for the panel's takings and for answering
+-- «за что списали»: the users row only carries the one in force.
+CREATE TABLE IF NOT EXISTS tier_sales (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    tier    TEXT    NOT NULL,
+    days    INTEGER NOT NULL,
+    price   INTEGER NOT NULL,             -- coins actually taken
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tier_sales_user ON tier_sales(user_id, ts);
+
 CREATE TABLE IF NOT EXISTS circles (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id        TEXT    NOT NULL,
@@ -305,6 +317,12 @@ MIGRATIONS = {
         # Filled in from every update, so it stays current on its own.
         "name": "TEXT NOT NULL DEFAULT ''",
         "username": "TEXT NOT NULL DEFAULT ''",
+        # Paid subscription: which tier, until when, and how much of today's
+        # free allowance is spent. An empty tier is everyone who never bought.
+        "tier": "TEXT NOT NULL DEFAULT ''",
+        "tier_until": "INTEGER NOT NULL DEFAULT 0",
+        "tier_day": "INTEGER NOT NULL DEFAULT 0",  # which day the count is for
+        "tier_views": "INTEGER NOT NULL DEFAULT 0",
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -587,6 +605,124 @@ async def mark_pushed(user_id: int, free_views: int) -> None:
         (free_views, user_id),
     )
     await conn().commit()
+
+
+# --- paid subscriptions --------------------------------------------------
+
+
+def active_tier(user) -> str:
+    """The tier in force right now, '' once it has run out.
+
+    Expiry is read, never swept: a background job that clears rows would only
+    be another thing to go wrong, and the timestamp already knows the answer.
+    """
+    if user is None:
+        return ""
+    keys = user.keys()
+    if "tier" not in keys or not user["tier"]:
+        return ""
+    return user["tier"] if user["tier_until"] > time.time() else ""
+
+
+async def buy_tier(user_id: int, tier: str, days: int, price: int) -> int | None:
+    """Take the coins and start (or extend) the subscription. None when poor.
+
+    Extending the same tier adds days to what is left; switching to another one
+    starts from now, because two subscriptions cannot both be in force.
+    """
+    if not await try_spend(user_id, price):
+        return None
+
+    user = await get_user(user_id)
+    now = int(time.time())
+    same = active_tier(user) == tier
+    start = max(now, user["tier_until"]) if same else now
+    until = start + days * 86400
+
+    await conn().execute(
+        "UPDATE users SET tier = ?, tier_until = ? WHERE id = ?",
+        (tier, until, user_id),
+    )
+    await conn().execute(
+        "INSERT INTO tier_sales(user_id, tier, days, price) VALUES (?, ?, ?, ?)",
+        (user_id, tier, days, price),
+    )
+    await conn().commit()
+    return until
+
+
+async def use_tier_view(user_id: int, limit: int) -> bool:
+    """Spend one of today's free circles. True while the allowance holds.
+
+    `limit` of 0 means the tier has no ceiling, and nothing is counted at all.
+    The day is the UTC one — a counter that resets on the viewer's own midnight
+    would need a timezone the bot has never been told.
+    """
+    if not limit:
+        return True
+
+    today = int(time.time()) // 86400
+    cur = await conn().execute(
+        """
+        UPDATE users
+           SET tier_views = CASE WHEN tier_day = :today THEN tier_views + 1 ELSE 1 END,
+               tier_day = :today
+         WHERE id = :uid
+           AND (tier_day != :today OR tier_views < :limit)
+        """,
+        {"today": today, "uid": user_id, "limit": limit},
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def refund_tier_view(user_id: int) -> None:
+    """Hand back a circle from today's allowance that never got delivered."""
+    await conn().execute(
+        "UPDATE users SET tier_views = tier_views - 1"
+        " WHERE id = ? AND tier_day = ? AND tier_views > 0",
+        (user_id, int(time.time()) // 86400),
+    )
+    await conn().commit()
+
+
+def tier_views_left(user, limit: int) -> int:
+    """What is left of today's allowance; `limit` back when the day has turned."""
+    if not limit:
+        return 0
+    if "tier_day" not in user.keys():
+        return limit
+    if user["tier_day"] != int(time.time()) // 86400:
+        return limit
+    return max(0, limit - user["tier_views"])
+
+
+async def tier_stats() -> dict:
+    """Who is subscribed right now, and what the tiers have taken in."""
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM users WHERE tier != ''
+             AND tier_until > strftime('%s','now'))                 AS active,
+          (SELECT COUNT(*) FROM tier_sales)                         AS sales,
+          (SELECT COALESCE(SUM(price), 0) FROM tier_sales)          AS coins,
+          (SELECT COALESCE(SUM(price), 0) FROM tier_sales
+             WHERE ts > strftime('%s','now') - 86400)               AS coins_today
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def tiers_in_force() -> list[aiosqlite.Row]:
+    """Active subscriptions grouped by tier, for the panel."""
+    async with conn().execute(
+        """
+        SELECT tier, COUNT(*) AS people FROM users
+        WHERE tier != '' AND tier_until > strftime('%s','now')
+        GROUP BY tier
+        """
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def use_free_view(user_id: int) -> bool:
