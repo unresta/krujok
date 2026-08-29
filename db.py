@@ -561,9 +561,15 @@ async def grant_free_views(user_id: int, count: int) -> None:
 
 
 async def mark_pushed(user_id: int, free_views: int) -> None:
+    """Stamp the reminder and hand out its gift.
+
+    The gift replaces whatever the previous reminder left — it does not add to
+    it. Someone who ignores the bot for a week comes back with one free circle,
+    not with a week's worth of them; only the newest reminder is live.
+    """
     await conn().execute(
         "UPDATE users SET last_push = strftime('%s','now'),"
-        " free_views = free_views + ? WHERE id = ?",
+        " free_views = ? WHERE id = ?",
         (free_views, user_id),
     )
     await conn().commit()

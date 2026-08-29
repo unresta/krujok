@@ -993,7 +993,8 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         f"За проход: до {settings.get('push_batch')} человек, раз в {tick} мин, "
         f"круглые сутки\n"
         f"В подарок: {settings.get('push_free_views')} "
-        f"{texts.circles_word(settings.get('push_free_views'))}\n"
+        f"{texts.circles_word(settings.get('push_free_views'))} "
+        f"— не копятся, прошлый подарок сгорает\n"
         f"Всего получали напоминания: {pool['ever_pushed']}\n\n"
         "Цифры правятся в «Экономике».",
         b.as_markup(),

@@ -90,7 +90,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         )
     except TelegramAPIError:
         if on_the_house:
-            await db.mark_pushed(user_id, 1)  # give the free circle back
+            # Give the free circle back without re-stamping the reminder: a
+            # failed send must not push the next nudge a whole cooldown away.
+            await db.grant_free_views(user_id, 1)
         elif not free:
             await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
         await origin.answer(texts.SEND_FAILED)
