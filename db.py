@@ -1556,7 +1556,11 @@ async def pending_profiles() -> int:
 
 
 async def pick_profile(viewer_id: int) -> aiosqlite.Row | None:
-    """A profile the viewer has not seen yet, never their own."""
+    """A profile the viewer has not seen yet, never their own.
+
+    An author without a single approved circle has nothing to sell, so their
+    card never reaches the feed.
+    """
     async with conn().execute(
         """
         SELECT p.*,
@@ -1566,6 +1570,8 @@ async def pick_profile(viewer_id: int) -> aiosqlite.Row | None:
         WHERE p.status = 'approved' AND p.user_id != :uid
           AND p.user_id NOT IN (SELECT author_id FROM profile_views
                                  WHERE buyer_id = :uid)
+          AND EXISTS (SELECT 1 FROM circles c
+                       WHERE c.uploader_id = p.user_id AND c.status = 'approved')
         ORDER BY RANDOM() LIMIT 1
         """,
         {"uid": viewer_id},
