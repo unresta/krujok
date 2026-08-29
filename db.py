@@ -300,6 +300,8 @@ MIGRATIONS = {
     },
     "gate_channels": {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
+        # A title typed by hand is not overwritten by the one Telegram reports.
+        "titled": "INTEGER NOT NULL DEFAULT 0",
     },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
@@ -2111,9 +2113,20 @@ async def set_channel_active(channel_id: int, active: bool) -> None:
 
 
 async def set_channel_meta(channel_id: int, title: str, link: str) -> None:
+    """Refresh from Telegram — but never over a name the admin chose."""
     await conn().execute(
-        "UPDATE gate_channels SET title = ?, link = ? WHERE id = ?",
+        "UPDATE gate_channels SET title = CASE WHEN titled = 1 THEN title ELSE ? END,"
+        " link = ? WHERE id = ?",
         (title, link, channel_id),
+    )
+    await conn().commit()
+
+
+async def set_channel_title(channel_id: int, title: str) -> None:
+    """What the button says, chosen by hand and kept that way."""
+    await conn().execute(
+        "UPDATE gate_channels SET title = ?, titled = 1 WHERE id = ?",
+        (title, channel_id),
     )
     await conn().commit()
 

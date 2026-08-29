@@ -73,6 +73,7 @@ class Admin(StatesGroup):
     content_edit = State()  # unified text + emoji editing
     crypto_asset = State()
     gate_bot = State()
+    channel_title = State()
     post = State()
     botman_folder = State()
 
@@ -495,7 +496,10 @@ async def _channel_card(bot: Bot, channel) -> str:
         f"Проверка: {status}\n\n"
         f"Пришло через него: <b>{channel['joined']}</b>\n"
         f"За сутки: {channel['joined_today']}\n"
-        f"Ссылка: {channel['link'] or '—'}"
+        f"Ссылка: {channel['link'] or '—'}\n\n"
+        f"Кнопка у пользователя: <b>{icon} "
+        f"{html.escape((channel['title'] or channel['chat'])[:28])}</b>"
+        + (" · своё название" if channel["titled"] else "")
     )
 
 
@@ -519,6 +523,11 @@ def _channel_kb(channel) -> InlineKeyboardMarkup:
         )
     b.row(
         InlineKeyboardButton(
+            text="✏️ Название кнопки", callback_data=f"a:chan:name:{channel['id']}"
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
             text="🔄 Обновить данные", callback_data=f"a:chan:{channel['id']}"
         ),
         InlineKeyboardButton(
@@ -537,6 +546,58 @@ async def _show_channel(call: CallbackQuery, channel_id: int) -> None:
     rows = await db.channels()
     channel = next((r for r in rows if r["id"] == channel_id), channel)
     await _edit(call, await _channel_card(call.bot, channel), _channel_kb(channel))
+
+
+@router.callback_query(F.data.startswith("a:chan:name:"))
+async def cb_channel_name(call: CallbackQuery, state: FSMContext) -> None:
+    """The button label is what a user sees, so it is not Telegram's to decide."""
+    channel_id = int(call.data.split(":")[3])
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+
+    await state.set_state(Admin.channel_title)
+    await state.update_data(channel_id=channel_id)
+    icon = "🤖" if channel["kind"] == "bot" else "📢"
+    await _edit(
+        call,
+        "✏️ <b>Название кнопки</b>\n\n"
+        f"Сейчас: <b>{icon} "
+        f"{html.escape((channel['title'] or channel['chat'])[:28])}</b>\n\n"
+        "Пришли новое — до 28 знаков, значок бот подставит сам. "
+        "Это то, что видит пользователь на экране подписки: "
+        "«Наш спонсор», «Розыгрыши», что угодно.\n\n"
+        "Своё название переживает «🔄 Обновить данные» — Telegram его "
+        "не перезапишет.",
+        back_kb(
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Назад", callback_data=f"a:chan:{channel_id}"
+                )
+            ]
+        ),
+    )
+    await call.answer()
+
+
+@router.message(Admin.channel_title, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_channel_title(message: Message, state: FSMContext) -> None:
+    title = (message.text or "").strip()
+    if not 1 <= len(title) <= 28:
+        await message.answer("Название — от 1 до 28 знаков.")
+        return
+
+    channel_id = (await state.get_data())["channel_id"]
+    await state.clear()
+    await db.set_channel_title(channel_id, title)
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await message.answer("Канала уже нет.", reply_markup=back_kb())
+        return
+    await message.answer(
+        await _channel_card(message.bot, channel), reply_markup=_channel_kb(channel)
+    )
 
 
 @router.callback_query(F.data.startswith("a:chan:on:"))
