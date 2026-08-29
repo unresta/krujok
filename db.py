@@ -290,6 +290,10 @@ MIGRATIONS = {
         "last_promo": "INTEGER NOT NULL DEFAULT 0",  # when a promo post last came
         # A cheque opened before the gate waits here until the gate is passed.
         "pending_cheque": "TEXT NOT NULL DEFAULT ''",
+        # Who this is, for the panel: an id alone tells a moderator nothing.
+        # Filled in from every update, so it stays current on its own.
+        "name": "TEXT NOT NULL DEFAULT ''",
+        "username": "TEXT NOT NULL DEFAULT ''",
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -419,6 +423,33 @@ async def try_spend(user_id: int, amount: int) -> bool:
     )
     await conn().commit()
     return cur.rowcount > 0
+
+
+async def user_row(user_id: int) -> aiosqlite.Row | None:
+    """Read-only lookup — unlike get_user() it does not create the row."""
+    async with conn().execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def touch_identity(user_id: int, name: str, username: str) -> None:
+    """Keep the panel's idea of who this is in step with Telegram."""
+    await conn().execute(
+        "UPDATE users SET name = ?, username = ? WHERE id = ?",
+        (name[:64], username or "", user_id),
+    )
+    await conn().commit()
+
+
+async def backfill_identity() -> int:
+    """Authors already told us their username once — use it until they return."""
+    cur = await conn().execute(
+        "UPDATE users SET username = COALESCE((SELECT p.username FROM profiles p"
+        " WHERE p.user_id = users.id), '') WHERE username = ''"
+        " AND EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = users.id"
+        "             AND p.username IS NOT NULL AND p.username != '')"
+    )
+    await conn().commit()
+    return cur.rowcount
 
 
 async def touch_seen(user_id: int, stale: int = 300) -> None:
@@ -557,6 +588,8 @@ async def referral_counts(user_id: int) -> tuple[int, int]:
 # referral is credited is not stored, and their arrival is what an admin means
 # by «за сутки» anyway.
 _INVITED = "ref_by IS NOT NULL AND ref_by != 0"
+# Same, for the queries that join the referrer's own row in as «r».
+_INVITED_U = "u.ref_by IS NOT NULL AND u.ref_by != 0"
 
 
 async def referral_overview() -> dict:
@@ -613,24 +646,64 @@ async def referral_overview() -> dict:
     return row
 
 
-async def top_referrers(limit: int = 15, window: int = 0) -> list[aiosqlite.Row]:
-    """Who brought the most, all time or within a window of seconds."""
+async def top_referrers(
+    limit: int = 10, offset: int = 0, window: int = 0, order: str = "confirmed"
+) -> list[aiosqlite.Row]:
+    """Who brought the most — with who they are, not just their id."""
     clause = "AND u.created_at > strftime('%s','now') - :window" if window else ""
+    sort = {
+        "confirmed": "confirmed DESC, invited DESC",
+        "invited": "invited DESC, confirmed DESC",
+        "alive": "alive DESC, confirmed DESC",
+    }.get(order, "confirmed DESC, invited DESC")
     async with conn().execute(
         f"""
-        SELECT u.ref_by AS user_id,
-               COUNT(*)                       AS invited,
+        SELECT u.ref_by AS user_id, r.name AS name, r.username AS username,
+               COUNT(*)                         AS invited,
                COALESCE(SUM(u.ref_credited), 0) AS confirmed,
-               COALESCE(SUM(u.banned), 0)     AS banned,
+               COALESCE(SUM(u.banned), 0)       AS banned,
                COALESCE(SUM(u.last_seen > strftime('%s','now') - 604800), 0) AS alive,
-               MAX(u.created_at)              AS last_at
-        FROM users u
-        WHERE {_INVITED} {clause}
+               MAX(u.created_at)                AS last_at
+        FROM users u LEFT JOIN users r ON r.id = u.ref_by
+        WHERE {_INVITED_U} {clause}
         GROUP BY u.ref_by
-        HAVING confirmed > 0 OR invited > 0
-        ORDER BY confirmed DESC, invited DESC LIMIT :limit
+        ORDER BY {sort} LIMIT :limit OFFSET :offset
         """,
-        {"limit": limit, "window": window},
+        {"limit": limit, "offset": offset, "window": window},
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def count_referrers(window: int = 0) -> int:
+    clause = "AND created_at > strftime('%s','now') - :window" if window else ""
+    async with conn().execute(
+        f"SELECT COUNT(DISTINCT ref_by) FROM users WHERE {_INVITED} {clause}",
+        {"window": window},
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def suspect_referrers(limit: int = 10) -> list[aiosqlite.Row]:
+    """Volume without result: many invited, few of them alive or confirmed.
+
+    This is what farming looks like from the outside — the numbers an admin
+    would otherwise have to spot by scrolling the top.
+    """
+    async with conn().execute(
+        f"""
+        SELECT u.ref_by AS user_id, r.name AS name, r.username AS username,
+               COUNT(*)                         AS invited,
+               COALESCE(SUM(u.ref_credited), 0) AS confirmed,
+               COALESCE(SUM(u.banned), 0)       AS banned,
+               COALESCE(SUM(u.accepted), 0)     AS accepted,
+               COALESCE(SUM(u.last_seen > strftime('%s','now') - 604800), 0) AS alive
+        FROM users u LEFT JOIN users r ON r.id = u.ref_by
+        WHERE {_INVITED_U}
+        GROUP BY u.ref_by
+        HAVING invited >= 5 AND (alive * 100 / invited) < 25
+        ORDER BY invited DESC LIMIT ?
+        """,
+        (limit,),
     ) as cur:
         return list(await cur.fetchall())
 
@@ -658,8 +731,9 @@ async def referrer_detail(user_id: int) -> dict:
 
 async def referred_users(user_id: int, limit: int = 10) -> list[aiosqlite.Row]:
     async with conn().execute(
-        "SELECT id, created_at, ref_credited, accepted, banned, last_seen, coins"
-        " FROM users WHERE ref_by = ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT id, name, username, created_at, ref_credited, accepted, banned,"
+        " last_seen, coins FROM users WHERE ref_by = ?"
+        " ORDER BY created_at DESC LIMIT ?",
         (user_id, limit),
     ) as cur:
         return list(await cur.fetchall())

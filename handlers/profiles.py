@@ -20,6 +20,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
 import keyboards as kb
+import people
 import settings
 import texts
 from config import ABOUT_MAX, ADMIN_CHAT_ID, ADMIN_IDS
@@ -459,8 +460,7 @@ async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
             chat,
             profile["photo_id"],
             caption=(
-                f"#анкета_изменена от <code>{user_id}</code>"
-                f"{' @' + profile['username'] if profile['username'] else ''}\n"
+                f"#анкета_изменена от {await people.of(user_id)}\n"
                 f"♻️ Отредактирована\n"
                 f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
                 f"Кружочки: {profile['price_content']} · "
@@ -527,7 +527,7 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(Review.reason)
         await state.update_data(user_id=user_id, card=call.message.message_id)
         await call.message.answer(
-            f"Причина отклонения для <code>{user_id}</code>? "
+            f"Причина отклонения для {await people.of(user_id)}? "
             "Пришли одним сообщением — автор её увидит."
         )
         await call.answer()
@@ -947,7 +947,7 @@ async def report_profile(call: CallbackQuery) -> None:
             chat,
             profile["photo_id"],
             caption=(
-                f"#жалоба на анкету <code>{author_id}</code> — {count} шт\n"
+                f"#жалоба на анкету {await people.of(author_id)} — {count} шт\n"
                 f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
                 f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
                 f"{html.escape(profile['about'] or 'Без описания')}\n\n"

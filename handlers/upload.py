@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, User
 
 import db
 import keyboards as kb
+import people
 import texts
 import ui
 import settings
@@ -101,7 +102,7 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
             f"#на_проверку <b>#{circle_id}</b>\n"
             f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
             f"Длина: {data['duration']} сек\n"
-            f"Автор: <code>{author.id}</code> {who}",
+            f"Автор: {await people.of(author.id)}",
             reply_markup=kb.moderation(circle_id),
         )
         await db.set_admin_msg(circle_id, card.message_id)

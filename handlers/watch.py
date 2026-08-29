@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
+import people
 import settings
 import texts
 from config import ADMIN_CHAT_ID, ADMIN_IDS, WATCH_COOLDOWN
@@ -236,7 +237,7 @@ async def report(call: CallbackQuery) -> None:
             f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
             f"Причина: {texts.REPORT_REASONS[reason]}\n"
             f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
-            f"Автор: <code>{circle['uploader_id']}</code>\n"
+            f"Автор: {await people.of(circle['uploader_id'])}\n"
             f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
             f"{breakdown}",
             reply_markup=kb.report_review(circle_id),

@@ -18,6 +18,7 @@ from aiogram.types import CallbackQuery, Message
 
 import db
 import keyboards as kb
+import people
 import settings
 import texts
 from config import ADMIN_IDS
@@ -105,7 +106,7 @@ async def got_details(message: Message, state: FSMContext) -> None:
             chat,
             f"#выплата <b>#{payout_id}</b>\n"
             f"{coins} монеток → <b>{stars} ⭐</b>\n"
-            f"Кому: <code>{message.from_user.id}</code> {who}\n"
+            f"Кому: {await people.of(message.from_user.id)}\n"
             f"Реквизиты: <code>{html.escape(details)}</code>",
             reply_markup=kb.payout_review(payout_id),
         )

@@ -32,6 +32,11 @@ class UserMiddleware(BaseMiddleware):
         user = await db.get_user(tg_user.id)
         is_admin = tg_user.id in ADMIN_IDS
 
+        # Who they are, kept current for the panel — written only when it moved.
+        name = " ".join(filter(None, (tg_user.first_name, tg_user.last_name)))
+        if (user["name"], user["username"]) != (name, tg_user.username or ""):
+            await db.touch_identity(tg_user.id, name, tg_user.username or "")
+
         # Telegram has already taken the stars: the coins must be credited even
         # for a banned user, during maintenance, and without a subscription.
         # The traffic buyer's report is the same: they are not here to use the bot.

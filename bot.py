@@ -69,6 +69,7 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
 
     await access.adopt_legacy_channel()  # one-channel gate becomes the list
+    await db.backfill_identity()  # authors' usernames until they return
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
     await emoji_manager.resolve(bot)  # resolve custom emoji too
     access.bot_username = (await bot.me()).username  # referral links need it
