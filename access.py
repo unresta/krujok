@@ -20,6 +20,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import botstat
 import db
 import keyboards as kb
 import settings
@@ -49,7 +50,7 @@ async def adopt_legacy_channel() -> None:
     chat = settings.get_text("channel").strip()
     if not chat:
         return
-    if await db.add_channel(chat) is not None:
+    if await db.add_channel(chat, kind='channel') is not None:
         logger.info("gate: channel %s moved from settings into the list", chat)
     await settings.set_text("channel", "")
 
@@ -72,20 +73,34 @@ async def missing_channels(bot: Bot, user_id: int) -> list:
     """
     missing = []
     for channel in await gate_channels():
-        try:
-            member = await bot.get_chat_member(channel["chat"], user_id)
-        except TelegramAPIError as error:
-            logger.warning(
-                "gate: cannot check %s in %s (%s) — not holding it against them",
-                user_id, channel["chat"], error,
-            )
+        inside = await _is_inside(bot, channel, user_id)
+        if inside is None:  # nobody could tell us — do not hold it against them
             continue
-        if member.status in MEMBER_STATUSES:
+        if inside:
             # What the advertiser is paying for: this person, in their channel.
             await db.mark_join(channel["id"], user_id)
         else:
             missing.append(channel)
     return missing
+
+
+async def _is_inside(bot: Bot, channel, user_id: int) -> bool | None:
+    """True/False, or None when the answer could not be obtained at all.
+
+    A channel is Telegram's own business; a sponsor bot is only visible through
+    BotMembers, which answers by the code the sponsor handed over.
+    """
+    if channel["kind"] == "bot":
+        return await botstat.check_member(channel["chat"], user_id)
+    try:
+        member = await bot.get_chat_member(channel["chat"], user_id)
+    except TelegramAPIError as error:
+        logger.warning(
+            "gate: cannot check %s in %s (%s) — not holding it against them",
+            user_id, channel["chat"], error,
+        )
+        return None
+    return member.status in MEMBER_STATUSES
 
 
 async def is_subscribed(bot: Bot, user_id: int) -> bool:
@@ -158,13 +173,18 @@ async def gate_keyboard(bot: Bot, missing: list | None = None) -> InlineKeyboard
     b = InlineKeyboardBuilder()
     wanted = await gate_channels() if missing is None else missing
     for channel in wanted:
-        link = channel["link"] or await channel_link(bot, channel["chat"])
+        is_bot = channel["kind"] == "bot"
+        link = channel["link"] or (
+            "" if is_bot else await channel_link(bot, channel["chat"])
+        )
         if not link:
             continue
-        title = channel["title"] or channel["chat"]
+        title = channel["title"] or ("бот спонсора" if is_bot else channel["chat"])
         b.row(
             InlineKeyboardButton(
-                text=f"📢 {title[:28]}", url=link, style=kb.PRIMARY
+                text=f"{'🤖' if is_bot else '📢'} {title[:28]}",
+                url=link,
+                style=kb.PRIMARY,
             )
         )
     b.row(

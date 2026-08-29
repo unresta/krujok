@@ -71,6 +71,7 @@ class Admin(StatesGroup):
     circles_chat = State()
     content_edit = State()  # unified text + emoji editing
     crypto_asset = State()
+    gate_bot = State()
     post = State()
     botman_folder = State()
 
@@ -290,8 +291,15 @@ async def cb_top(call: CallbackQuery) -> None:
 # is listed separately with what it actually brought in.
 
 
-async def _channel_status(bot: Bot, chat: str) -> str:
-    """The gate is only real if the bot can see the member list."""
+async def _channel_status(bot: Bot, chat: str, kind: str = "channel") -> str:
+    """The gate is only real if the membership can actually be checked."""
+    if kind == "bot":
+        probe = await botstat.check_member(chat, (await bot.me()).id)
+        return (
+            "🔴 BotStat молчит — код не работает"
+            if probe is None
+            else "🟢 проверяется через BotMembers"
+        )
     try:
         me = await bot.get_chat_member(chat, (await bot.me()).id)
     except TelegramAPIError as error:
@@ -310,10 +318,11 @@ def _channels_kb(rows: list) -> InlineKeyboardMarkup:
     )
     for row in rows:
         mark = "🟢" if row["active"] else "⚪"
+        icon = "🤖" if row["kind"] == "bot" else "📢"
         title = row["title"] or row["chat"]
         b.row(
             InlineKeyboardButton(
-                text=f"{mark} {title[:24]} · {row['joined']}",
+                text=f"{mark}{icon} {title[:22]} · {row['joined']}",
                 callback_data=f"a:chan:{row['id']}",
             )
         )
@@ -348,10 +357,36 @@ async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "a:chan:add")
 async def cb_channel_add(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="📢 Канал", callback_data="a:chan:add:channel", style=kb.PRIMARY
+        ),
+        InlineKeyboardButton(
+            text="🤖 Бот", callback_data="a:chan:add:bot", style=kb.PRIMARY
+        ),
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan"))
+    await _edit(
+        call,
+        "➕ <b>Что добавляем в подписку?</b>\n\n"
+        "<b>📢 Канал</b> — обычная обязательная подписка, проверяет сам "
+        "Telegram. Бот должен быть админом канала.\n\n"
+        "<b>🤖 Бот</b> — спонсорский бот через @BotMembersRobot: человек "
+        "должен его запустить. Проверку делает BotStat по коду, который "
+        "даёт владелец бота.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:chan:add:channel")
+async def cb_channel_add_channel(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.channel)
     await _edit(
         call,
-        "➕ <b>Новый канал</b>\n\n"
+        "📢 <b>Новый канал</b>\n\n"
         "Пришли <code>@username</code>, ссылку <code>t.me/…</code> или id вида "
         "<code>-100…</code>.\n\n"
         "Бот должен быть админом в канале — иначе он не сможет проверять "
@@ -359,6 +394,64 @@ async def cb_channel_add(call: CallbackQuery, state: FSMContext) -> None:
         back_kb([InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan")]),
     )
     await call.answer()
+
+
+@router.callback_query(F.data == "a:chan:add:bot")
+async def cb_channel_add_bot(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.gate_bot)
+    await _edit(
+        call,
+        "🤖 <b>Бот в подписку</b>\n\n"
+        "Пришли <b>код BotMembers</b> и <b>ссылку на бота</b> в одной строке:\n"
+        "<code>abc123 https://t.me/somebot</code>\n\n"
+        "Код выдаёт владелец спонсорского бота в @BotMembersRobot — по нему "
+        "проверяется, запустил человек этого бота или нет. Ссылка нужна "
+        "для кнопки, по которой пользователь туда пойдёт.\n\n"
+        "Можно добавить название третьим куском: "
+        "<code>abc123 https://t.me/somebot Спонсор</code>",
+        back_kb([InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan")]),
+    )
+    await call.answer()
+
+
+@router.message(Admin.gate_bot, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_gate_bot(message: Message, state: FSMContext) -> None:
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) < 2:
+        await message.answer("Нужен код и ссылка через пробел.")
+        return
+
+    code, link = parts[0].strip(), parts[1].strip()
+    title = parts[2].strip() if len(parts) > 2 else ""
+    if not code.replace("_", "").replace("-", "").isalnum():
+        await message.answer("Код — латиница и цифры.")
+        return
+    if not link.startswith(("https://t.me/", "http://t.me/", "t.me/")):
+        await message.answer("Ссылка должна вести на t.me/…")
+        return
+    link = link if link.startswith("http") else f"https://{link}"
+    if not title:
+        title = "@" + link.rstrip("/").rsplit("/", 1)[-1]
+
+    # A code nobody answers for would let everyone through unnoticed, so it is
+    # tried once, on the admin, before it goes into the gate.
+    probe = await botstat.check_member(code, message.from_user.id)
+    channel_id = await db.add_channel(code, title, link, kind="bot")
+    if channel_id is None:
+        await message.answer("Такой код уже в списке.")
+        return
+
+    await state.clear()
+    verdict = (
+        "🔴 BotStat не ответил — проверь код, иначе бот никого не задержит."
+        if probe is None
+        else f"🟢 Код рабочий (тебя он видит как {'запустившего' if probe else 'не запустившего'})."
+    )
+    channel = await db.get_channel(channel_id)
+    await message.answer(
+        await _channel_card(message.bot, channel) + f"\n\n{verdict}",
+        reply_markup=_channel_kb(channel),
+    )
 
 
 @router.message(Admin.channel, ~F.text.in_(kb.MENU_BUTTONS))
@@ -388,14 +481,16 @@ async def got_channel(message: Message, state: FSMContext) -> None:
 
 
 async def _channel_card(bot: Bot, channel) -> str:
-    status = await _channel_status(bot, channel["chat"])
+    status = await _channel_status(bot, channel["chat"], channel["kind"])
     title = channel["title"] or channel["chat"]
+    icon = "🤖" if channel["kind"] == "bot" else "📢"
+    what = "код BotMembers" if channel["kind"] == "bot" else "канал"
     return (
-        f"📢 <b>{html.escape(title)}</b>\n"
+        f"{icon} <b>{html.escape(title)}</b> · {what}\n"
         f"<code>{html.escape(channel['chat'])}</code> · "
         f"{'🟢 в подписке' if channel['active'] else '⚪ выключен'}\n"
         f"Проверка: {status}\n\n"
-        f"Пришло через канал: <b>{channel['joined']}</b>\n"
+        f"Пришло через него: <b>{channel['joined']}</b>\n"
         f"За сутки: {channel['joined_today']}\n"
         f"Ссылка: {channel['link'] or '—'}"
     )
@@ -505,9 +600,10 @@ async def cb_channel_one(call: CallbackQuery) -> None:
     if channel is None:
         await call.answer("Канала уже нет.", show_alert=True)
         return
-    title, link = await access.describe(call.bot, channel["chat"])
-    if title or link:
-        await db.set_channel_meta(channel_id, title or channel["title"], link)
+    if channel["kind"] != "bot":  # a BotMembers code has nothing to refresh
+        title, link = await access.describe(call.bot, channel["chat"])
+        if title or link:
+            await db.set_channel_meta(channel_id, title or channel["title"], link)
     await call.answer()
     await _show_channel(call, channel_id)
 
@@ -525,18 +621,27 @@ async def gate_cmd(message: Message) -> None:
 
     lines = []
     for channel in rows:
+        icon = "🤖" if channel["kind"] == "bot" else "📢"
         line = [
-            f"<b>{html.escape(channel['title'] or channel['chat'])}</b> "
+            f"{icon} <b>{html.escape(channel['title'] or channel['chat'])}</b> "
             f"(<code>{html.escape(channel['chat'])}</code>)",
-            await _channel_status(message.bot, channel["chat"]),
+            await _channel_status(message.bot, channel["chat"], channel["kind"]),
         ]
-        try:
-            member = await message.bot.get_chat_member(
-                channel["chat"], message.from_user.id
+        if channel["kind"] == "bot":
+            probe = await botstat.check_member(channel["chat"], message.from_user.id)
+            line.append(
+                "проверить тебя не вышло"
+                if probe is None
+                else f"ты там: {'да' if probe else 'нет'}"
             )
-            line.append(f"ты там: <code>{member.status}</code>")
-        except TelegramAPIError as error:
-            line.append(f"🔴 проверить тебя не вышло: {error}")
+        else:
+            try:
+                member = await message.bot.get_chat_member(
+                    channel["chat"], message.from_user.id
+                )
+                line.append(f"ты там: <code>{member.status}</code>")
+            except TelegramAPIError as error:
+                line.append(f"🔴 проверить тебя не вышло: {error}")
         lines.append("\n".join(line))
     lines.append(
         "⚠️ Ты в ADMIN_IDS — тебя гейт пропускает всегда, "

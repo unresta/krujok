@@ -95,7 +95,9 @@ class UserMiddleware(BaseMiddleware):
         # send them back to the ones they already joined.
         missing = await access.missing_channels(bot, user_id)
         markup = await access.gate_keyboard(bot, missing)
-        text = texts.subscribe(len(missing))
+        text = texts.subscribe(
+            len(missing), any(c["kind"] == "bot" for c in missing)
+        )
         if isinstance(event, CallbackQuery):
             await event.answer()
             await event.message.answer(text, reply_markup=markup)

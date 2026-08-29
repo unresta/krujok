@@ -91,6 +91,28 @@ async def to_botsafe(ids: list[int], notify_id: int, hide: bool = True) -> dict:
     return result
 
 
+async def check_member(code: str, user_id: int) -> bool | None:
+    """Is this person inside that sponsor bot? None when the service is silent.
+
+    The code itself is the credential here — no key, no token. An unknown
+    answer must never be read as «not subscribed»: a service having a bad
+    minute would otherwise lock everyone out of the bot.
+    """
+    url = f"{BOTSTAT_API.rstrip('/')}/checksub/{code}/{user_id}"
+    timeout = aiohttp.ClientTimeout(total=INVOICE_TIMEOUT)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status >= 400:
+                    logger.warning("botmembers %s: HTTP %s", code, response.status)
+                    return None
+                body = await response.json(content_type=None)
+    except Exception as error:  # noqa: BLE001 — any failure is «unknown»
+        logger.warning("botmembers %s unreachable: %s", code, error)
+        return None
+    return bool(body.get("ok"))
+
+
 async def bot_info(username: str) -> dict:
     """What BotStat already knows about the bot: live, dead, in chats."""
     if not configured():

@@ -570,6 +570,7 @@ EDITABLE: dict[str, Item] = {
     ),
     "SUBSCRIBE_ONE": Item("…когда канал один", "Подписка"),
     "SUBSCRIBE_MANY": Item("…когда каналов несколько", "Подписка"),
+    "SUBSCRIBE_SPONSORS": Item("…когда в списке есть боты", "Подписка"),
     "SUBSCRIBE_GIFT": Item(
         "…строка про бонус за подписку", "Подписка", vars={"bonus": "размер бонуса"}
     ),

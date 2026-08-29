@@ -161,7 +161,10 @@ CREATE TABLE IF NOT EXISTS cheque_claims (
 -- advertisers, so each one keeps its own count of who came through it.
 CREATE TABLE IF NOT EXISTS gate_channels (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat     TEXT    NOT NULL UNIQUE,       -- @name or -100…
+    -- A channel is checked by Telegram itself; a sponsor bot is checked through
+    -- BotMembers, and then «chat» holds the code that service issued.
+    kind     TEXT    NOT NULL DEFAULT 'channel',   -- channel | bot
+    chat     TEXT    NOT NULL UNIQUE,       -- @name, -100… or a BotMembers code
     title    TEXT    NOT NULL DEFAULT '',
     link     TEXT    NOT NULL DEFAULT '',   -- filled in from Telegram
     active   INTEGER NOT NULL DEFAULT 1,
@@ -290,6 +293,9 @@ MIGRATIONS = {
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
+    },
+    "gate_channels": {
+        "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
     },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
@@ -1826,12 +1832,14 @@ async def take_pending_cheque(user_id: int) -> str:
 # --- sponsor channels ----------------------------------------------------
 
 
-async def add_channel(chat: str, title: str = "", link: str = "") -> int | None:
-    """None when that channel is already on the list."""
+async def add_channel(
+    chat: str, title: str = "", link: str = "", kind: str = "channel"
+) -> int | None:
+    """None when that channel or bot is already on the list."""
     try:
         cur = await conn().execute(
-            "INSERT INTO gate_channels(chat, title, link) VALUES (?, ?, ?)",
-            (chat, title, link),
+            "INSERT INTO gate_channels(chat, title, link, kind) VALUES (?, ?, ?, ?)",
+            (chat, title, link, kind),
         )
     except aiosqlite.IntegrityError:
         return None

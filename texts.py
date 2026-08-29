@@ -1129,17 +1129,23 @@ def welcome_bonus(amount: int) -> str:
 
 SUBSCRIBE = (
     "📢 Бот работает только для подписчиков.\n\n"
-    "Подпишись на {what} по кнопкам ниже и нажми «Я подписался».{gift}"
+    "Выполни условия по кнопкам ниже — подпишись на {what} — "
+    "и нажми «Я подписался».{gift}"
 )
 SUBSCRIBE_ONE = "канал"
 SUBSCRIBE_MANY = "все каналы"
+SUBSCRIBE_SPONSORS = "всех спонсоров"
 SUBSCRIBE_GIFT = "\n\n🎁 За подписку начислим <b>{bonus}</b> монеток."
 
 
-def subscribe(missing: int = 1) -> str:
+def subscribe(missing: int = 1, bots: bool = False) -> str:
+    """«Подпишись на канал» stops being true once a sponsor bot is in the list."""
     bonus = settings.get("sub_bonus")
     gift = _fmt("SUBSCRIBE_GIFT", SUBSCRIBE_GIFT, bonus=bonus) if bonus else ""
-    what = SUBSCRIBE_ONE if missing <= 1 else SUBSCRIBE_MANY
+    if bots:
+        what = SUBSCRIBE_SPONSORS
+    else:
+        what = SUBSCRIBE_ONE if missing <= 1 else SUBSCRIBE_MANY
     return _fmt("SUBSCRIBE", SUBSCRIBE, gift=gift, what=what)
 
 
