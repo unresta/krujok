@@ -64,6 +64,7 @@ class Admin(StatesGroup):
     setting = State()
     circle_id = State()
     channel = State()
+    channel_link = State()
     reports_chat = State()
     campaign = State()
     spend = State()
@@ -401,6 +402,16 @@ async def _channel_status(bot: Bot, chat: str, kind: str = "channel") -> str:
     return "🟢 проверяется"
 
 
+def _tme_link(raw: str) -> str:
+    """A t.me link in whatever shape it was pasted, or '' if it is not one."""
+    tail = raw.strip()
+    if "://" in tail:
+        tail = tail.split("://", 1)[1]
+    if not tail.lower().startswith(("t.me/", "telegram.me/")):
+        return ""
+    return f"https://{tail}"
+
+
 def _channels_kb(rows: list) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
@@ -414,7 +425,7 @@ def _channels_kb(rows: list) -> InlineKeyboardMarkup:
         title = row["title"] or row["chat"]
         b.row(
             InlineKeyboardButton(
-                text=f"{mark}{icon} {title[:22]} · {row['joined']}",
+                text=f"{mark}{icon} {title[:22]} · {row['brought']}",
                 callback_data=f"a:chan:{row['id']}",
             )
         )
@@ -427,12 +438,12 @@ async def cb_channel(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     rows = await db.channels()
     active = [r for r in rows if r["active"]]
-    today = sum(r["joined_today"] for r in active)
+    today = sum(r["brought_today"] for r in active)
     invited, confirmed = await db.referral_totals()
 
     body = (
         f"Каналов в подписке: <b>{len(active)}</b> из {len(rows)}\n"
-        f"Пришло через них за сутки: <b>{today}</b>"
+        f"Привели за сутки: <b>{today}</b>"
         if rows
         else "Каналов нет — бот пускает всех.\n"
         "Добавь канал, и вход будет только через подписку на него."
@@ -482,7 +493,12 @@ async def cb_channel_add_channel(call: CallbackQuery, state: FSMContext) -> None
         "Пришли <code>@username</code>, ссылку <code>t.me/…</code> или id вида "
         "<code>-100…</code>.\n\n"
         "Бот должен быть админом в канале — иначе он не сможет проверять "
-        "подписку, и такой канал просто не будет никого задерживать.",
+        "подписку, и такой канал просто не будет никого задерживать.\n\n"
+        "Нужна своя ссылка на кнопке — пришли её вторым куском:\n"
+        "<code>@channel https://t.me/+AbCdEf</code>\n"
+        "Пригодится для закрытого канала, заявки на вступление или ссылки, "
+        "по которой рекламодатель считает свой трафик. Telegram её "
+        "не перезапишет.",
         back_kb([InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan")]),
     )
     await call.answer()
@@ -518,17 +534,17 @@ async def got_gate_bot(message: Message, state: FSMContext) -> None:
     if not code.replace("_", "").replace("-", "").isalnum():
         await message.answer("Код — латиница и цифры.")
         return
-    if not link.startswith(("https://t.me/", "http://t.me/", "t.me/")):
+    link = _tme_link(link)
+    if not link:
         await message.answer("Ссылка должна вести на t.me/…")
         return
-    link = link if link.startswith("http") else f"https://{link}"
     if not title:
         title = "@" + link.rstrip("/").rsplit("/", 1)[-1]
 
     # A code nobody answers for would let everyone through unnoticed, so it is
     # tried once, on the admin, before it goes into the gate.
     probe = await botstat.check_member(code, message.from_user.id)
-    channel_id = await db.add_channel(code, title, link, kind="bot")
+    channel_id = await db.add_channel(code, title, link, kind="bot", linked=True)
     if channel_id is None:
         await message.answer("Такой код уже в списке.")
         return
@@ -548,7 +564,15 @@ async def got_gate_bot(message: Message, state: FSMContext) -> None:
 
 @router.message(Admin.channel, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_channel(message: Message, state: FSMContext) -> None:
-    raw = (message.text or "").strip()
+    parts = (message.text or "").strip().split(maxsplit=1)
+    raw = parts[0] if parts else ""
+    # A second piece is a link for the button: the channel is checked by its
+    # username, but a closed one is entered by an invite the admin holds.
+    custom = _tme_link(parts[1]) if len(parts) > 1 else ""
+    if len(parts) > 1 and not custom:
+        await message.answer("Вторым куском — ссылка t.me/…, либо не присылай её.")
+        return
+
     if raw.startswith("https://t.me/"):
         raw = "@" + raw.removeprefix("https://t.me/").strip("/")
     elif raw.startswith("t.me/"):
@@ -558,7 +582,9 @@ async def got_channel(message: Message, state: FSMContext) -> None:
         return
 
     title, link = await access.describe(message.bot, raw)
-    channel_id = await db.add_channel(raw, title, link)
+    channel_id = await db.add_channel(
+        raw, title, custom or link, linked=bool(custom)
+    )
     if channel_id is None:
         await message.answer("Такой канал уже в списке.")
         return
@@ -577,15 +603,21 @@ async def _channel_card(bot: Bot, channel) -> str:
     title = channel["title"] or channel["chat"]
     icon = "🤖" if channel["kind"] == "bot" else "📢"
     what = "код BotMembers" if channel["kind"] == "bot" else "канал"
+    already = channel["joined"] - channel["brought"]
     return (
         f"{icon} <b>{html.escape(title)}</b> · {what}\n"
         f"<code>{html.escape(channel['chat'])}</code> · "
         f"{'🟢 в подписке' if channel['active'] else '⚪ выключен'}\n"
         f"Проверка: {status}\n\n"
-        f"Пришло через него: <b>{channel['joined']}</b>\n"
-        f"За сутки: {channel['joined_today']}\n"
-        f"Ссылка: {channel['link'] or '—'}\n\n"
-        f"Кнопка у пользователя: <b>{icon} "
+        # Two different numbers that used to be one, and the smaller of them is
+        # the honest one to show an advertiser.
+        f"Привели: <b>{channel['brought']}</b> · за сутки "
+        f"{channel['brought_today']}\n"
+        f"Были там до нас: {already}\n"
+        f"Видели внутри всего: {channel['joined']}\n\n"
+        f"Ссылка: {channel['link'] or '—'}"
+        + (" · своя" if channel["linked"] else "")
+        + f"\n\nКнопка у пользователя: <b>{icon} "
         f"{html.escape((channel['title'] or channel['chat'])[:28])}</b>"
         + (" · своё название" if channel["titled"] else "")
     )
@@ -612,7 +644,10 @@ def _channel_kb(channel) -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(
             text="✏️ Название кнопки", callback_data=f"a:chan:name:{channel['id']}"
-        )
+        ),
+        InlineKeyboardButton(
+            text="🔗 Ссылка", callback_data=f"a:chan:link:{channel['id']}"
+        ),
     )
     b.row(
         InlineKeyboardButton(
@@ -686,6 +721,83 @@ async def got_channel_title(message: Message, state: FSMContext) -> None:
     await message.answer(
         await _channel_card(message.bot, channel), reply_markup=_channel_kb(channel)
     )
+
+
+@router.callback_query(F.data.startswith("a:chan:link:"))
+async def cb_channel_link(call: CallbackQuery, state: FSMContext) -> None:
+    """Where the button leads — a closed channel has no link Telegram can give."""
+    channel_id = int(call.data.split(":")[3])
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+
+    await state.set_state(Admin.channel_link)
+    await state.update_data(channel_id=channel_id)
+    extra = [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"a:chan:{channel_id}")
+    ]
+    if channel["linked"] and channel["kind"] != "bot":
+        extra.insert(
+            0,
+            InlineKeyboardButton(
+                text="↩️ Взять из Telegram",
+                callback_data=f"a:chan:unlink:{channel_id}",
+            ),
+        )
+    await _edit(
+        call,
+        "🔗 <b>Ссылка на кнопке</b>\n\n"
+        f"Сейчас: {channel['link'] or '—'}"
+        + (" · своя" if channel["linked"] else " · из Telegram")
+        + "\n\nПришли новую — <code>https://t.me/…</code>. Годится ссылка-"
+        "приглашение закрытого канала (<code>t.me/+AbCdEf</code>), заявка "
+        "на вступление или ссылка, по которой рекламодатель считает свой "
+        "трафик.\n\n"
+        "Проверка подписки от этого не меняется: членство всё так же "
+        "проверяется по каналу, ссылка — только то, куда ведёт кнопка.",
+        back_kb(extra),
+    )
+    await call.answer()
+
+
+@router.message(Admin.channel_link, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_channel_link(message: Message, state: FSMContext) -> None:
+    link = _tme_link(message.text or "")
+    if not link:
+        await message.answer("Ссылка должна вести на t.me/…")
+        return
+
+    channel_id = (await state.get_data())["channel_id"]
+    await state.clear()
+    await db.set_channel_link(channel_id, link)
+    access.drop_link_cache()
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await message.answer("Канала уже нет.", reply_markup=back_kb())
+        return
+    await message.answer(
+        await _channel_card(message.bot, channel), reply_markup=_channel_kb(channel)
+    )
+
+
+@router.callback_query(F.data.startswith("a:chan:unlink:"))
+async def cb_channel_unlink(call: CallbackQuery, state: FSMContext) -> None:
+    """Hand the link back to Telegram — the next refresh fills it in again."""
+    await state.clear()
+    channel_id = int(call.data.split(":")[3])
+    channel = await db.get_channel(channel_id)
+    if channel is None:
+        await call.answer("Канала уже нет.", show_alert=True)
+        return
+
+    _, link = await access.describe(call.bot, channel["chat"])
+    await db.set_channel_link(channel_id, "")
+    if link:
+        await db.set_channel_meta(channel_id, channel["title"], link)
+    access.drop_link_cache()
+    await call.answer("Ссылка из Telegram")
+    await _show_channel(call, channel_id)
 
 
 @router.callback_query(F.data.startswith("a:chan:on:"))

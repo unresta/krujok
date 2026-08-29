@@ -178,6 +178,17 @@ CREATE TABLE IF NOT EXISTS channel_joins (
     PRIMARY KEY (channel_id, user_id)
 );
 
+-- Who the gate actually sent to a sponsor: a row appears when the person was
+-- found outside and asked to join. Without it «пришло через него» counts the
+-- sponsor's own crowd too — everyone who was already inside before ever
+-- meeting our gate — and reports roughly double what the sponsor sees.
+CREATE TABLE IF NOT EXISTS channel_asked (
+    channel_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    ts         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (channel_id, user_id)
+);
+
 -- A post the admin forwards once and the bot shows on its own: a welcome is
 -- seen once per user, a promo comes round again on a timer.
 CREATE TABLE IF NOT EXISTS posts (
@@ -302,6 +313,9 @@ MIGRATIONS = {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
         # A title typed by hand is not overwritten by the one Telegram reports.
         "titled": "INTEGER NOT NULL DEFAULT 0",
+        # Same for a link: a private channel or a tracked invite is the admin's
+        # to set, and Telegram's own link must not win over it.
+        "linked": "INTEGER NOT NULL DEFAULT 0",
     },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
@@ -2094,13 +2108,18 @@ async def take_pending_cheque(user_id: int) -> str:
 
 
 async def add_channel(
-    chat: str, title: str = "", link: str = "", kind: str = "channel"
+    chat: str,
+    title: str = "",
+    link: str = "",
+    kind: str = "channel",
+    linked: bool = False,
 ) -> int | None:
     """None when that channel or bot is already on the list."""
     try:
         cur = await conn().execute(
-            "INSERT INTO gate_channels(chat, title, link, kind) VALUES (?, ?, ?, ?)",
-            (chat, title, link, kind),
+            "INSERT INTO gate_channels(chat, title, link, kind, linked)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (chat, title, link, kind, int(linked)),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -2108,16 +2127,32 @@ async def add_channel(
     return cur.lastrowid
 
 
+# «joined» is everyone ever seen inside; «brought» only those the gate had to
+# send there first. The difference is the sponsor's own audience, which we have
+# no business billing anyone for.
+_CHANNEL_COUNTS = """
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id)
+           AS joined,
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+          AND j.ts > strftime('%s','now') - 86400) AS joined_today,
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+          AND EXISTS (SELECT 1 FROM channel_asked a
+                       WHERE a.channel_id = j.channel_id
+                         AND a.user_id = j.user_id)) AS brought,
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+          AND j.ts > strftime('%s','now') - 86400
+          AND EXISTS (SELECT 1 FROM channel_asked a
+                       WHERE a.channel_id = j.channel_id
+                         AND a.user_id = j.user_id)) AS brought_today
+"""
+
+
 async def channels(active_only: bool = False) -> list[aiosqlite.Row]:
     """Every sponsor channel with what it brought in — today and in total."""
     where = "WHERE c.active = 1" if active_only else ""
     async with conn().execute(
         f"""
-        SELECT c.*,
-               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id)
-                   AS joined,
-               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
-                  AND j.ts > strftime('%s','now') - 86400) AS joined_today
+        SELECT c.*, {_CHANNEL_COUNTS}
         FROM gate_channels c {where} ORDER BY c.active DESC, c.id
         """
     ) as cur:
@@ -2127,12 +2162,8 @@ async def channels(active_only: bool = False) -> list[aiosqlite.Row]:
 async def get_channel(channel_id: int) -> aiosqlite.Row | None:
     """Carries the same join counts as channels(), so cards render the same."""
     async with conn().execute(
-        """
-        SELECT c.*,
-               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id)
-                   AS joined,
-               (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
-                  AND j.ts > strftime('%s','now') - 86400) AS joined_today
+        f"""
+        SELECT c.*, {_CHANNEL_COUNTS}
         FROM gate_channels c WHERE c.id = ?
         """,
         (channel_id,),
@@ -2148,10 +2179,10 @@ async def set_channel_active(channel_id: int, active: bool) -> None:
 
 
 async def set_channel_meta(channel_id: int, title: str, link: str) -> None:
-    """Refresh from Telegram — but never over a name the admin chose."""
+    """Refresh from Telegram — but never over a name or link the admin chose."""
     await conn().execute(
         "UPDATE gate_channels SET title = CASE WHEN titled = 1 THEN title ELSE ? END,"
-        " link = ? WHERE id = ?",
+        " link = CASE WHEN linked = 1 THEN link ELSE ? END WHERE id = ?",
         (title, link, channel_id),
     )
     await conn().commit()
@@ -2166,9 +2197,19 @@ async def set_channel_title(channel_id: int, title: str) -> None:
     await conn().commit()
 
 
+async def set_channel_link(channel_id: int, link: str) -> None:
+    """Where the button leads. An empty link hands the choice back to Telegram."""
+    await conn().execute(
+        "UPDATE gate_channels SET link = ?, linked = ? WHERE id = ?",
+        (link, int(bool(link)), channel_id),
+    )
+    await conn().commit()
+
+
 async def drop_channel(channel_id: int) -> None:
     await conn().execute("DELETE FROM gate_channels WHERE id = ?", (channel_id,))
     await conn().execute("DELETE FROM channel_joins WHERE channel_id = ?", (channel_id,))
+    await conn().execute("DELETE FROM channel_asked WHERE channel_id = ?", (channel_id,))
     await conn().commit()
 
 
@@ -2183,6 +2224,24 @@ async def mark_join(channel_id: int, user_id: int) -> bool:
         return False
     await conn().commit()
     return True
+
+
+async def mark_asked(channel_id: int, user_id: int) -> None:
+    """Remember that the gate sent this person to that sponsor.
+
+    Only for someone who is not inside yet: without that guard, a person who
+    leaves the channel later would be re-counted as an arrival we delivered.
+    """
+    await conn().execute(
+        """
+        INSERT OR IGNORE INTO channel_asked(channel_id, user_id)
+        SELECT ?, ? WHERE NOT EXISTS (
+            SELECT 1 FROM channel_joins WHERE channel_id = ? AND user_id = ?
+        )
+        """,
+        (channel_id, user_id, channel_id, user_id),
+    )
+    await conn().commit()
 
 
 # --- welcome and promo posts ---------------------------------------------

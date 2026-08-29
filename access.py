@@ -77,9 +77,12 @@ async def missing_channels(bot: Bot, user_id: int) -> list:
         if inside is None:  # nobody could tell us — do not hold it against them
             continue
         if inside:
-            # What the advertiser is paying for: this person, in their channel.
+            # Being inside is not the same as having been brought here: half of
+            # them were the sponsor's own audience already. mark_asked below is
+            # what tells the two apart.
             await db.mark_join(channel["id"], user_id)
         else:
+            await db.mark_asked(channel["id"], user_id)
             missing.append(channel)
     return missing
 
