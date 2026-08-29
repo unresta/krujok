@@ -87,11 +87,16 @@ def home_kb(
     reports: int,
     anketas: int,
     payouts: int,
-    channels: int = 0,
 ) -> InlineKeyboardMarkup:
+    """Queues first, everyday tools next, the rest behind three doors.
+
+    Twenty-three buttons in one screen is a wall you read every time instead of
+    a panel you use, and the four counters — the reason the admin opened it —
+    drowned in it. Everything that is not needed daily moved into sections.
+    """
     b = InlineKeyboardBuilder()
 
-    # Moderation section - только здесь используем цвета для важности
+    # What waits for a human — the only place colour means urgency.
     b.row(
         InlineKeyboardButton(
             text=f"⚠️ Жалобы · {reports}",
@@ -117,7 +122,7 @@ def home_kb(
         ),
     )
 
-    # Management section - без цветов
+    # Reached for by hand every day, so they stay one tap away.
     b.row(
         InlineKeyboardButton(text="👤 Пользователь", callback_data="a:user"),
         InlineKeyboardButton(text="🎥 Кружок", callback_data="a:circle"),
@@ -126,45 +131,21 @@ def home_kb(
         InlineKeyboardButton(text="📢 Рассылка", callback_data="a:cast"),
         InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
     )
-    b.row(
-        InlineKeyboardButton(text="💰 Экономика", callback_data="a:econ"),
-        InlineKeyboardButton(text="💳 Платежи", callback_data="a:pay"),
-    )
-    b.row(
-        InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
-        InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
-    )
-
-    # Traffic section — что продаётся рекламодателям
-    b.row(
-        InlineKeyboardButton(
-            text=f"📢 Подписка · {channels}", callback_data="a:chan"
-        ),
-        InlineKeyboardButton(text="📰 Посты", callback_data="a:posts"),
-    )
-    b.row(
-        InlineKeyboardButton(text="🔗 Ссылки", callback_data="a:links"),
-        InlineKeyboardButton(text="🎟 Чеки", callback_data="a:cheques"),
-    )
-    b.row(
-        InlineKeyboardButton(text="👥 Рефералы", callback_data="a:refs"),
-        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
-    )
-    b.row(
-        InlineKeyboardButton(text="📊 Статистика", callback_data="a:stats"),
-        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
-    )
 
     b.row(
-        InlineKeyboardButton(text="🔔 Напоминания", callback_data="a:push"),
+        InlineKeyboardButton(text="📈 Трафик", callback_data="a:sec:traffic"),
+        InlineKeyboardButton(text="📊 Отчёты", callback_data="a:sec:reports"),
+    )
+    # Maintenance lives in the section now, but «bot is closed» is not something
+    # to find out two taps deep — the door itself carries the alarm.
+    b.row(
         InlineKeyboardButton(
-            text=f"🔧 Техработы: {'вкл' if maintenance else 'выкл'}",
-            callback_data="a:maint",
+            text="⚙️ Настройки" + (" · 🔧 техработы" if maintenance else ""),
+            callback_data="a:sec:settings",
             style=kb.DANGER if maintenance else None,
-        ),
+        )
     )
 
-    # Close button - DANGER только для закрытия
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="a:close", style=kb.DANGER))
     return b.as_markup()
 
@@ -209,7 +190,6 @@ async def show_home(call: CallbackQuery, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
-            len(await db.channels(active_only=True)),
         ))
 
 
@@ -224,7 +204,6 @@ async def open_panel(message: Message, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
-            len(await db.channels(active_only=True)),
         )
     )
 
@@ -245,6 +224,112 @@ async def cb_close(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     with suppress(TelegramAPIError):
         await call.message.delete()
+    await call.answer()
+
+
+# --- sections ------------------------------------------------------------
+
+# Three drawers under the panel. Each one only gathers screens that already
+# exist — the buttons kept their callbacks, so every old path still works.
+
+
+def _section_kb(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for row in rows:
+        b.row(*row)
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
+
+
+@router.callback_query(F.data == "a:sec:traffic")
+async def cb_sec_traffic(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    channels = len(await db.channels(active_only=True))
+    await _edit(
+        call,
+        "📈 <b>Трафик</b>\n\nОткуда приходят люди и что возвращает их обратно.",
+        _section_kb(
+            [
+                [
+                    InlineKeyboardButton(
+                        text=f"📢 Подписка · {channels}", callback_data="a:chan"
+                    ),
+                    InlineKeyboardButton(text="🔗 Ссылки", callback_data="a:links"),
+                ],
+                [
+                    InlineKeyboardButton(text="📰 Посты", callback_data="a:posts"),
+                    InlineKeyboardButton(text="🎟 Чеки", callback_data="a:cheques"),
+                ],
+                [
+                    InlineKeyboardButton(text="👥 Рефералы", callback_data="a:refs"),
+                    InlineKeyboardButton(
+                        text="🔔 Напоминания", callback_data="a:push"
+                    ),
+                ],
+            ]
+        ),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:sec:reports")
+async def cb_sec_reports(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(
+        call,
+        "📊 <b>Отчёты</b>\n\nЦифры по боту и то, что можно унести с собой.",
+        _section_kb(
+            [
+                [
+                    InlineKeyboardButton(
+                        text="📊 Статистика", callback_data="a:stats"
+                    ),
+                    InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
+                ],
+                [
+                    InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
+                    InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
+                ],
+            ]
+        ),
+    )
+    await call.answer()
+
+
+def _settings_screen() -> tuple[str, InlineKeyboardMarkup]:
+    on = settings.maintenance()
+    text = (
+        "⚙️ <b>Настройки</b>\n\nЦены, платёжные методы и всё, что бот говорит."
+        + (
+            "\n\n🔧 <b>Техработы включены</b> — бот отвечает всем, кроме админов, "
+            "что закрыт."
+            if on
+            else ""
+        )
+    )
+    return text, _section_kb(
+        [
+            [
+                InlineKeyboardButton(text="💰 Экономика", callback_data="a:econ"),
+                InlineKeyboardButton(text="💳 Платежи", callback_data="a:pay"),
+            ],
+            [InlineKeyboardButton(text="📝 Тексты", callback_data="a:content")],
+            [
+                InlineKeyboardButton(
+                    text=f"🔧 Техработы: {'вкл' if on else 'выкл'}",
+                    callback_data="a:maint",
+                    style=kb.DANGER if on else None,
+                )
+            ],
+        ]
+    )
+
+
+@router.callback_query(F.data == "a:sec:settings")
+async def cb_sec_settings(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    text, markup = _settings_screen()
+    await _edit(call, text, markup)
     await call.answer()
 
 
@@ -289,7 +374,10 @@ async def cb_top(call: CallbackQuery) -> None:
             ]
         )
     await _edit(call, f"🏆 <b>Топ авторов</b>\n\n{body}", back_kb())
-    await call.answer()# --- sponsor channels ----------------------------------------------------
+    await call.answer()
+
+
+# --- sponsor channels ----------------------------------------------------
 
 # Several channels at once: this is the thing sold to advertisers, so each one
 # is listed separately with what it actually brought in.
@@ -2438,7 +2526,9 @@ async def cb_db_go(call: CallbackQuery) -> None:
 async def cb_maint(call: CallbackQuery, state: FSMContext) -> None:
     await settings.set("maintenance", 0 if settings.maintenance() else 1)
     await call.answer("Техработы включены" if settings.maintenance() else "Выключены")
-    await show_home(call, state)
+    await state.clear()
+    text, markup = _settings_screen()  # the toggle stays where it was pressed
+    await _edit(call, text, markup)
 
 
 # --- commands (kept for muscle memory) -----------------------------------
