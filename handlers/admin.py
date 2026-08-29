@@ -122,15 +122,15 @@ def home_kb(
     )
     b.row(
         InlineKeyboardButton(text="📢 Рассылка", callback_data="a:cast"),
-        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
+        InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
     )
     b.row(
         InlineKeyboardButton(text="💰 Экономика", callback_data="a:econ"),
         InlineKeyboardButton(text="💳 Платежи", callback_data="a:pay"),
     )
     b.row(
-        InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
         InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
+        InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
     )
 
     # Traffic section — что продаётся рекламодателям
@@ -145,16 +145,16 @@ def home_kb(
         InlineKeyboardButton(text="🎟 Чеки", callback_data="a:cheques"),
     )
     b.row(
-        InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
+        InlineKeyboardButton(text="👥 Рефералы", callback_data="a:refs"),
+        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
+    )
+    b.row(
         InlineKeyboardButton(text="📊 Статистика", callback_data="a:stats"),
+        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
     )
 
-    # Settings section - без цветов
     b.row(
-        InlineKeyboardButton(text="📝 Тексты", callback_data="a:content"),
         InlineKeyboardButton(text="🔔 Напоминания", callback_data="a:push"),
-    )
-    b.row(
         InlineKeyboardButton(
             text=f"🔧 Техработы: {'вкл' if maintenance else 'выкл'}",
             callback_data="a:maint",
@@ -3266,3 +3266,178 @@ async def cb_cheque_stop(call: CallbackQuery) -> None:
     await db.stop_cheque(code)
     await call.answer("Остановлен")
     await _show_cheque(call, code)
+
+
+# --- referrals -----------------------------------------------------------
+
+# Referrals are bought traffic like any other, so the screen answers the same
+# questions: how much came in, how fast, and whether it is worth anything.
+
+
+def _pct_of(part: int, whole: int) -> str:
+    return f"{part * 100 / whole:.1f}%" if whole else "—"
+
+
+def _since(stamp: int) -> str:
+    if not stamp:
+        return "—"
+    days = int((time.time() - stamp) // 86400)
+    if days > 1:
+        return f"{days} дн назад"
+    return _ago(stamp)
+
+
+async def _refs_text() -> str:
+    d = await db.referral_overview()
+    reward = settings.get("ref_reward")
+    invited, confirmed = d["invited"], d["confirmed"]
+    return (
+        "👥 <b>Рефералы</b>\n\n"
+        f"Приглашено всего: <b>{invited}</b>\n"
+        f"Дошли до конца (прошли ОП): <b>{confirmed}</b> · "
+        f"{_pct_of(confirmed, invited)}\n"
+        f"Застряли на подписке: {d['waiting']}\n"
+        f"Выдано наград: ~{confirmed * reward} 🪙 (по текущей ставке {reward})\n\n"
+        "📅 <b>Пришло / из них дошли</b>\n"
+        f"Сутки: <b>{d['day_invited']}</b> / {d['day_confirmed']} "
+        f"({_pct_of(d['day_confirmed'], d['day_invited'])})\n"
+        f"7 дней: <b>{d['week_invited']}</b> / {d['week_confirmed']} "
+        f"({_pct_of(d['week_confirmed'], d['week_invited'])})\n"
+        f"30 дней: <b>{d['month_invited']}</b> / {d['month_confirmed']} "
+        f"({_pct_of(d['month_confirmed'], d['month_invited'])})\n\n"
+        "🧑‍🤝‍🧑 <b>Кто приводит</b>\n"
+        f"Рефоводов всего: <b>{d['referrers']}</b> · с результатом: {d['with_one']}\n"
+        f"Привели 3+: {d['with_three']} · 10+: {d['with_ten']}\n"
+        f"Рекорд одного: {d['best']}\n\n"
+        "🎯 <b>Что это за люди</b>\n"
+        f"Приняли правила: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
+        f"Заходили за неделю: {d['alive']} ({_pct_of(d['alive'], invited)})\n"
+        f"Платили: {d['payers']} ({_pct_of(d['payers'], invited)})\n"
+        f"В бане: {d['banned']} ({_pct_of(d['banned'], invited)})\n"
+        f"Монеток на руках у них: {d['coins']}"
+    )
+
+
+def _refs_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="🏆 Топ за всё время", callback_data="a:refs:top:0"),
+    )
+    b.row(
+        InlineKeyboardButton(text="📅 За сутки", callback_data="a:refs:top:86400"),
+        InlineKeyboardButton(text="📅 За неделю", callback_data="a:refs:top:604800"),
+        InlineKeyboardButton(text="📅 За месяц", callback_data="a:refs:top:2592000"),
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"🎁 Награда за друга: {settings.get('ref_reward')}",
+            callback_data="a:econ:k:ref_reward",
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    return b.as_markup()
+
+
+@router.callback_query(F.data == "a:refs")
+async def cb_refs(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, await _refs_text(), _refs_kb())
+    await call.answer()
+
+
+WINDOW_TITLE = {
+    0: "за всё время",
+    86400: "за сутки",
+    604800: "за неделю",
+    2592000: "за месяц",
+}
+
+
+@router.callback_query(F.data.startswith("a:refs:top:"))
+async def cb_refs_top(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    window = int(call.data.split(":")[3])
+    rows = await db.top_referrers(limit=15, window=window)
+
+    b = InlineKeyboardBuilder()
+    lines = []
+    for place, row in enumerate(rows, 1):
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, f"{place}.")
+        lines.append(
+            f"{medal} <code>{row['user_id']}</code> — <b>{row['confirmed']}</b>"
+            f" из {row['invited']}"
+            + (f" · 🔴{row['banned']}" if row["banned"] else "")
+            + f" · живых {row['alive']}"
+        )
+        b.row(
+            InlineKeyboardButton(
+                text=f"{medal} {row['user_id']} · {row['confirmed']}",
+                callback_data=f"a:refs:u:{row['user_id']}",
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ К рефералам", callback_data="a:refs"))
+
+    body = "\n".join(lines) if lines else "Пока никто никого не привёл."
+    await _edit(
+        call,
+        f"🏆 <b>Топ рефоводов {WINDOW_TITLE.get(window, '')}</b>\n\n{body}\n\n"
+        "<b>N из M</b> — дошли до конца из приглашённых, 🔴 — забанены, "
+        "живых — заходили за неделю.\n"
+        "Жми на строку, чтобы посмотреть рефовода.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:refs:u:"))
+async def cb_refs_user(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user_id = int(call.data.split(":")[3])
+    d = await db.referrer_detail(user_id)
+    invited = d["invited"]
+    guests = await db.referred_users(user_id, 10)
+
+    lines = []
+    for guest in guests:
+        marks = []
+        if guest["banned"]:
+            marks.append("🔴 бан")
+        elif not guest["accepted"]:
+            marks.append("не принял правила")
+        elif not guest["ref_credited"]:
+            marks.append("не прошёл ОП")
+        elif guest["last_seen"] > time.time() - 604800:
+            marks.append("активен")
+        lines.append(
+            f"• <code>{guest['id']}</code> · {_since(guest['created_at'])}"
+            + (f" · {', '.join(marks)}" if marks else "")
+        )
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="👤 Карточка пользователя", callback_data=f"a:u:card:{user_id}"
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К топу", callback_data="a:refs:top:0"))
+    await _edit(
+        call,
+        f"👤 <b>Рефовод</b> <code>{user_id}</code>\n\n"
+        f"Привёл всего: <b>{invited}</b> · дошли: <b>{d['confirmed']}</b> "
+        f"({_pct_of(d['confirmed'], invited)})\n"
+        f"За сутки: {d['day']} · за неделю: {d['week']}\n"
+        f"Первый: {_since(d['first_at'])} · последний: {_since(d['last_at'])}\n\n"
+        f"Приняли правила: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
+        f"Заходили за неделю: {d['alive']} · в бане: {d['banned']}\n\n"
+        + ("<b>Последние приглашённые</b>\n" + "\n".join(lines) if lines else ""),
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:u:card:"))
+async def cb_user_card(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    text, markup = await user_card(int(call.data.split(":")[3]))
+    await _edit(call, text, markup)
+    await call.answer()

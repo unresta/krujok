@@ -553,6 +553,118 @@ async def referral_counts(user_id: int) -> tuple[int, int]:
     return row["done"] or 0, row["waiting"] or 0
 
 
+# Everything below counts by the invited person's own created_at: the moment a
+# referral is credited is not stored, and their arrival is what an admin means
+# by «за сутки» anyway.
+_INVITED = "ref_by IS NOT NULL AND ref_by != 0"
+
+
+async def referral_overview() -> dict:
+    """Every number the referral screen shows, in one pass over the table."""
+    async with conn().execute(
+        f"""
+        SELECT
+          COUNT(*)                                             AS invited,
+          COALESCE(SUM(ref_credited), 0)                       AS confirmed,
+          COALESCE(SUM(ref_credited = 0), 0)                   AS waiting,
+          COALESCE(SUM(accepted), 0)                           AS accepted,
+          COALESCE(SUM(banned), 0)                             AS banned,
+          COALESCE(SUM(last_seen > strftime('%s','now') - 604800), 0) AS alive,
+          COALESCE(SUM(coins), 0)                              AS coins,
+          COUNT(DISTINCT ref_by)                               AS referrers
+        FROM users WHERE {_INVITED}
+        """
+    ) as cur:
+        row = dict(await cur.fetchone())
+
+    # How many of those invited ever paid for anything.
+    async with conn().execute(
+        f"SELECT COUNT(DISTINCT p.user_id) FROM payments p"
+        f" JOIN users u ON u.id = p.user_id WHERE {_INVITED} AND p.refunded = 0"
+    ) as cur:
+        row["payers"] = (await cur.fetchone())[0]
+
+    for name, window in (("day", 86400), ("week", 604800), ("month", 2592000)):
+        async with conn().execute(
+            f"""
+            SELECT COUNT(*) AS invited, COALESCE(SUM(ref_credited), 0) AS confirmed
+            FROM users
+            WHERE {_INVITED} AND created_at > strftime('%s','now') - ?
+            """,
+            (window,),
+        ) as cur:
+            part = await cur.fetchone()
+        row[f"{name}_invited"], row[f"{name}_confirmed"] = part[0], part[1]
+
+    # How the referrers themselves are distributed — a handful of big ones or
+    # a long tail changes what an admin does next.
+    async with conn().execute(
+        f"""
+        SELECT
+          COALESCE(SUM(done >= 1), 0)  AS with_one,
+          COALESCE(SUM(done >= 3), 0)  AS with_three,
+          COALESCE(SUM(done >= 10), 0) AS with_ten,
+          COALESCE(MAX(done), 0)       AS best
+        FROM (SELECT ref_by, SUM(ref_credited) AS done FROM users
+              WHERE {_INVITED} GROUP BY ref_by)
+        """
+    ) as cur:
+        row.update(dict(await cur.fetchone()))
+    return row
+
+
+async def top_referrers(limit: int = 15, window: int = 0) -> list[aiosqlite.Row]:
+    """Who brought the most, all time or within a window of seconds."""
+    clause = "AND u.created_at > strftime('%s','now') - :window" if window else ""
+    async with conn().execute(
+        f"""
+        SELECT u.ref_by AS user_id,
+               COUNT(*)                       AS invited,
+               COALESCE(SUM(u.ref_credited), 0) AS confirmed,
+               COALESCE(SUM(u.banned), 0)     AS banned,
+               COALESCE(SUM(u.last_seen > strftime('%s','now') - 604800), 0) AS alive,
+               MAX(u.created_at)              AS last_at
+        FROM users u
+        WHERE {_INVITED} {clause}
+        GROUP BY u.ref_by
+        HAVING confirmed > 0 OR invited > 0
+        ORDER BY confirmed DESC, invited DESC LIMIT :limit
+        """,
+        {"limit": limit, "window": window},
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def referrer_detail(user_id: int) -> dict:
+    """One referrer, in the same terms as the overview."""
+    async with conn().execute(
+        f"""
+        SELECT
+          COUNT(*)                           AS invited,
+          COALESCE(SUM(ref_credited), 0)     AS confirmed,
+          COALESCE(SUM(accepted), 0)         AS accepted,
+          COALESCE(SUM(banned), 0)           AS banned,
+          COALESCE(SUM(last_seen > strftime('%s','now') - 604800), 0) AS alive,
+          COALESCE(SUM(created_at > strftime('%s','now') - 86400), 0) AS day,
+          COALESCE(SUM(created_at > strftime('%s','now') - 604800), 0) AS week,
+          COALESCE(MIN(created_at), 0)       AS first_at,
+          COALESCE(MAX(created_at), 0)       AS last_at
+        FROM users WHERE ref_by = ?
+        """,
+        (user_id,),
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def referred_users(user_id: int, limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute(
+        "SELECT id, created_at, ref_credited, accepted, banned, last_seen, coins"
+        " FROM users WHERE ref_by = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
 async def referral_totals() -> tuple[int, int]:
     async with conn().execute(
         "SELECT COUNT(*) AS invited,"
