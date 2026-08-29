@@ -331,6 +331,10 @@ async def connect() -> None:
     global _db
     _db = await aiosqlite.connect(DB_PATH)
     _db.row_factory = aiosqlite.Row
+    # SQLite's own lower() only folds ASCII, so «Аня» would never match «аня».
+    await _db.create_function(
+        "lower_u", 1, lambda value: value.lower() if value else value, deterministic=True
+    )
     await _db.executescript(SCHEMA)
     await _migrate()
     await _db.commit()
@@ -429,6 +433,40 @@ async def user_row(user_id: int) -> aiosqlite.Row | None:
     """Read-only lookup — unlike get_user() it does not create the row."""
     async with conn().execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cur:
         return await cur.fetchone()
+
+
+async def find_users(query: str, limit: int = 12) -> list[aiosqlite.Row]:
+    """Look someone up the way an admin actually remembers them.
+
+    A username first, because that is what gets written down and forwarded; a
+    name second; a bare id last, since it is the least memorable of the three.
+    """
+    query = query.strip().lstrip("@")
+    if not query:
+        return []
+
+    if query.isdigit():  # an id is exact, so it wins outright when it matches
+        row = await user_row(int(query))
+        if row is not None:
+            return [row]
+
+    async with conn().execute(
+        """
+        SELECT *, MIN(rank) AS rank FROM (
+            SELECT *, 0 AS rank FROM users
+              WHERE username != '' AND lower_u(username) = lower_u(:q)
+            UNION ALL
+            SELECT *, 1 AS rank FROM users
+              WHERE username != '' AND lower_u(username) LIKE lower_u(:q) || '%'
+            UNION ALL
+            SELECT *, 2 AS rank FROM users
+              WHERE name != '' AND lower_u(name) LIKE '%' || lower_u(:q) || '%'
+        )
+        GROUP BY id ORDER BY rank, last_seen DESC LIMIT :limit
+        """,
+        {"q": query, "limit": limit},
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def touch_identity(user_id: int, name: str, username: str) -> None:

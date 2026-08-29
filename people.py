@@ -15,18 +15,27 @@ UNKNOWN = "без имени"
 
 
 def label(row, with_id: bool = True) -> str:
-    """«Вася (@vasya) · 123456789» — as much of it as is actually known."""
+    """«@vasya · Вася · 123456789», username first.
+
+    A username is what an admin writes down, forwards and searches by, so it
+    leads. A person without one gets their name as a tg:// link instead — one
+    tap still opens the profile, which an id alone never did.
+    """
     if row is None:
         return "—"
     user_id = row["id"] if "id" in row.keys() else row["user_id"]
     name = (row["name"] or "").strip() if "name" in row.keys() else ""
     username = (row["username"] or "").strip() if "username" in row.keys() else ""
 
-    parts = [f"<b>{html.escape(name)}</b>"] if name else []
+    parts = []
     if username:
-        parts.append(f"@{html.escape(username)}")
-    if not parts:
-        parts.append(UNKNOWN)
+        parts.append(f"<b>@{html.escape(username)}</b>")
+        if name:
+            parts.append(html.escape(name))
+    elif name:
+        parts.append(f'<b><a href="tg://user?id={user_id}">{html.escape(name)}</a></b>')
+    else:
+        parts.append(f'<a href="tg://user?id={user_id}">{UNKNOWN}</a>')
     if with_id:
         parts.append(f"<code>{user_id}</code>")
     return " · ".join(parts)
@@ -39,7 +48,7 @@ def short(row) -> str:
     user_id = row["id"] if "id" in row.keys() else row["user_id"]
     name = (row["name"] or "").strip() if "name" in row.keys() else ""
     username = (row["username"] or "").strip() if "username" in row.keys() else ""
-    return (name or (f"@{username}" if username else str(user_id)))[:24]
+    return (f"@{username}" if username else name or str(user_id))[:24]
 
 
 async def of(user_id: int, with_id: bool = True) -> str:

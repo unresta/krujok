@@ -1594,8 +1594,10 @@ async def cb_user(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Admin.user_id)
     await _edit(
         call,
-        "👤 <b>Пользователь</b>\n\nПришли id числом — или перешли сюда любое "
-        "его сообщение.",
+        "👤 <b>Найти пользователя</b>\n\n"
+        "Пришли <b>@username</b>, имя или его кусок, id числом — "
+        "или перешли сюда любое его сообщение.\n\n"
+        "Если совпадений будет несколько, покажу списком.",
         back_kb(),
     )
     await call.answer()
@@ -1603,23 +1605,55 @@ async def cb_user(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(Admin.user_id, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_user_id(message: Message, state: FSMContext) -> None:
-    origin = message.forward_origin
-    sender = getattr(origin, "sender_user", None)
-    raw = (message.text or "").strip()
+    """@username, a name, an id or a forward — whatever the admin has at hand."""
+    sender = getattr(message.forward_origin, "sender_user", None)
     if sender is not None:
-        user_id = sender.id
-    elif raw.lstrip("-").isdigit():
-        user_id = int(raw)
-    else:
+        await state.clear()
+        text, markup = await user_card(sender.id)
+        await message.answer(text, reply_markup=markup)
+        return
+
+    query = (message.text or "").strip()
+    if not query:
+        await message.answer("Пришли @username, имя, id или пересланное сообщение.")
+        return
+
+    found = await db.find_users(query)
+    if not found:
+        # A bare id is worth opening even when the person is not in the base yet.
+        if query.lstrip("-").isdigit():
+            await state.clear()
+            text, markup = await user_card(int(query))
+            await message.answer(text, reply_markup=markup)
+            return
         await message.answer(
-            "Нужен id числом или пересланное сообщение "
-            "(у скрытых аккаунтов id не видно)."
+            f"Никого не нашёл по «{html.escape(query[:40])}».\n\n"
+            "Имя и @username бот запоминает при первом заходе после обновления — "
+            "тех, кто с тех пор не заходил, пока видно только по id."
         )
         return
 
+    if len(found) == 1:
+        await state.clear()
+        text, markup = await user_card(found[0]["id"])
+        await message.answer(text, reply_markup=markup)
+        return
+
+    b = InlineKeyboardBuilder()
+    for row in found:
+        b.row(
+            InlineKeyboardButton(
+                text=f"👤 {people.short(row)}"
+                + (f" · {row['name'][:16]}" if row["username"] and row["name"] else ""),
+                callback_data=f"a:u:card:{row['id']}",
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await state.clear()
-    text, markup = await user_card(user_id)
-    await message.answer(text, reply_markup=markup)
+    await message.answer(
+        f"Нашёл {len(found)} по «{html.escape(query[:40])}» — выбери:",
+        reply_markup=b.as_markup(),
+    )
 
 
 async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -2351,23 +2385,46 @@ async def stats_cmd(message: Message) -> None:
     )
 
 
+async def _who_from(raw: str, message: Message) -> int | None:
+    """id or @username in a command; complains to the admin when it is neither."""
+    raw = raw.strip()
+    if raw.lstrip("-").isdigit():
+        return int(raw)
+    found = await db.find_users(raw, limit=2)
+    if len(found) == 1:
+        return found[0]["id"]
+    if not found:
+        await message.answer(f"Не нашёл «{html.escape(raw[:40])}».")
+    else:
+        await message.answer(
+            f"По «{html.escape(raw[:40])}» подходит несколько — уточни или дай id: "
+            + ", ".join(f"<code>{r['id']}</code>" for r in found)
+        )
+    return None
+
+
 @router.message(Command("give"))
 async def give_cmd(message: Message, command: CommandObject) -> None:
     parts = (command.args or "").split()
-    if len(parts) != 2 or not parts[0].isdigit():
-        await message.answer("/give &lt;user_id&gt; &lt;coins&gt;")
+    if len(parts) != 2 or not parts[1].lstrip("-").isdigit():
+        await message.answer("/give &lt;id или @username&gt; &lt;coins&gt;")
         return
-    await db.add_coins(int(parts[0]), int(parts[1]))
-    text, markup = await user_card(int(parts[0]))
+    user_id = await _who_from(parts[0], message)
+    if user_id is None:
+        return
+    await db.add_coins(user_id, int(parts[1]))
+    text, markup = await user_card(user_id)
     await message.answer(text, reply_markup=markup)
 
 
 @router.message(Command("ban", "unban"))
 async def ban_cmd(message: Message, command: CommandObject) -> None:
-    if not (command.args or "").strip().isdigit():
-        await message.answer(f"/{command.command} &lt;user_id&gt;")
+    if not (command.args or "").strip():
+        await message.answer(f"/{command.command} &lt;id или @username&gt;")
         return
-    user_id = int(command.args.strip())
+    user_id = await _who_from(command.args, message)
+    if user_id is None:
+        return
     await db.set_banned(user_id, command.command == "ban")
     text, markup = await user_card(user_id)
     await message.answer(text, reply_markup=markup)
