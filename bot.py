@@ -25,6 +25,7 @@ import ui
 from config import ADMIN_IDS, BOT_TOKEN
 from handlers import (
     admin,
+    cheques,
     common,
     moderation,
     payments,
@@ -79,6 +80,7 @@ async def main() -> None:
         admin.router,
         moderation.router,
         subscribe.router,
+        cheques.router,
         common.router,
         payments.router,
         payouts.router,

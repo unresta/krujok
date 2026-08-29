@@ -35,6 +35,7 @@ import db
 import invoices
 import posts
 import pushes
+from handlers import cheques
 import keyboards as kb
 import settings
 import text_manager
@@ -115,20 +116,20 @@ def home_kb(
 
     # Management section - без цветов
     b.row(
-        InlineKeyboardButton(text="📊 Статистика", callback_data="a:stats"),
         InlineKeyboardButton(text="👤 Пользователь", callback_data="a:user"),
+        InlineKeyboardButton(text="🎥 Кружок", callback_data="a:circle"),
     )
     b.row(
-        InlineKeyboardButton(text="🎥 Кружок", callback_data="a:circle"),
         InlineKeyboardButton(text="📢 Рассылка", callback_data="a:cast"),
+        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
     )
     b.row(
         InlineKeyboardButton(text="💰 Экономика", callback_data="a:econ"),
         InlineKeyboardButton(text="💳 Платежи", callback_data="a:pay"),
     )
     b.row(
-        InlineKeyboardButton(text="🏆 Топ авторов", callback_data="a:top"),
         InlineKeyboardButton(text="📦 Массовая загрузка", callback_data="a:bulk"),
+        InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
     )
 
     # Traffic section — что продаётся рекламодателям
@@ -140,7 +141,11 @@ def home_kb(
     )
     b.row(
         InlineKeyboardButton(text="🔗 Ссылки", callback_data="a:links"),
+        InlineKeyboardButton(text="🎟 Чеки", callback_data="a:cheques"),
+    )
+    b.row(
         InlineKeyboardButton(text="🛡 BotStat", callback_data="a:botstat"),
+        InlineKeyboardButton(text="📊 Статистика", callback_data="a:stats"),
     )
 
     # Settings section - без цветов
@@ -149,7 +154,6 @@ def home_kb(
         InlineKeyboardButton(text="🔔 Напоминания", callback_data="a:push"),
     )
     b.row(
-        InlineKeyboardButton(text="💾 Бэкап базы", callback_data="a:db"),
         InlineKeyboardButton(
             text=f"🔧 Техработы: {'вкл' if maintenance else 'выкл'}",
             callback_data="a:maint",
@@ -3062,3 +3066,98 @@ async def cb_botstat_info(call: CallbackQuery) -> None:
         f"Данные на: {html.escape(str(info.get('date', '—')))}",
         back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
     )
+
+
+# --- cheques -------------------------------------------------------------
+
+# Minting happens in the inline field (handlers/cheques.py); the panel is for
+# seeing what is out there and stopping one that went wrong.
+
+
+@router.callback_query(F.data == "a:cheques")
+async def cb_cheques(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    rows = await db.cheques()
+    totals = await db.cheque_totals()
+
+    b = InlineKeyboardBuilder()
+    for row in rows[:10]:
+        left = row["total"] - row["used"]
+        mark = "🟢" if row["active"] and left > 0 else "⚪"
+        kind = " 👥" if row["kind"] == cheques.REFS else ""
+        b.row(
+            InlineKeyboardButton(
+                text=f"{mark} {row['coins']}🪙{kind} · {row['used']}/{row['total']}",
+                callback_data=f"a:chq:{row['code']}",
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text=f"👥 Рефералов для чека: {settings.get('cheque_min_refs')}",
+            callback_data="a:econ:k:cheque_min_refs",
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
+    await _edit(
+        call,
+        "🎟 <b>Чеки</b>\n\n"
+        "Чек создаётся в поле ввода любого чата:\n"
+        f"<code>@{(await call.bot.me()).username} 100 5</code> — "
+        "100 монеток, 5 активаций.\n"
+        "В списке будет два варианта: обычный и «только от "
+        f"{settings.get('cheque_min_refs')} рефералов» — посты у них одинаковые.\n\n"
+        f"Живых чеков: <b>{totals['live']}</b>\n"
+        f"Активаций всего: {totals['claims']} на {totals['coins']} 🪙\n\n"
+        + ("👥 — чек для рефоводов." if rows else "Пока ни одного не выпущено."),
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:chq:"))
+async def cb_cheque_one(call: CallbackQuery) -> None:
+    await _show_cheque(call, call.data.split(":", 2)[2])
+    await call.answer()
+
+
+async def _show_cheque(call: CallbackQuery, code: str) -> None:
+    cheque = await db.get_cheque(code)
+    if cheque is None:
+        await call.answer("Чека уже нет.", show_alert=True)
+        return
+
+    left = cheque["total"] - cheque["used"]
+    kind = (
+        f"только для тех, кто привёл {cheque['min_refs']}+"
+        if cheque["kind"] == cheques.REFS
+        else "для всех, кто прошёл подписку"
+    )
+    b = InlineKeyboardBuilder()
+    if cheque["active"] and left > 0:
+        b.row(
+            InlineKeyboardButton(
+                text="⏹ Остановить чек",
+                callback_data=f"a:chq:stop:{code}",
+                style=kb.DANGER,
+            )
+        )
+    b.row(InlineKeyboardButton(text="⬅️ К чекам", callback_data="a:cheques"))
+    await _edit(
+        call,
+        f"🎟 <b>Чек на {cheque['coins']} монеток</b>\n"
+        f"<code>{html.escape(code)}</code>\n\n"
+        f"Условие: {kind}\n"
+        f"Активаций: <b>{cheque['used']}</b> из {cheque['total']}"
+        + (f" · осталось {left}" if left > 0 else " · разобран")
+        + ("\nСтатус: ⏹ остановлен" if not cheque["active"] else "")
+        + f"\nВыдано монеток: {cheque['used'] * cheque['coins']}",
+        b.as_markup(),
+    )
+
+
+@router.callback_query(F.data.startswith("a:chq:stop:"))
+async def cb_cheque_stop(call: CallbackQuery) -> None:
+    code = call.data.split(":", 3)[3]
+    await db.stop_cheque(code)
+    await call.answer("Остановлен")
+    await _show_cheque(call, code)

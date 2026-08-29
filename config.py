@@ -74,6 +74,9 @@ PUSH_TICK = 900.0  # seconds between sweeps
 PROMO_ENABLED = 1
 PROMO_EVERY_HOURS = 6  # how rarely one person meets a promo post
 
+# --- cheques ---
+CHEQUE_MIN_REFS = 3  # invited friends a «refs» cheque asks for
+
 REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their own
 
 # --- author profiles and payouts ---

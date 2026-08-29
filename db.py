@@ -133,6 +133,30 @@ CREATE TABLE IF NOT EXISTS profile_reports (
     PRIMARY KEY (user_id, author_id)
 );
 
+-- A cheque an admin posts in a channel: the coins are handed out to whoever
+-- opens it, one activation per person, until the activations run out. The
+-- «refs» kind additionally wants the claimer to have invited people — nothing
+-- about the post itself says so, that is the whole point of it.
+CREATE TABLE IF NOT EXISTS cheques (
+    code       TEXT    PRIMARY KEY,
+    coins      INTEGER NOT NULL,
+    total      INTEGER NOT NULL,           -- activations it was created for
+    used       INTEGER NOT NULL DEFAULT 0,
+    kind       TEXT    NOT NULL DEFAULT 'plain',   -- plain | refs
+    min_refs   INTEGER NOT NULL DEFAULT 0,
+    author_id  INTEGER NOT NULL,
+    active     INTEGER NOT NULL DEFAULT 1,
+    posted     INTEGER NOT NULL DEFAULT 0, -- the inline result was actually sent
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS cheque_claims (
+    code    TEXT    NOT NULL,
+    user_id INTEGER NOT NULL,
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (code, user_id)
+);
+
 -- Sponsor channels the gate demands. Several at once: this is what is sold to
 -- advertisers, so each one keeps its own count of who came through it.
 CREATE TABLE IF NOT EXISTS gate_channels (
@@ -261,6 +285,8 @@ MIGRATIONS = {
         "last_push": "INTEGER NOT NULL DEFAULT 0",
         "free_views": "INTEGER NOT NULL DEFAULT 0",  # circles owed, not coins
         "last_promo": "INTEGER NOT NULL DEFAULT 0",  # when a promo post last came
+        # A cheque opened before the gate waits here until the gate is passed.
+        "pending_cheque": "TEXT NOT NULL DEFAULT ''",
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -1650,6 +1676,151 @@ async def add_payment(
         return False
     await conn().commit()
     return True
+
+
+# --- cheques -------------------------------------------------------------
+
+CHEQUE_REUSE = 600  # seconds an unposted cheque is offered again while typing
+
+
+async def make_cheque(
+    author_id: int, coins: int, total: int, kind: str, min_refs: int
+) -> str:
+    """The code for this cheque, minting one only when there is none to reuse.
+
+    Every keystroke in the inline field asks for a cheque, so an identical
+    request that was never posted and never claimed is handed back instead of
+    littering the table with codes nobody will ever see.
+    """
+    async with conn().execute(
+        """
+        SELECT code FROM cheques
+        WHERE author_id = ? AND coins = ? AND total = ? AND kind = ?
+          AND used = 0 AND posted = 0 AND active = 1
+          AND created_at > strftime('%s','now') - ?
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (author_id, coins, total, kind, CHEQUE_REUSE),
+    ) as cur:
+        row = await cur.fetchone()
+    if row:
+        return row["code"]
+
+    code = secrets.token_urlsafe(9).replace("-", "").replace("_", "")[:12]
+    await conn().execute(
+        "INSERT INTO cheques(code, coins, total, kind, min_refs, author_id)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (code, coins, total, kind, min_refs, author_id),
+    )
+    await conn().commit()
+    return code
+
+
+async def mark_cheque_posted(code: str) -> None:
+    await conn().execute("UPDATE cheques SET posted = 1 WHERE code = ?", (code,))
+    await conn().commit()
+
+
+async def get_cheque(code: str) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM cheques WHERE code = ?", (code,)) as cur:
+        return await cur.fetchone()
+
+
+async def has_claimed(code: str, user_id: int) -> bool:
+    async with conn().execute(
+        "SELECT 1 FROM cheque_claims WHERE code = ? AND user_id = ?", (code, user_id)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def claim_cheque(code: str, user_id: int) -> bool:
+    """Take one activation, or False if there is none left for this person.
+
+    The claim row goes in first — its primary key is what stops one person from
+    taking a cheque twice — and the counter is moved with a conditional update,
+    so two people racing for the last activation cannot both get it.
+    """
+    try:
+        await conn().execute(
+            "INSERT INTO cheque_claims(code, user_id) VALUES (?, ?)", (code, user_id)
+        )
+    except aiosqlite.IntegrityError:
+        return False
+
+    cur = await conn().execute(
+        "UPDATE cheques SET used = used + 1 WHERE code = ? AND active = 1"
+        " AND used < total",
+        (code,),
+    )
+    if cur.rowcount == 0:  # ran out between the check and here
+        await conn().execute(
+            "DELETE FROM cheque_claims WHERE code = ? AND user_id = ?", (code, user_id)
+        )
+        await conn().commit()
+        return False
+    await conn().commit()
+    return True
+
+
+async def stop_cheque(code: str) -> None:
+    await conn().execute("UPDATE cheques SET active = 0 WHERE code = ?", (code,))
+    await conn().commit()
+
+
+async def cheques(limit: int = 20) -> list[aiosqlite.Row]:
+    """What was actually posted, newest first — drafts are not interesting."""
+    async with conn().execute(
+        "SELECT * FROM cheques WHERE posted = 1 OR used > 0"
+        " ORDER BY active DESC, created_at DESC LIMIT ?",
+        (limit,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def cheque_totals() -> dict:
+    async with conn().execute(
+        """
+        SELECT
+          COALESCE(SUM(active = 1 AND used < total), 0) AS live,
+          COALESCE(SUM(used), 0)                        AS claims,
+          COALESCE(SUM(used * coins), 0)                AS coins
+        FROM cheques WHERE posted = 1 OR used > 0
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def drop_stale_cheques() -> int:
+    """Codes that were typed in the inline field but never posted."""
+    cur = await conn().execute(
+        "DELETE FROM cheques WHERE posted = 0 AND used = 0"
+        " AND created_at < strftime('%s','now') - 3600"
+    )
+    await conn().commit()
+    return cur.rowcount
+
+
+async def remember_cheque(user_id: int, code: str) -> None:
+    await ensure_user(user_id)
+    await conn().execute(
+        "UPDATE users SET pending_cheque = ? WHERE id = ?", (code, user_id)
+    )
+    await conn().commit()
+
+
+async def take_pending_cheque(user_id: int) -> str:
+    """The cheque this person opened before the gate, cleared as it is read."""
+    async with conn().execute(
+        "SELECT pending_cheque FROM users WHERE id = ?", (user_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    code = row["pending_cheque"] if row else ""
+    if code:
+        await conn().execute(
+            "UPDATE users SET pending_cheque = '' WHERE id = ?", (user_id,)
+        )
+        await conn().commit()
+    return code
 
 
 # --- sponsor channels ----------------------------------------------------

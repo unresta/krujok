@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 import access
 import db
 import posts
+from handlers import cheques
 import keyboards as kb
 import settings
 import texts
@@ -53,8 +54,13 @@ class UserMiddleware(BaseMiddleware):
         if isinstance(event, Message) and (event.text or "").startswith("/start "):
             payload = event.text.split(maxsplit=1)[1]
             await access.remember_referrer(tg_user.id, payload)
+            # A cheque link has to survive the gate: the code is put aside now
+            # and handed over the moment the subscription checks out.
+            cheque = cheques.parse_link(payload)
+            if cheque:
+                await db.remember_cheque(tg_user.id, cheque)
             code = access.parse_campaign(payload)
-            if code:
+            if code and not cheque:
                 await db.touch_campaign(code, tg_user.id)
 
         if not self._exempt(event) and not await access.is_subscribed(

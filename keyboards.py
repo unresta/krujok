@@ -713,6 +713,21 @@ def buy_payment_method() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def cheque(code: str) -> InlineKeyboardMarkup:
+    """A deep link, not a callback: the reader is not in the bot's chat yet."""
+    import access
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🎟 Забрать монетки",
+            url=f"https://t.me/{access.bot_username}?start=chq_{code}",
+            style=SUCCESS,
+        )
+    )
+    return b.as_markup()
+
+
 def crypto_invoice(provider: str, invoice_id: str, link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💳 Оплатить", url=link, style=SUCCESS))

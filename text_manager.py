@@ -444,6 +444,24 @@ EDITABLE: dict[str, Item] = {
     "AUTHOR_EMPTY": Item("У автора нечего смотреть", "Покупки", plain=True),
     "NOT_ENOUGH_COINS_TOAST": Item("Не хватает монеток", "Покупки", plain=True),
     "BOUGHT_TOAST": Item("Куплено", "Покупки", plain=True),
+    "CHEQUE_POST": Item(
+        "Чек: сам пост",
+        "Покупки",
+        vars={"coins": "монеток за активацию", "total": "сколько активаций"},
+    ),
+    "CHEQUE_CLAIMED": Item(
+        "Чек: активирован",
+        "Покупки",
+        vars={"coins": "сколько начислили", "coin": "значок монетки", "balance": "баланс"},
+    ),
+    "CHEQUE_NEEDS_REFS": Item(
+        "Чек: нужны рефералы",
+        "Покупки",
+        vars={"need": "сколько нужно", "have": "сколько есть"},
+    ),
+    "CHEQUE_GONE": Item("Чек: не найден", "Покупки"),
+    "CHEQUE_TAKEN": Item("Чек: уже активирован тобой", "Покупки"),
+    "CHEQUE_EMPTY": Item("Чек: активации кончились", "Покупки"),
     # --- Выплаты ---
     "PAYOUT_SCREEN": Item(
         "Экран вывода",

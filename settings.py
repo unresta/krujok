@@ -37,6 +37,7 @@ DEFAULTS: dict[str, int] = {
     "usdt_rate": config.USDT_RATE,
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_hours": config.PROMO_EVERY_HOURS,
+    "cheque_min_refs": config.CHEQUE_MIN_REFS,
     "maintenance": 0,
 }
 
@@ -77,6 +78,7 @@ TITLES: dict[str, str] = {
     "star_price": "Цена 1 ⭐ в копейках",
     "usdt_rate": "Монеток за 1 USDT",
     "promo_every_hours": "Показ раз в, ч",
+    "cheque_min_refs": "Рефералов для чека",
 }
 
 # Twenty-four knobs in one column is a wall; the panel shows them by subject.
@@ -103,6 +105,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
     ),
     "⚠️ Модерация": ("reports_to_hide",),
     "📰 Посты": ("promo_every_hours",),
+    "🎟 Чеки": ("cheque_min_refs",),
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -134,6 +137,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "usdt_rate": (1, 1_000_000),
     "promo_enabled": (0, 1),
     "promo_every_hours": (1, 720),
+    "cheque_min_refs": (1, 1000),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)

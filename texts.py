@@ -1051,6 +1051,45 @@ def payout_too_small(available: int) -> str:
     )
 
 
+# --- cheques --------------------------------------------------------------
+
+CHEQUE_POST = (
+    "🎟 <b>Чек на {coins} монеток</b>\n\n"
+    "Активаций: <b>{total}</b>\n"
+    "Жми кнопку — монетки упадут на баланс."
+)
+
+
+def cheque_post(coins: int, total: int) -> str:
+    return _fmt("CHEQUE_POST", CHEQUE_POST, coins=coins, total=total)
+
+
+CHEQUE_CLAIMED = "🎟 Чек активирован: <b>+{coins}</b> {coin}\nБаланс: <b>{balance}</b>"
+
+
+def cheque_claimed(coins: int, balance: int) -> str:
+    return _fmt(
+        "CHEQUE_CLAIMED", CHEQUE_CLAIMED, coins=coins, coin=coin(), balance=balance
+    )
+
+
+CHEQUE_NEEDS_REFS = (
+    "🎟 Этот чек — для тех, кто приводит друзей.\n\n"
+    "Нужно приглашённых: <b>{need}</b>, у тебя: <b>{have}</b>.\n"
+    "Позови друзей по своей ссылке и возвращайся — чек подождёт, "
+    "пока не кончатся активации."
+)
+
+
+def cheque_needs_refs(need: int, have: int) -> str:
+    return _fmt("CHEQUE_NEEDS_REFS", CHEQUE_NEEDS_REFS, need=need, have=have)
+
+
+CHEQUE_GONE = "🎟 Такого чека нет — возможно, его удалили."
+CHEQUE_TAKEN = "🎟 Этот чек ты уже активировал."
+CHEQUE_EMPTY = "🎟 Активации закончились — этот чек уже разобрали."
+
+
 # --- gate, welcome, subscription -----------------------------------------
 
 WELCOME = (
