@@ -3610,8 +3610,8 @@ async def cb_botsafe_ask(call: CallbackQuery) -> None:
     await _edit(
         call,
         "🛡 <b>Проверить базу в BotSafe?</b>\n\n"
-        f"Уйдёт <b>{total}</b> Telegram id в @BotSafeRobot. Проверка идёт "
-        "приватно, прогресс и результат придут тебе в личку от него.\n\n"
+        f"Уйдёт <b>{total}</b> Telegram id в @BotSafeRobot. Прогресс и "
+        "результат придут тебе в личку от него.\n\n"
         "Одновременно у бота может идти только одна проверка.",
         _confirm_kb("a:bs:safe:go"),
     )
@@ -3623,9 +3623,7 @@ async def cb_botsafe_go(call: CallbackQuery) -> None:
     await call.answer("Отправляю…")
     ids = await db.all_user_ids()
     try:
-        # hide=True: the check runs privately, and the base is not shown off
-        # in @BotSafeRobot's public feed.
-        result = await botstat.to_botsafe(ids, call.from_user.id, hide=True)
+        result = await botstat.to_botsafe(ids, call.from_user.id, hide=False)
     except botstat.BotStatError as error:
         await _edit(
             call,

@@ -73,7 +73,7 @@ async def to_botman(ids: list[int], owner_id: int, folder_id: str = "") -> dict:
     return result
 
 
-async def to_botsafe(ids: list[int], notify_id: int, hide: bool = True) -> dict:
+async def to_botsafe(ids: list[int], notify_id: int, hide: bool = False) -> dict:
     """Ask @BotSafeRobot how much of that base is alive."""
     if not configured():
         raise BotStatError("нет ключа BOTSTAT_KEY")
