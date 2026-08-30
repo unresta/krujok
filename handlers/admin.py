@@ -389,6 +389,7 @@ async def cb_tiers(call: CallbackQuery, state: FSMContext) -> None:
             f"сейчас у {held.get(code, 0)}"
         )
 
+    boost = await db.boost_stats()
     await _edit(
         call,
         "💎 <b>Подписки</b>\n\n"
@@ -396,7 +397,12 @@ async def cb_tiers(call: CallbackQuery, state: FSMContext) -> None:
         f"Продаж всего: {stats['sales']} на {stats['coins']} 🪙 "
         f"(за сутки {stats['coins_today']} 🪙)\n\n"
         + "\n".join(lines)
-        + "\n\nЦены и лимиты — в «Экономике» → 💎 Подписки.",
+        + "\n\n🚀 <b>Продвижение анкет</b>\n"
+        f"Продаж: {boost['sales']} на {boost['coins']} 🪙 "
+        f"(за сутки {boost['coins_today']} 🪙)\n"
+        f"Куплено показов: {boost['bought']} · не откручено: {boost['left_owed']}\n"
+        f"Анкет в продвижении сейчас: {boost['running']}"
+        + "\n\nЦены и лимиты — в «Экономике».",
         back_kb(
             [
                 InlineKeyboardButton(

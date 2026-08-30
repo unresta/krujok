@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- Reach an author bought for their profile. The profiles row carries what is
+-- left; this is the receipt, and what the panel adds up.
+CREATE TABLE IF NOT EXISTS boost_sales (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    views   INTEGER NOT NULL,             -- impressions bought
+    price   INTEGER NOT NULL,             -- coins actually taken
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_boost_sales_user ON boost_sales(user_id, ts);
+
 -- Every subscription ever sold, for the panel's takings and for answering
 -- «за что списали»: the users row only carries the one in force.
 CREATE TABLE IF NOT EXISTS tier_sales (
@@ -329,6 +340,8 @@ MIGRATIONS = {
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
+        # Paid reach: impressions still owed, counted down as the card is shown.
+        "boost": "INTEGER NOT NULL DEFAULT 0",
     },
     "gate_channels": {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
@@ -1848,11 +1861,15 @@ async def pending_profiles() -> int:
         return (await cur.fetchone())[0]
 
 
-async def pick_profile(viewer_id: int) -> aiosqlite.Row | None:
+async def pick_profile(viewer_id: int, boost_weight: int = 0) -> aiosqlite.Row | None:
     """A profile the viewer has not seen yet, never their own.
 
     An author without a single approved circle has nothing to sell, so their
     card never reaches the feed.
+
+    Everyone is shown once per lap, so paid reach cannot mean «more times» —
+    it means «sooner». Most viewers never finish a lap, and being drawn early
+    is exactly the difference between being seen and not.
     """
     async with conn().execute(
         """
@@ -1865,11 +1882,19 @@ async def pick_profile(viewer_id: int) -> aiosqlite.Row | None:
                                  WHERE buyer_id = :uid)
           AND EXISTS (SELECT 1 FROM circles c
                        WHERE c.uploader_id = p.user_id AND c.status = 'approved')
-        ORDER BY RANDOM() LIMIT 1
+        ORDER BY RANDOM() LIMIT :limit
         """,
-        {"uid": viewer_id},
+        {"uid": viewer_id, "limit": PICK_CANDIDATES},
     ) as cur:
-        return await cur.fetchone()
+        rows = list(await cur.fetchall())
+
+    if not rows:
+        return None
+    if not boost_weight:
+        return rows[0]
+
+    weights = [boost_weight if row["boost"] > 0 else 1 for row in rows]
+    return random.choices(rows, weights=weights, k=1)[0]
 
 
 async def approved_circles(author_id: int) -> int:
@@ -1885,10 +1910,55 @@ async def mark_profile_seen(viewer_id: int, author_id: int) -> None:
         "INSERT OR IGNORE INTO profile_views(buyer_id, author_id) VALUES (?, ?)",
         (viewer_id, author_id),
     )
+    # Paid impressions are spent here and nowhere else: this is the one place a
+    # card is actually put in front of somebody.
     await conn().execute(
-        "UPDATE profiles SET views = views + 1 WHERE user_id = ?", (author_id,)
+        "UPDATE profiles SET views = views + 1,"
+        " boost = CASE WHEN boost > 0 THEN boost - 1 ELSE 0 END"
+        " WHERE user_id = ?",
+        (author_id,),
     )
     await conn().commit()
+
+
+async def buy_boost(user_id: int, views: int, price: int) -> int | None:
+    """Take the coins and add the impressions. None when the balance is short.
+
+    Buying again while some are left adds to them — reach does not expire, so
+    there is nothing to reset.
+    """
+    if not await try_spend(user_id, price):
+        return None
+    await conn().execute(
+        "UPDATE profiles SET boost = boost + ? WHERE user_id = ?", (views, user_id)
+    )
+    await conn().execute(
+        "INSERT INTO boost_sales(user_id, views, price) VALUES (?, ?, ?)",
+        (user_id, views, price),
+    )
+    await conn().commit()
+    async with conn().execute(
+        "SELECT boost FROM profiles WHERE user_id = ?", (user_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else views
+
+
+async def boost_stats() -> dict:
+    """What paid reach has taken in, and how much of it is still owed."""
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM boost_sales)                        AS sales,
+          (SELECT COALESCE(SUM(views), 0) FROM boost_sales)          AS bought,
+          (SELECT COALESCE(SUM(price), 0) FROM boost_sales)          AS coins,
+          (SELECT COALESCE(SUM(price), 0) FROM boost_sales
+             WHERE ts > strftime('%s','now') - 86400)                AS coins_today,
+          (SELECT COUNT(*) FROM profiles WHERE boost > 0)            AS running,
+          (SELECT COALESCE(SUM(boost), 0) FROM profiles)             AS left_owed
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
 
 
 async def reset_profile_views(viewer_id: int) -> None:

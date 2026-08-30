@@ -140,6 +140,11 @@ FAQ = (
     "<b>Можно ли скачать или переслать кружок?</b>\n"
     "По умолчанию нет: кружочки уходят с защитой от пересылки и сохранения. "
     "Защита снимается подпиской A++ или Premium — они в «Подписке».\n\n"
+    "<b>Как получить больше просмотров анкеты?</b>\n"
+    "Кнопка «🚀 Продвинуть анкету» в «Моей анкете». Покупаешь показы — "
+    "твоя карточка идёт в начале выдачи, пока они не кончатся. Каждый "
+    "листающий всё равно видит анкету один раз за круг, но до конца круга "
+    "доходят немногие, поэтому попасть в начало и значит больше охвата.\n\n"
     "<b>Что дают подписки?</b>\n"
     "Просмотр кружочков перестаёт стоить монетки: A+ даёт бесплатный лимит "
     "в день, A++ и Premium — без лимита, плюс пересылка и скачивание. "
@@ -839,8 +844,9 @@ PROFILE_STATUS = (
     "{about}\n\n"
     "Кружочки: {price_content} {coin}\n"
     "Личка: {contact}\n"
-    "Показов: {views} · покупок: {sold}"
+    "Показов: {views} · покупок: {sold}{boost}"
 )
+PROFILE_STATUS_BOOST = "\n🚀 Оплаченных показов впереди: <b>{left}</b>"
 
 
 def _status_label(status: str) -> str:
@@ -858,6 +864,7 @@ def _contact_line(profile) -> str:
 
 
 def profile_status(profile) -> str:  # noqa: D401 — the author's own view
+    left = profile["boost"] if "boost" in profile.keys() else 0
     return _fmt(
         "PROFILE_STATUS",
         PROFILE_STATUS,
@@ -868,6 +875,11 @@ def profile_status(profile) -> str:  # noqa: D401 — the author's own view
         contact=_contact_line(profile),
         views=profile["views"],
         sold=profile["sold"],
+        boost=(
+            _fmt("PROFILE_STATUS_BOOST", PROFILE_STATUS_BOOST, left=left)
+            if left
+            else ""
+        ),
     )
 
 
@@ -1422,3 +1434,56 @@ def days_left(until: int) -> str:
 def when(stamp: int) -> str:
     """Moscow time, and said so — the server's own clock is nobody's business."""
     return time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + MSK_OFFSET)) + " МСК"
+
+
+# --- paid reach for a profile --------------------------------------------
+
+BOOST_SCREEN = (
+    "🚀 <b>Продвижение анкеты</b>\n\n"
+    "Твою анкету показывают тем, кто листает «Смотреть анкеты». Каждый "
+    "видит её один раз за круг, но до конца круга доходят немногие — "
+    "продвижение ставит тебя в начало, а не показывает дважды.\n\n"
+    "Оплачивается показами: купил {example} — ровно столько раз твою карточку "
+    "и покажут, дальше всё как обычно. Срока нет, показы не сгорают.\n\n"
+    "{coin} Баланс: <b>{coins}</b>\n"
+    "Осталось оплаченных показов: <b>{left}</b>"
+)
+
+
+def boost_screen(coins: int, left: int) -> str:
+    from config import BOOST_PACKS
+
+    return _fmt(
+        "BOOST_SCREEN",
+        BOOST_SCREEN,
+        example=f"{BOOST_PACKS[0]} показов",
+        coin=coin(),
+        coins=coins,
+        left=left,
+    )
+
+
+BOOST_BOUGHT = (
+    "🟢 Куплено <b>{views}</b> показов за {price} {coin}.\n"
+    "Всего оплаченных показов: <b>{left}</b>.\n"
+    "Анкета уже идёт в начале выдачи."
+)
+
+
+def boost_bought(views: int, price: int, left: int) -> str:
+    return _fmt(
+        "BOOST_BOUGHT", BOOST_BOUGHT, views=views, price=price, coin=coin(), left=left
+    )
+
+
+BOOST_POOR = "Не хватает монеток: нужно {price}, на балансе {coins}."
+
+
+def boost_poor(price: int, coins: int) -> str:
+    return _fmt("BOOST_POOR", BOOST_POOR, price=price, coins=coins)
+
+
+BOOST_NEEDS_APPROVED = (
+    "Продвигать пока нечего: анкета должна быть одобрена и видна в ленте. "
+    "Как только её одобрят — возвращайся."
+)

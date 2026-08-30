@@ -91,6 +91,13 @@ TIER_PRO_PRICE = 150
 TIER_A1_VIEWS = 100  # free circles a day on A+
 TIER_PRO_PENDING = 50  # unmoderated uploads Premium may hold at once
 
+# --- paid reach for a profile ---
+# Everyone is shown once per lap of the feed, so what is sold is being drawn
+# early rather than being drawn again — see db.pick_profile.
+BOOST_PACKS = (100, 500, 2000)  # impressions one can buy at a time
+BOOST_PRICE = 50  # coins per 100 impressions
+BOOST_WEIGHT = 5  # how many times likelier a boosted card is to come up
+
 # --- cheques ---
 CHEQUE_MIN_REFS = 3  # invited friends a «refs» cheque asks for
 

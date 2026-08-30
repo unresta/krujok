@@ -421,6 +421,14 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
         )
     )
     if profile and profile["status"] == "approved":
+        left = profile["boost"] if "boost" in profile.keys() else 0
+        b.row(
+            InlineKeyboardButton(
+                text="🚀 Продвинуть анкету" + (f" · {left}" if left else ""),
+                callback_data="pf:boost",
+                style=SUCCESS,
+            )
+        )
         b.row(
             InlineKeyboardButton(
                 text="🚫 Скрыть анкету", callback_data="pf:hide"
@@ -431,6 +439,25 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
             text="📝 Заполнить заново", callback_data="pf:start"
         )
     )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def boost_packs() -> InlineKeyboardMarkup:
+    """Impressions, priced off one setting so the packs stay in proportion."""
+    from config import BOOST_PACKS
+
+    b = InlineKeyboardBuilder()
+    per_hundred = settings.get("boost_price")
+    for views in BOOST_PACKS:
+        b.row(
+            InlineKeyboardButton(
+                text=f"{views} показов · {views * per_hundred // 100} "
+                f"{emoji.plain(emoji.COIN)}",
+                callback_data=f"pf:boost:{views}",
+                style=SUCCESS,
+            )
+        )
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
     return b.as_markup()
 

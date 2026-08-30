@@ -44,6 +44,8 @@ DEFAULTS: dict[str, int] = {
     "tier_pro_price": config.TIER_PRO_PRICE,
     "tier_a1_views": config.TIER_A1_VIEWS,
     "tier_pro_pending": config.TIER_PRO_PENDING,
+    "boost_price": config.BOOST_PRICE,
+    "boost_weight": config.BOOST_WEIGHT,
     "maintenance": 0,
 }
 
@@ -91,6 +93,8 @@ TITLES: dict[str, str] = {
     "tier_pro_price": "Premium монеток в день",
     "tier_a1_views": "A+ кружков в день",
     "tier_pro_pending": "Premium кружков на проверке",
+    "boost_price": "Продвижение: монеток за 100",
+    "boost_weight": "Продвижение: вес в выдаче",
 }
 
 # Twenty-four knobs in one column is a wall; the panel shows them by subject.
@@ -124,6 +128,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
     ),
     "⚠️ Модерация": ("reports_to_hide",),
     "📰 Посты": ("promo_every_circles",),
+    "🚀 Продвижение анкеты": ("boost_price", "boost_weight"),
     "🎟 Чеки": ("cheque_min_refs",),
 }
 
@@ -163,6 +168,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "tier_pro_price": (1, 100_000),
     "tier_a1_views": (1, 10_000),
     "tier_pro_pending": (1, 1000),
+    "boost_price": (1, 100_000),
+    "boost_weight": (1, 100),
 }
 
 _values: dict[str, int] = dict(DEFAULTS)
