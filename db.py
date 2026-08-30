@@ -1387,6 +1387,112 @@ async def all_user_ids() -> list[int]:
         return [row[0] for row in await cur.fetchall()]
 
 
+# --- sweeping out users who blocked the bot ------------------------------
+
+# Per-user rows that exist only to stop repeats: without the person they mean
+# nothing, and keeping them would hold circles out of somebody else's feed.
+_DEAD_JUNK = (
+    ("views", "user_id"),
+    ("reactions", "user_id"),
+    ("profile_views", "buyer_id"),
+    ("post_seen", "user_id"),
+)
+
+# What is kept on purpose: money and history. A payment or a payout says what
+# happened, and rewriting that to tidy a user list is not tidying.
+DEAD_KEPT_TABLES = ("payments", "payouts", "purchases", "tier_sales", "campaign_hits")
+
+# Someone the sweep must not take with it unasked — their content or their
+# money is still in play, and the row is what ties it to a person.
+_PROTECTED = """
+    EXISTS (SELECT 1 FROM circles c WHERE c.uploader_id = u.id)
+ OR EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = u.id)
+ OR EXISTS (SELECT 1 FROM payouts o WHERE o.user_id = u.id AND o.status = 'open')
+"""
+
+
+async def stage_dead(ids: list[int]) -> int:
+    """Park the uploaded ids in a temp table. Returns how many were distinct."""
+    await conn().execute(
+        "CREATE TEMP TABLE IF NOT EXISTS dead_ids (id INTEGER PRIMARY KEY)"
+    )
+    await conn().execute("DELETE FROM dead_ids")
+    await conn().executemany(
+        "INSERT OR IGNORE INTO dead_ids(id) VALUES (?)", [(i,) for i in ids]
+    )
+    await conn().commit()
+    async with conn().execute("SELECT COUNT(*) FROM dead_ids") as cur:
+        return (await cur.fetchone())[0]
+
+
+async def dead_preview() -> dict:
+    """What the staged list would actually do, before anything is deleted."""
+    async with conn().execute(
+        f"""
+        SELECT
+          (SELECT COUNT(*) FROM dead_ids)                              AS listed,
+          (SELECT COUNT(*) FROM users u JOIN dead_ids d ON d.id = u.id) AS found,
+          (SELECT COUNT(*) FROM users u JOIN dead_ids d ON d.id = u.id
+             WHERE {_PROTECTED})                                       AS keepers,
+          (SELECT COALESCE(SUM(u.coins), 0) FROM users u
+             JOIN dead_ids d ON d.id = u.id)                           AS coins,
+          (SELECT COUNT(*) FROM users u JOIN dead_ids d ON d.id = u.id
+             WHERE u.tier != '' AND u.tier_until > strftime('%s','now')) AS subs
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def sweep_dead(keep_authors: bool = True) -> dict:
+    """Delete the staged users. Returns what went and what was left alone.
+
+    Authors and anyone with an open payout are held back by default: their
+    circles, profile or money outlive the account, and an id that no longer has
+    a row behind it is how «автор без анкеты» happens all over the panel.
+    """
+    guard = f"AND NOT ({_PROTECTED})" if keep_authors else ""
+    # Resolved once, so the junk sweep and the delete cannot disagree about who.
+    async with conn().execute(
+        f"SELECT u.id FROM users u WHERE u.id IN (SELECT id FROM dead_ids) {guard}"
+    ) as cur:
+        doomed = [row[0] for row in await cur.fetchall()]
+    if not doomed:
+        return {"deleted": 0, "kept": (await dead_preview())["found"]}
+
+    await conn().execute("CREATE TEMP TABLE IF NOT EXISTS doomed_ids (id INTEGER PRIMARY KEY)")
+    await conn().execute("DELETE FROM doomed_ids")
+    await conn().executemany(
+        "INSERT OR IGNORE INTO doomed_ids(id) VALUES (?)", [(i,) for i in doomed]
+    )
+
+    for table, column in _DEAD_JUNK:
+        await conn().execute(
+            f"DELETE FROM {table} WHERE {column} IN (SELECT id FROM doomed_ids)"
+        )
+    if not keep_authors:
+        # Taking an author out means taking their shop window with them, or the
+        # feed would keep selling access to somebody who cannot answer.
+        await conn().execute(
+            "DELETE FROM profiles WHERE user_id IN (SELECT id FROM doomed_ids)"
+        )
+        await conn().execute(
+            "DELETE FROM profile_backup WHERE user_id IN (SELECT id FROM doomed_ids)"
+        )
+        await conn().execute(
+            "UPDATE circles SET status = 'rejected'"
+            " WHERE uploader_id IN (SELECT id FROM doomed_ids)"
+        )
+    # Their referrals point at a row that is about to stop existing.
+    await conn().execute(
+        "UPDATE users SET ref_by = NULL WHERE ref_by IN (SELECT id FROM doomed_ids)"
+    )
+    await conn().execute("DELETE FROM users WHERE id IN (SELECT id FROM doomed_ids)")
+    await conn().execute("DELETE FROM doomed_ids")
+    await conn().commit()
+
+    return {"deleted": len(doomed), "kept": (await dead_preview())["found"]}
+
+
 async def dashboard() -> dict:
     async with conn().execute(
         """

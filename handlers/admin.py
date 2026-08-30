@@ -8,6 +8,7 @@ chat, so a leaked button id is not enough to use it.
 import asyncio
 import html
 import logging
+import re
 import time
 from contextlib import suppress
 
@@ -85,6 +86,7 @@ class Admin(StatesGroup):
     channel_title = State()
     post = State()
     botman_folder = State()
+    dead_file = State()  # список мёртвых от BotSafe
 
 
 # --- home ----------------------------------------------------------------
@@ -3510,6 +3512,8 @@ async def _botstat_text() -> str:
         "<b>🛡 В BotSafe</b> — проверка аудитории в @BotSafeRobot: сколько "
         "живых, сколько мёртвых. Результат придёт тебе в личку от бота "
         "проверки.\n\n"
+        "<b>🧹 Чистка по файлу</b> — присылаешь список мёртвых, который отдал "
+        "BotSafe, и они уходят из базы.\n\n"
         "Уходят <b>только Telegram id</b> — ни имён, ни сообщений, ни балансов."
     )
 
@@ -3532,6 +3536,11 @@ def _botstat_kb() -> InlineKeyboardMarkup:
         b.row(
             InlineKeyboardButton(text="📊 Что знает BotStat", callback_data="a:bs:info")
         )
+    b.row(
+        InlineKeyboardButton(
+            text="🧹 Чистка по файлу", callback_data="a:bs:dead", style=kb.DANGER
+        )
+    )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return b.as_markup()
 
@@ -3614,7 +3623,9 @@ async def cb_botsafe_go(call: CallbackQuery) -> None:
     await call.answer("Отправляю…")
     ids = await db.all_user_ids()
     try:
-        result = await botstat.to_botsafe(ids, call.from_user.id)
+        # hide=True: the check runs privately, and the base is not shown off
+        # in @BotSafeRobot's public feed.
+        result = await botstat.to_botsafe(ids, call.from_user.id, hide=True)
     except botstat.BotStatError as error:
         await _edit(
             call,
@@ -3629,6 +3640,139 @@ async def cb_botsafe_go(call: CallbackQuery) -> None:
         f"🟢 <b>Проверка запущена</b>\n\nОтправлено {len(ids)} id.\n{line}"
         "Прогресс и результат придут от @BotSafeRobot.",
         back_kb([InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]),
+    )
+
+
+# --- sweeping out users who blocked the bot ------------------------------
+
+DEAD_MAX_BYTES = 5 * 1024 * 1024  # a list this long is not a list of ids
+_ID = re.compile(r"-?\d{5,}")  # a telegram id, whatever else shares its line
+
+
+def _dead_ids(raw: bytes) -> list[int]:
+    """Every id in the file, whatever the columns around it look like.
+
+    BotSafe sends one id per line, but a list that has been through a
+    spreadsheet on the way comes back with commas and quotes around it.
+    """
+    text = raw.decode("utf-8", errors="ignore")
+    return [int(found) for found in _ID.findall(text)]
+
+
+@router.callback_query(F.data == "a:bs:dead")
+async def cb_dead_ask(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.dead_file)
+    await _edit(
+        call,
+        "🧹 <b>Чистка по файлу</b>\n\n"
+        "Пришли файл со списком мёртвых — тот, что отдаёт @BotSafeRobot. "
+        "Годится любой текстовый: id по одному в строке, лишние колонки "
+        "бот пропустит сам.\n\n"
+        "Сразу ничего не удалится — сначала покажу, что нашлось в базе.",
+        back_kb(
+            [InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]
+        ),
+    )
+    await call.answer()
+
+
+@router.message(Admin.dead_file, F.document)
+async def got_dead_file(message: Message, state: FSMContext) -> None:
+    document = message.document
+    if document.file_size and document.file_size > DEAD_MAX_BYTES:
+        await message.answer(
+            f"Файл больше {DEAD_MAX_BYTES // 1024 // 1024} МБ — это уже не список id."
+        )
+        return
+
+    try:
+        buffer = await message.bot.download(document)
+    except TelegramAPIError as error:
+        await message.answer(f"Не смог скачать файл: {html.escape(str(error))[:120]}")
+        return
+
+    ids = _dead_ids(buffer.read())
+    if not ids:
+        await message.answer(
+            "В файле не нашлось ни одного id. Нужен текстовый список чисел."
+        )
+        return
+
+    listed = await db.stage_dead(ids)
+    found = await db.dead_preview()
+    await state.clear()
+
+    if not found["found"]:
+        await message.answer(
+            f"В файле {listed} id, но в базе из них нет никого — чистить нечего.",
+            reply_markup=back_kb(
+                [InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]
+            ),
+        )
+        return
+
+    goes = found["found"] - found["keepers"]
+    b = InlineKeyboardBuilder()
+    if goes:
+        b.row(
+            InlineKeyboardButton(
+                text=f"🧹 Удалить {goes}",
+                callback_data="a:bs:dead:go",
+                style=kb.DANGER,
+            )
+        )
+    if found["keepers"]:
+        b.row(
+            InlineKeyboardButton(
+                text=f"🗑 Удалить всех {found['found']}, вместе с авторами",
+                callback_data="a:bs:dead:all",
+                style=kb.DANGER,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data="a:botstat", style=kb.PRIMARY
+        )
+    )
+
+    await message.answer(
+        f"🧹 <b>Чистка базы</b>\n\n"
+        f"В файле: <b>{listed}</b> id\n"
+        f"Из них есть в базе: <b>{found['found']}</b>\n"
+        f"Под удаление сейчас: <b>{goes}</b>\n"
+        f"Придержу: {found['keepers']}\n\n"
+        "Придерживаю тех, у кого есть кружочки, анкета или открытая заявка "
+        "на вывод — без их строки контент осиротеет, а деньги потеряют "
+        "получателя. Вторая кнопка снимает и это: анкета удаляется, кружочки "
+        "снимаются с показа.\n\n"
+        f"Сгорит монеток на руках: {found['coins']}"
+        + (f"\nСреди них подписок в силе: {found['subs']}" if found["subs"] else "")
+        + "\n\nПлатежи, выплаты и покупки остаются — это история, а не мусор. "
+        "Но воронки рекламных ссылок считаются по таблице пользователей, так "
+        "что их цифры за прошлое просядут.",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.message(Admin.dead_file, ~F.text.in_(kb.MENU_BUTTONS))
+async def dead_not_a_file(message: Message) -> None:
+    await message.answer("Нужен файл документом, а не текстом.")
+
+
+@router.callback_query(F.data.in_({"a:bs:dead:go", "a:bs:dead:all"}))
+async def cb_dead_go(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    keep_authors = call.data == "a:bs:dead:go"
+    await call.answer("Чищу…")
+    result = await db.sweep_dead(keep_authors=keep_authors)
+    await _edit(
+        call,
+        f"🟢 <b>Готово</b>\n\nУдалено: <b>{result['deleted']}</b>\n"
+        f"Осталось из списка: {result['kept']}"
+        + ("" if keep_authors else "\n\nАнкеты удалены, кружочки сняты с показа."),
+        back_kb(
+            [InlineKeyboardButton(text="⬅️ К BotStat", callback_data="a:botstat")]
+        ),
     )
 
 
