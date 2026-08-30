@@ -209,7 +209,7 @@ def feed(pref: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def profile(link: str) -> InlineKeyboardMarkup:
+def profile(link: str, has_card: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
     b.row(
@@ -241,6 +241,16 @@ def profile(link: str) -> InlineKeyboardMarkup:
             icon_custom_emoji_id=emoji.icon(emoji.SHOP),
         ),
     )
+    # The author's own link earns them money, so it sits on the screen they open
+    # every day rather than two taps deep inside «Моя анкета».
+    if has_card:
+        b.row(
+            InlineKeyboardButton(
+                text="🔗 Ссылка на мою анкету",
+                callback_data="pf:link",
+                style=PRIMARY,
+            )
+        )
     b.row(
         InlineKeyboardButton(
             text="👥 Позвать друга",
@@ -430,11 +440,6 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
                 text="🚀 Продвижение" + (" · идёт" if db.boost_on(profile) else ""),
                 callback_data="pf:boost",
                 style=SUCCESS,
-            )
-        )
-        b.row(
-            InlineKeyboardButton(
-                text="🔗 Ссылка на анкету", callback_data="pf:link", style=PRIMARY
             )
         )
         b.row(

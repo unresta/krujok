@@ -146,6 +146,7 @@ async def profile(message: Message, state: FSMContext) -> None:
     done, _ = await db.referral_counts(user_id)
     sales = await db.sales_stats(user_id)
     available = await db.withdrawable(user_id)
+    card = await db.get_profile(user_id)
     await message.answer(
         texts.profile(
             user_id,
@@ -159,7 +160,10 @@ async def profile(message: Message, state: FSMContext) -> None:
             sales,
             available,
         ),
-        reply_markup=kb.profile(access.referral_link(user_id)),
+        reply_markup=kb.profile(
+            access.referral_link(user_id),
+            has_card=card is not None and card["status"] == "approved",
+        ),
     )
 
 
