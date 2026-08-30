@@ -2200,9 +2200,14 @@ CIRCLE_STATUS = {
 
 
 async def _circle_card(circle) -> str:
+    status = CIRCLE_STATUS.get(circle["status"], circle["status"])
+    # Why it is off is half the card when it is off: without it a moderator has
+    # to guess whether the last verdict was theirs or the complaints'.
+    if circle["status"] == "rejected" and circle["reject_reason"]:
+        status += f" · {html.escape(circle['reject_reason'])}"
     return (
         f"🎥 <b>Кружок #{circle['id']}</b>\n\n"
-        f"Статус: <b>{CIRCLE_STATUS.get(circle['status'], circle['status'])}</b>\n"
+        f"Статус: <b>{status}</b>\n"
         f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
         f"👀 {circle['views']} · 👍 {circle['likes']} / 👎 {circle['dislikes']}\n"
         f"Автор: {await people.of(circle['uploader_id']) if circle['uploader_id'] else 'архив бота'}"
@@ -2331,7 +2336,7 @@ async def cb_circle_hide(call: CallbackQuery) -> None:
         await call.answer("Кружок уже удалён.", show_alert=True)
         return
 
-    await db.set_status(circle_id, "rejected")
+    await db.set_status(circle_id, "rejected", texts.REASON_HIDDEN)
     if circle["uploader_id"]:
         with suppress(TelegramAPIError):
             await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_HIDDEN)

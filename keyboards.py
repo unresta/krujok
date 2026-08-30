@@ -363,6 +363,62 @@ def more_circles(author_id: int, offset: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+# --- the author's own uploads --------------------------------------------
+
+MY_CIRCLES_TABS = (
+    ("approved", "🟢 Одобренные"),
+    ("pending", "🕒 На проверке"),
+    ("rejected", "🔴 Отклонённые"),
+)
+
+
+def my_circles(stats: dict) -> InlineKeyboardMarkup:
+    """The counters, made openable — a status with nothing in it gets no button."""
+    b = InlineKeyboardBuilder()
+    for status, label in MY_CIRCLES_TABS:
+        if stats[status]:
+            b.row(
+                InlineKeyboardButton(
+                    text=f"{label} · {stats[status]}",
+                    callback_data=f"mc:{status}:0",
+                    style=PRIMARY,
+                )
+            )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def my_circle(circle_id: int) -> InlineKeyboardMarkup:
+    """A video note carries no caption, so the circle's own numbers hide here."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="ℹ️ Об этом кружке", callback_data=f"mc:i:{circle_id}"
+        )
+    )
+    return b.as_markup()
+
+
+def my_circles_nav(status: str, offset: int | None = None) -> InlineKeyboardMarkup:
+    """Closes a batch: more of the same when there is more, the counters always."""
+    b = InlineKeyboardBuilder()
+    if offset is not None:
+        b.row(
+            InlineKeyboardButton(
+                text="▶️ Показать ещё",
+                callback_data=f"mc:{status}:{offset}",
+                style=SUCCESS,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ К моим кружкам", callback_data="mp:circles", style=PRIMARY
+        )
+    )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
 def profile_gender() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
@@ -866,6 +922,32 @@ def moderation(circle_id: int) -> InlineKeyboardMarkup:
         ),
     )
     return kb.as_markup()
+
+
+def circle_reasons(circle_id: int) -> InlineKeyboardMarkup:
+    """Why the circle is being turned down — the author gets told."""
+    from texts import CIRCLE_REJECT_REASONS
+
+    b = InlineKeyboardBuilder()
+    for key, label in CIRCLE_REJECT_REASONS.items():
+        b.row(
+            InlineKeyboardButton(
+                text=label.capitalize(),
+                callback_data=f"mod:r:{key}:{circle_id}",
+                style=DANGER,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text="Своя причина", callback_data=f"mod:rc:{circle_id}", style=PRIMARY
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="Назад", callback_data=f"mod:back:{circle_id}", style=SUCCESS
+        )
+    )
+    return b.as_markup()
 
 
 def circle_decided(circle_id: int) -> InlineKeyboardMarkup:

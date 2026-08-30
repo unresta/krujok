@@ -388,6 +388,10 @@ MIGRATIONS = {
         # Set the first time a circle is approved, so a moderator who changes
         # their mind twice cannot pay the upload reward twice.
         "rewarded": "INTEGER NOT NULL DEFAULT 0",
+        # Why it was turned down, so the author reads it once in the message and
+        # again later in «Мои кружки». Rewritten on every verdict, so a circle
+        # back in rotation carries no reason from the time it was out.
+        "reject_reason": "TEXT NOT NULL DEFAULT ''",
     },
     "reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
@@ -1281,7 +1285,7 @@ async def circle_by_unique(file_unique_id: str) -> aiosqlite.Row | None:
 
 
 async def decide_circle(
-    circle_id: int, status: str, admin_id: int
+    circle_id: int, status: str, admin_id: int, reason: str = ""
 ) -> tuple[bool, bool]:
     """Set a verdict, first one or a changed mind alike.
 
@@ -1297,18 +1301,19 @@ async def decide_circle(
 
     pay = status == "approved" and not row["rewarded"]
     await conn().execute(
-        "UPDATE circles SET status = ?, reviewed_by = ?,"
+        "UPDATE circles SET status = ?, reviewed_by = ?, reject_reason = ?,"
         " rewarded = CASE WHEN ? THEN 1 ELSE rewarded END WHERE id = ?",
-        (status, admin_id, int(pay), circle_id),
+        (status, admin_id, reason if status == "rejected" else "", int(pay), circle_id),
     )
     await conn().commit()
     return True, pay
 
 
-async def set_status(circle_id: int, status: str) -> None:
+async def set_status(circle_id: int, status: str, reason: str = "") -> None:
     """Force a status — used by report handling, where the circle is not pending."""
     await conn().execute(
-        "UPDATE circles SET status = ? WHERE id = ?", (status, circle_id)
+        "UPDATE circles SET status = ?, reject_reason = ? WHERE id = ?",
+        (status, reason if status == "rejected" else "", circle_id),
     )
     await conn().commit()
 
@@ -1386,6 +1391,21 @@ async def user_stats(user_id: int) -> dict:
         {"uid": user_id},
     ) as cur:
         return dict(await cur.fetchone())
+
+
+async def own_circles(user_id: int, status: str) -> list[aiosqlite.Row]:
+    """The author's own circles of one status, newest first.
+
+    Unlike `author_circles` this is not a catalogue anyone buys: it is the
+    author looking at their own uploads, so nothing is cut off at the id a
+    purchase was made on, and rejected ones are here too.
+    """
+    async with conn().execute(
+        "SELECT * FROM circles WHERE uploader_id = ? AND status = ?"
+        " ORDER BY id DESC",
+        (user_id, status),
+    ) as cur:
+        return list(await cur.fetchall())
 
 
 async def global_stats() -> dict:

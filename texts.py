@@ -404,7 +404,36 @@ def approved(reward: int, coins: int) -> str:
     return APPROVED_FREE
 
 
-REJECTED = "🔴 Кружок отклонён модератором."
+REJECTED = "🔴 Кружок отклонён модератором.{reason}"
+CIRCLE_REASON_TAIL = "\n\nПричина: <b>{reason}</b>"
+
+# What a moderator turns a circle down for. The keys go into callback data, so
+# they stay short and ascii; the labels are what the author reads.
+CIRCLE_REJECT_REASONS = {
+    "quality": "плохое качество: темно, размыто или ничего не видно",
+    "short": "почти пустой кружок: ничего не происходит",
+    "face": "лица нет или снято не то, что нужно",
+    "ads": "реклама, ссылки или контакты в кадре",
+    "stolen": "чужой кружок, не свой",
+    "rules": "нарушает правила сервиса",
+}
+
+# Circles also leave rotation without a moderation card — by complaints, or from
+# the panel. Those verdicts get a reason too, or «Мои кружки» would show a circle
+# as rejected with nothing said about why.
+REASON_REPORTS = "жалобы пользователей"
+REASON_HIDDEN = "снят с показа модератором"
+
+
+def circle_reason_tail(reason: str) -> str:
+    """A moderator types this one by hand, so it is escaped where it is shown."""
+    if not reason:
+        return ""
+    return _fmt("CIRCLE_REASON_TAIL", CIRCLE_REASON_TAIL, reason=html.escape(reason))
+
+
+def rejected(reason: str = "") -> str:
+    return _fmt("REJECTED", REJECTED, reason=circle_reason_tail(reason))
 
 
 # --- complaints -----------------------------------------------------------
@@ -635,6 +664,59 @@ def my_circles(stats: dict) -> str:
 
 
 MY_CIRCLES_EMPTY = "Ты ещё ничего не загрузил."
+
+# Own uploads, opened from the counters above. A status the author has none of
+# gets no button, so every one of these screens has something on it.
+MY_CIRCLES_STATUS = {
+    "approved": "🟢 <b>Одобренные кружки</b> — их показывают людям.",
+    "pending": "🕒 <b>Кружки на проверке</b> — модератор ещё не решил.",
+    "rejected": "🔴 <b>Отклонённые кружки</b> — их не показывают.",
+}
+MY_CIRCLE_GONE = "Этого кружка больше нет."
+MY_CIRCLES_STATUS_EMPTY = "Здесь пусто."
+MY_CIRCLES_DONE = "Это всё."
+MY_CIRCLES_MORE = "Осталось ещё {left} {circles}."
+
+MY_CIRCLE_INFO = (
+    "Кружок #{circle_id}\n"
+    "Загружен: {date}\n"
+    "Длина: {duration} сек\n"
+    "Просмотров: {views}\n"
+    "Лайков: {likes} · дизлайков: {dislikes}\n"
+    "Заработано: {earned}"
+)
+MY_CIRCLE_INFO_REASON = "\n\nПричина отказа: {reason}"
+
+ALERT_MAX = 200  # Telegram refuses a callback alert longer than this
+
+
+def my_circles_more(left: int) -> str:
+    return _fmt("MY_CIRCLES_MORE", MY_CIRCLES_MORE, left=left, circles=circles_word(left))
+
+
+def my_circle_info(circle) -> str:
+    """The alert under an own circle — plain text, Telegram renders no HTML there."""
+    text = _fmt(
+        "MY_CIRCLE_INFO",
+        MY_CIRCLE_INFO,
+        circle_id=circle["id"],
+        date=when(circle["created_at"]),
+        duration=circle["duration"],
+        views=circle["views"],
+        likes=circle["likes"],
+        dislikes=circle["dislikes"],
+        earned=circle["earned"],
+    )
+    reason = circle["reject_reason"]
+    if circle["status"] == "rejected" and reason:
+        text += _fmt("MY_CIRCLE_INFO_REASON", MY_CIRCLE_INFO_REASON, reason=reason)
+    # A reason is typed by hand and can run to 200 characters on its own, which
+    # is the whole alert — cut it here rather than lose the alert to an error.
+    if len(text) > ALERT_MAX:
+        return text[: ALERT_MAX - 1] + "…"
+    return text
+
+
 BOUGHT_EMPTY = "Ты ещё ничего не купил."
 BOUGHT_HEADER = "🛒 <b>Купленные кружочки:</b>\n"
 

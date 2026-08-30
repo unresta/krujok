@@ -749,7 +749,61 @@ async def mp_circles(call: CallbackQuery) -> None:
     if not total:
         await call.message.answer(texts.MY_CIRCLES_EMPTY)
         return
-    await call.message.answer(texts.my_circles(stats), reply_markup=kb.back())
+    await call.message.answer(
+        texts.my_circles(stats), reply_markup=kb.my_circles(stats)
+    )
+
+
+@router.callback_query(F.data.startswith("mc:i:"))
+async def own_circle_info(call: CallbackQuery) -> None:
+    """Everything the bot knows about one of the author's own circles."""
+    raw_id = call.data.split(":")[2]
+    circle = await db.get_circle(int(raw_id)) if raw_id.isdigit() else None
+    # Only the author's own: the numbers under a circle are nobody else's.
+    if circle is None or circle["uploader_id"] != call.from_user.id:
+        await call.answer(texts.MY_CIRCLE_GONE, show_alert=True)
+        return
+    await call.answer(texts.my_circle_info(circle), show_alert=True)
+
+
+@router.callback_query(F.data.startswith("mc:"))
+async def own_circles(call: CallbackQuery) -> None:
+    """The author's own uploads of one status, a batch per tap."""
+    parts = call.data.split(":")
+    if (
+        len(parts) != 3
+        or parts[1] not in texts.MY_CIRCLES_STATUS
+        or not parts[2].isdigit()
+    ):
+        await call.answer(texts.STALE_BUTTON)
+        return
+
+    status, offset = parts[1], int(parts[2])
+    circles = (await db.own_circles(call.from_user.id, status))[offset:]
+    if not circles:
+        await call.answer(texts.MY_CIRCLES_STATUS_EMPTY, show_alert=True)
+        return
+
+    await call.answer(texts.sending_circles(min(len(circles), CIRCLES_PER_BATCH)))
+    if not offset:  # the header belongs to the list, not to every batch of it
+        await call.message.answer(texts.MY_CIRCLES_STATUS[status])
+    for circle in circles[:CIRCLES_PER_BATCH]:
+        with suppress(TelegramAPIError):
+            await call.bot.send_video_note(
+                call.from_user.id,
+                circle["file_id"],
+                protect_content=True,
+                reply_markup=kb.my_circle(circle["id"]),
+            )
+        await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
+
+    rest = circles[CIRCLES_PER_BATCH:]
+    await call.message.answer(
+        texts.my_circles_more(len(rest)) if rest else texts.MY_CIRCLES_DONE,
+        reply_markup=kb.my_circles_nav(
+            status, offset + CIRCLES_PER_BATCH if rest else None
+        ),
+    )
 
 
 @router.callback_query(F.data == "mp:bought")

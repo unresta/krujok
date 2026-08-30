@@ -260,7 +260,7 @@ async def report(call: CallbackQuery) -> None:
     # Enough complaints and the circle leaves rotation before a human looks.
     hidden = count >= settings.get("reports_to_hide")
     if hidden and circle["status"] == "approved":
-        await db.set_status(circle_id, "rejected")
+        await db.set_status(circle_id, "rejected", texts.REASON_REPORTS)
 
     breakdown = texts.reasons_summary(
         await db.report_reasons(circle_id), texts.REPORT_REASONS
@@ -332,7 +332,7 @@ async def review_report(call: CallbackQuery) -> None:
         verdict = "🔴 удалён"
     elif action == "hide":
         if circle:
-            await db.set_status(circle_id, "rejected")
+            await db.set_status(circle_id, "rejected", texts.REASON_REPORTS)
             note = texts.CIRCLE_HIDDEN
         verdict = "🚫 скрыт"
     else:

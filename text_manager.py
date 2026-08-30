@@ -191,6 +191,36 @@ EDITABLE: dict[str, Item] = {
         },
     ),
     "MY_CIRCLES_EMPTY": Item("Мои кружки: пусто", "Профиль"),
+    "MY_CIRCLES_STATUS_EMPTY": Item(
+        "Мои кружки: в этом списке пусто", "Профиль", plain=True
+    ),
+    "MY_CIRCLES_DONE": Item("Мои кружки: список кончился", "Профиль"),
+    "MY_CIRCLES_MORE": Item(
+        "Мои кружки: осталось ещё",
+        "Профиль",
+        vars={"left": "сколько осталось", "circles": "«кружочка/кружочков»"},
+    ),
+    "MY_CIRCLE_INFO": Item(
+        "Мои кружки: карточка кружка",
+        "Профиль",
+        plain=True,
+        vars={
+            "circle_id": "номер кружка",
+            "date": "когда загружен",
+            "duration": "длина, сек",
+            "views": "просмотров",
+            "likes": "лайков",
+            "dislikes": "дизлайков",
+            "earned": "заработано на нём",
+        },
+    ),
+    "MY_CIRCLE_INFO_REASON": Item(
+        "…строка с причиной отказа",
+        "Профиль",
+        plain=True,
+        vars={"reason": "текст причины"},
+    ),
+    "MY_CIRCLE_GONE": Item("Мои кружки: кружка больше нет", "Профиль", plain=True),
     "BOUGHT_HEADER": Item("Купленные кружочки: заголовок", "Профиль"),
     # No {author_id} on purpose: an id identifies a person, and the buyer paid
     # for circles. Leaving it out of the registry keeps it out of an edit too.
@@ -388,7 +418,12 @@ EDITABLE: dict[str, Item] = {
         vars={"reward": "награда", "coin": "значок монетки", "coins": "баланс"},
     ),
     "APPROVED_FREE": Item("Кружок одобрен, без награды", "Загрузка"),
-    "REJECTED": Item("Кружок отклонён", "Загрузка"),
+    "REJECTED": Item(
+        "Кружок отклонён", "Загрузка", vars={"reason": "причина, если её указали"}
+    ),
+    "CIRCLE_REASON_TAIL": Item(
+        "…строка с причиной отказа", "Загрузка", vars={"reason": "текст причины"}
+    ),
     "EARNED_TOAST": Item(
         "Кружок посмотрели", "Просмотр", vars={"amount": "сколько начислили"}
     ),
@@ -895,6 +930,7 @@ _COMPOSED = {
     ("PAYOUT_SCREEN", "pending"): "PAYOUT_SCREEN_PENDING",
     ("PROFILE_REVERTED", "reason"): "PROFILE_REASON_TAIL",
     ("PROFILE_REJECTED", "reason"): "PROFILE_REASON_TAIL",
+    ("REJECTED", "reason"): "CIRCLE_REASON_TAIL",
     ("PROFILE_STATUS", "status"): "STATUS_APPROVED",
     ("PROFILE_STATUS", "contact"): "CONTACT_NOT_SOLD",
     ("PROFILE_CARD", "contact"): "CONTACT_NOT_SOLD",
