@@ -3245,8 +3245,8 @@ def _posts_home_kb(stats: dict) -> InlineKeyboardMarkup:
     )
     b.row(
         InlineKeyboardButton(
-            text=f"⏱ Показ раз в {settings.get('promo_every_hours')} ч",
-            callback_data="a:econ:k:promo_every_hours",
+            text=f"🎬 Показ раз в {settings.get('promo_every_circles')} кружков",
+            callback_data="a:econ:k:promo_every_circles",
         )
     )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
@@ -3256,15 +3256,32 @@ def _posts_home_kb(stats: dict) -> InlineKeyboardMarkup:
 async def _posts_home_text() -> str:
     stats = await db.post_stats()
     on = bool(settings.get("promo_enabled"))
+    every = settings.get("promo_every_circles")
+    watch = await db.watch_sessions()
+
+    # The rate is only guessable from how much people actually watch at a
+    # sitting, so the numbers to guess it from sit next to the setting.
+    if watch["sessions"]:
+        tail = (
+            "\n\n📊 <b>Сколько смотрят за раз</b> (7 дней, перерыв 30 мин)\n"
+            f"Сессий: <b>{watch['sessions']}</b>\n"
+            f"Обычно: <b>{watch['median']}</b> кружков · в среднем {watch['avg']}\n"
+            f"Активные (топ 10%): от {watch['p90']} · рекорд {watch['longest']}\n"
+            f"Дойдут до показа при {every}: <b>{watch['reach']}%</b> сессий"
+        )
+    else:
+        tail = "\n\n📊 Кружочков за неделю не смотрели — по чему считать, пока нет."
+
     return (
         "📰 <b>Посты</b>\n\n"
         "<b>👋 Приветка</b> — показывается один раз, сразу после /start.\n"
-        "<b>🔁 Показ</b> — попадается снова и снова, пока человек пользуется "
-        f"ботом, не чаще раза в {settings.get('promo_every_hours')} ч.\n\n"
+        f"<b>🔁 Показ</b> — рекламная пауза в ленте: каждый {every}-й кружок, "
+        "сразу после него.\n\n"
         f"Активных приветок: <b>{stats['welcome']}</b> · "
         f"показов: <b>{stats['promo']}</b> "
         f"({'🟢 включены' if on else '🔴 выключены'})\n"
         f"Всего показано: {stats['shown']}"
+        + tail
     )
 
 

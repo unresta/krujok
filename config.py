@@ -75,7 +75,7 @@ PUSH_TICK = 900.0  # seconds between sweeps
 
 # --- welcome and promo posts ---
 PROMO_ENABLED = 1
-PROMO_EVERY_HOURS = 6  # how rarely one person meets a promo post
+PROMO_EVERY_CIRCLES = 20  # circles between one ad break and the next
 
 # Everything a user sees a date or a daily reset in runs on Moscow time: the
 # server may sit anywhere, and «сбросится в полночь» has to mean one thing.

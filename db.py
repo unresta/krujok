@@ -311,6 +311,9 @@ MIGRATIONS = {
         "last_push": "INTEGER NOT NULL DEFAULT 0",
         "free_views": "INTEGER NOT NULL DEFAULT 0",  # circles owed, not coins
         "last_promo": "INTEGER NOT NULL DEFAULT 0",  # when a promo post last came
+        # Circles watched since the last promo — an ad break is counted out in
+        # circles, not in hours.
+        "promo_views": "INTEGER NOT NULL DEFAULT 0",
         # A cheque opened before the gate waits here until the gate is passed.
         "pending_cheque": "TEXT NOT NULL DEFAULT ''",
         # Who this is, for the panel: an id alone tells a moderator nothing.
@@ -2596,13 +2599,79 @@ async def mark_shown(user_id: int, post_id: int, promo: bool = False) -> None:
     await conn().commit()
 
 
-async def promo_due(user_id: int, cooldown: int) -> bool:
+async def promo_due(user_id: int, every: int) -> bool:
+    """Count one watched circle, and say whether this is the ad break.
+
+    Counted in circles rather than hours: an hourly rule gives the same single
+    showing to somebody who watched three and to somebody who watched two
+    hundred, which is neither fair to the advertiser nor to the second one.
+    """
     async with conn().execute(
-        "SELECT last_promo < strftime('%s','now') - ? FROM users WHERE id = ?",
-        (cooldown, user_id),
+        """
+        UPDATE users
+           SET promo_views = CASE WHEN promo_views + 1 >= :every
+                                  THEN 0 ELSE promo_views + 1 END
+         WHERE id = :uid
+        RETURNING promo_views
+        """,
+        {"uid": user_id, "every": every},
     ) as cur:
         row = await cur.fetchone()
-    return bool(row and row[0])
+    await conn().commit()
+    # Back at zero is the only way the counter reaches the mark and rolls over.
+    return bool(row is not None and row[0] == 0)
+
+
+SESSION_GAP = 30 * 60  # circles this far apart belong to different sittings
+
+
+async def watch_sessions(window_days: int = 7) -> dict:
+    """How many circles one person watches in a sitting — for choosing the rate.
+
+    A sitting is a run of views with less than SESSION_GAP between them, which
+    is what «за раз» means to a person and what an ad break has to fit inside.
+    """
+    async with conn().execute(
+        """
+        WITH marked AS (
+            SELECT user_id, ts,
+                   CASE WHEN LAG(ts) OVER (PARTITION BY user_id ORDER BY ts) IS NULL
+                          OR ts - LAG(ts) OVER (PARTITION BY user_id ORDER BY ts)
+                             > :gap
+                        THEN 1 ELSE 0 END AS starts
+              FROM views
+             WHERE ts > strftime('%s','now') - :window
+        ),
+        numbered AS (
+            SELECT user_id,
+                   SUM(starts) OVER (PARTITION BY user_id ORDER BY ts) AS run
+              FROM marked
+        )
+        SELECT COUNT(*) AS circles FROM numbered GROUP BY user_id, run
+        """,
+        {"gap": SESSION_GAP, "window": window_days * 86400},
+    ) as cur:
+        sizes = sorted(row[0] for row in await cur.fetchall())
+
+    if not sizes:
+        return {"sessions": 0, "median": 0, "avg": 0, "p90": 0, "longest": 0,
+                "reach": 0}
+    return {
+        "sessions": len(sizes),
+        "median": sizes[len(sizes) // 2],
+        "avg": round(sum(sizes) / len(sizes)),
+        "p90": sizes[min(len(sizes) - 1, int(len(sizes) * 0.9))],
+        "longest": sizes[-1],
+        # What share of sittings would reach an ad break at the current rate.
+        "reach": sum(1 for size in sizes if size >= settings_every()) * 100
+        // len(sizes),
+    }
+
+
+def settings_every() -> int:
+    import settings  # late: settings imports db
+
+    return settings.get("promo_every_circles")
 
 
 async def post_stats() -> dict:

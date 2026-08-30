@@ -11,6 +11,7 @@ import db
 import keyboards as kb
 import outbox
 import people
+import posts
 import settings
 import texts
 import tiers
@@ -135,6 +136,8 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
                 await origin.answer(texts.tier_views_left(left))
     if not free:  # a free view was already paid for when the profile was bought
         await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
+    # The ad break comes after the circle it was earned by, never instead of it.
+    await posts.after_circle(bot, user_id)
 
 
 async def _pay_author(bot, circle, amount: int, note) -> None:

@@ -5,8 +5,8 @@ from there, so anything Telegram can send — photo, video, album-less media,
 buttons of its own — works without the bot having to understand it.
 
     welcome — shown to a person once, right after /start
-    promo   — comes round again while they use the bot, no more often than
-              the «Показ раз в, ч» setting allows
+    promo   — an ad break in the feed: every «Показ раз в N кружков» circles,
+              right after the circle that earned it
 
 Both are sold to advertisers, so every showing is counted.
 """
@@ -52,12 +52,17 @@ async def show_welcome(bot: Bot, user_id: int) -> int:
     return shown
 
 
-async def maybe_promo(bot: Bot, user_id: int) -> bool:
-    """Called after every handled update; almost always does nothing."""
-    hours = settings.get("promo_every_hours")
-    if not settings.get("promo_enabled") or not hours:
+async def after_circle(bot: Bot, user_id: int) -> bool:
+    """One circle went out; every so many of them, a promo follows it.
+
+    Hung off the circle rather than off every update on purpose: that is the
+    moment attention is on the bot, and a promo can no longer land in the
+    middle of a question the bot itself asked.
+    """
+    every = settings.get("promo_every_circles")
+    if not settings.get("promo_enabled") or not every:
         return False
-    if not await db.promo_due(user_id, hours * 3600):
+    if not await db.promo_due(user_id, every):
         return False
 
     post = await db.pick_promo(user_id)

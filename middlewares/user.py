@@ -5,7 +5,6 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import access
 import db
-import posts
 import keyboards as kb
 import settings
 import texts
@@ -81,11 +80,10 @@ class UserMiddleware(BaseMiddleware):
 
         await db.touch_seen(tg_user.id)
         data["user"] = user
-        result = await handler(event, data)
-        # A promo post rides along after the bot has answered, never instead of
-        # it — and only when this person has not seen one for a while.
-        await posts.maybe_promo(data["bot"], tg_user.id)
-        return result
+        # Promos used to ride along here, after any update at all, which put
+        # them in the middle of questions the bot had just asked. They hang off
+        # a delivered circle now — see posts.after_circle.
+        return await handler(event, data)
 
     @staticmethod
     def _exempt(event: TelegramObject) -> bool:
