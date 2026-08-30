@@ -116,9 +116,14 @@ ABOUT_MAX = 300  # characters in a profile description
 # --- ad accounting ---
 CURRENCY = "₽"
 STAR_PRICE = 130  # what one ⭐ is worth to you, in minor units (1.30 ₽)
-# Crypto is priced on its own scale, not converted from stars: one number
-# an admin can move when the rate drifts. Check it before switching on.
-USDT_RATE = 200  # coins for 1 USDT
+# What Telegram sells stars for, near enough: 50 ⭐ ≈ $0.75. This is the price
+# the crypto checkout is judged against — the panel shows both and complains
+# when they drift apart, because the cheaper door is the one everybody uses.
+STARS_PER_USD = 67
+# Crypto has its own number so a discount stays possible, but it must stay in
+# the same world as the stars: at STAR_COST=2 a coin is 2 ⭐ ≈ $0.03, so a
+# dollar buys about 33. It used to say 200 — six coins for the price of one.
+USDT_RATE = 33  # coins for 1 USDT
 CRYPTO_ASSET = "USDT"  # what invoices are issued in, both providers
 
 # --- legal ---

@@ -2732,6 +2732,15 @@ async def cb_crypto(call: CallbackQuery, state: FSMContext) -> None:
             callback_data="a:econ:k:usdt_rate",
         )
     )
+    parity = settings.crypto_parity()
+    if settings.get("usdt_rate") != parity:
+        b.row(
+            InlineKeyboardButton(
+                text=f"⚖️ Выровнять по звёздам: {parity}",
+                callback_data="a:crypto:parity",
+                style=kb.SUCCESS,
+            )
+        )
     b.row(InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"))
     await _edit(
         call,
@@ -2739,6 +2748,7 @@ async def cb_crypto(call: CallbackQuery, state: FSMContext) -> None:
         + "\n".join(lines)
         + f"\n\nВалюта счетов: <b>{crypto.asset()}</b>\n"
         f"Цена: {settings.get('usdt_rate')} монеток за 1 {crypto.asset()}\n"
+        f"{_parity_line()}\n"
         f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
         f"{int(config.INVOICE_POLL)} сек\n\n"
         f"Проверка счетов: {watcher}\n"
@@ -2748,6 +2758,35 @@ async def cb_crypto(call: CallbackQuery, state: FSMContext) -> None:
         "<code>XROCKET_KEY</code>. Без ключа способ не показывается покупателю.",
         b.as_markup(),
     )
+
+
+def _parity_line() -> str:
+    """The same basket priced both ways, because only the cheaper door gets used."""
+    pack = config.STAR_PACKS[0]
+    coins = settings.coins_for(pack)
+    in_stars = settings.usd_of_stars(pack)
+    in_crypto = float(crypto.price(coins))
+    gap = settings.crypto_gap()
+    if not gap:
+        mark = "🔴 курс не задан"
+    elif gap < 0.8:
+        mark = "🔴 криптой сильно дешевле — за ⭐ покупать никто не станет"
+    elif gap > 1.25:
+        mark = "🟡 криптой заметно дороже — способом не пользуются"
+    else:  # within a fifth either way is close enough
+        mark = "🟢 цены сходятся"
+    return (
+        f"{mark}\n"
+        f"{coins} монеток: {pack} ⭐ ≈ ${in_stars:.2f} · "
+        f"криптой ${in_crypto:.2f} (курс ⭐: {settings.get('stars_per_usd')} за $1)"
+    )
+
+
+@router.callback_query(F.data == "a:crypto:parity")
+async def cb_crypto_parity(call: CallbackQuery, state: FSMContext) -> None:
+    """One tap to put the crypto price back where the star price is."""
+    await settings.set("usdt_rate", settings.crypto_parity())
+    await cb_crypto(call, state)  # redraws the screen, and answers the tap
 
 
 @router.callback_query(F.data == "a:crypto:asset")

@@ -5,8 +5,12 @@ table and is loaded back on start. Read through get()/reward() at call time —
 never import a value into a module constant, or edits stop taking effect.
 """
 
+import logging
+
 import config
 import db
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, int] = {
     "watch_cost": config.WATCH_COST,
@@ -35,6 +39,7 @@ DEFAULTS: dict[str, int] = {
     "payout_min": config.PAYOUT_MIN,
     "payout_rate": config.PAYOUT_RATE,
     "star_price": config.STAR_PRICE,
+    "stars_per_usd": config.STARS_PER_USD,
     "usdt_rate": config.USDT_RATE,
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_circles": config.PROMO_EVERY_CIRCLES,
@@ -85,6 +90,7 @@ TITLES: dict[str, str] = {
     "payout_min": "Минимум вывода",
     "payout_rate": "Монеток за 1 ⭐ (вывод)",
     "star_price": "Цена 1 ⭐ в копейках",
+    "stars_per_usd": "Звёзд за 1 $ (курс TG)",
     "usdt_rate": "Монеток за 1 USDT",
     "promo_every_circles": "Показ раз в N кружков",
     "cheque_min_refs": "Рефералов для чека",
@@ -110,7 +116,13 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "reward_m",
     ),
     "💰 Продажи": ("author_share", "price_min", "price_max"),
-    "⭐ Покупка монеток": ("star_cost", "min_stars", "star_price", "usdt_rate"),
+    "⭐ Покупка монеток": (
+        "star_cost",
+        "min_stars",
+        "star_price",
+        "stars_per_usd",
+        "usdt_rate",
+    ),
     "💸 Вывод": ("payout_min", "payout_rate"),
     "🎁 Бонусы": ("welcome_bonus", "welcome_circle", "sub_bonus", "ref_reward"),
     "🔔 Напоминания": (
@@ -159,6 +171,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "payout_min": (1, 1_000_000),
     "payout_rate": (1, 1000),
     "star_price": (1, 1_000_000),
+    "stars_per_usd": (1, 100_000),
     "usdt_rate": (1, 1_000_000),
     "promo_enabled": (0, 1),
     "promo_every_circles": (1, 1000),
@@ -176,11 +189,37 @@ _values: dict[str, int] = dict(DEFAULTS)
 _texts: dict[str, str] = dict(TEXT_DEFAULTS)
 
 
+LEGACY_USDT_RATE = 200  # what shipped: a coin for a sixth of its price in stars
+_REPAIRED = "usdt_rate_repaired"  # marker row; no title, so the panel never shows it
+
+
 async def load() -> None:
     _values.update(DEFAULTS)
     _values.update(await db.load_settings())
     _texts.update(TEXT_DEFAULTS)
     _texts.update(await db.load_text_settings())
+    await _repair_crypto_rate()
+
+
+async def _repair_crypto_rate() -> None:
+    """Once: unstick a bot still selling coins for a sixth of the star price.
+
+    A setting saved in the database wins over the default, so correcting the
+    default alone would leave every running bot mispriced. Only the number that
+    shipped is touched, and only on the first start after this — an admin who
+    picks 200 on purpose afterwards keeps it.
+    """
+    if _values.get(_REPAIRED):
+        return
+    if _values["usdt_rate"] == LEGACY_USDT_RATE != crypto_parity():
+        await set("usdt_rate", crypto_parity())
+        logger.warning(
+            "курс крипты %s был в %.1f раза ниже звёздного, исправлен на %s",
+            LEGACY_USDT_RATE,
+            LEGACY_USDT_RATE / crypto_parity(),
+            _values["usdt_rate"],
+        )
+    await set(_REPAIRED, 1)
 
 
 def get(key: str) -> int:
@@ -219,6 +258,32 @@ def stars_of(coins: int) -> int:
 def stars_for(coins: int) -> int:
     """Cashing out, which runs on its own rate — see «Вывод» in the panel."""
     return coins // _values["payout_rate"]
+
+
+def usd_of_stars(stars: int) -> float:
+    """What that many stars cost the buyer, in dollars."""
+    return stars / _values["stars_per_usd"]
+
+
+def crypto_parity() -> int:
+    """The `usdt_rate` that would charge the same as paying in stars.
+
+    Two checkouts for one product only work while they cost the same; whichever
+    is cheaper is the only one anybody uses. This is the number to compare the
+    real rate against — see the crypto screen in the panel.
+    """
+    # Rounded down: fewer coins for a dollar is the dearer, safer side to land on.
+    return max(1, _values["stars_per_usd"] // _values["star_cost"])
+
+
+def crypto_gap() -> float:
+    """How far the crypto price sits from the star price. 1.0 means the same.
+
+    Below 1 crypto is cheaper — the dangerous side, and the one that shipped:
+    200 coins for a dollar against 33 was six times off.
+    """
+    parity = crypto_parity()
+    return _values["usdt_rate"] and parity / _values["usdt_rate"] or 0.0
 
 
 def reports_chat() -> int | str:
