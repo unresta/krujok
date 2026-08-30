@@ -264,22 +264,20 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
     if data.get("editing_field") == "price_content":
         profile = await db.get_profile(message.from_user.id)
         if profile:
-            await db.save_profile(
-                user_id=message.from_user.id,
-                photo_id=profile["photo_id"],
-                photo_unique_id=profile["photo_unique_id"],
-                about=profile["about"],
-                gender=profile["gender"],
+            # Prices go live as they are typed: there is nothing in a number for
+            # a moderator to check, and sending the profile back for review over
+            # one would take it out of the feed for no reason.
+            await db.set_profile_prices(
+                message.from_user.id,
                 price_content=price,
                 price_contact=profile["price_contact"],
-                contact_ok=profile["contact_ok"],
-                username=message.from_user.username,
+                contact_ok=bool(profile["contact_ok"]),
             )
             await state.clear()
             await message.answer(
-                texts.profile_field_saved("Цена кружков"), reply_markup=kb.back()
+                texts.profile_price_saved("Цена кружков", price),
+                reply_markup=kb.back(),
             )
-            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(price_content=price)
@@ -308,21 +306,16 @@ async def got_contact_choice(call: CallbackQuery, state: FSMContext) -> None:
         if profile is None:
             await call.answer(texts.NEED_PROFILE_FIRST, show_alert=True)
             return
-        await db.save_profile(
-            user_id=call.from_user.id,
-            photo_id=profile["photo_id"],
-            photo_unique_id=profile["photo_unique_id"],
-            about=profile["about"],
-            gender=profile["gender"],
+        # Taking the contact off sale is the same kind of change as its price.
+        await db.set_profile_prices(
+            call.from_user.id,
             price_content=profile["price_content"],
             price_contact=0,
             contact_ok=False,
-            username=call.from_user.username,
         )
         await state.clear()
         await call.answer(texts.CONTACT_OFF_TOAST)
         await call.message.answer(texts.PROFILE_CONTACT_OFF, reply_markup=kb.back())
-        await _resubmit_for_review(call.message, call.from_user.id, call.bot)
         return
 
     if choice == "recheck":
@@ -362,22 +355,17 @@ async def got_price_contact(message: Message, state: FSMContext) -> None:
     if data.get("editing_field") == "price_contact":
         profile = await db.get_profile(message.from_user.id)
         if profile:
-            await db.save_profile(
-                user_id=message.from_user.id,
-                photo_id=profile["photo_id"],
-                photo_unique_id=profile["photo_unique_id"],
-                about=profile["about"],
-                gender=profile["gender"],
+            await db.set_profile_prices(
+                message.from_user.id,
                 price_content=profile["price_content"],
                 price_contact=price,
                 contact_ok=True,
-                username=message.from_user.username,
             )
             await state.clear()
             await message.answer(
-                texts.profile_field_saved("Цена контакта"), reply_markup=kb.back()
+                texts.profile_price_saved("Цена лички", price),
+                reply_markup=kb.back(),
             )
-            await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(price_contact=price)

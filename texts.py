@@ -733,13 +733,20 @@ PROFILE_NOT_PHOTO = "Нужно именно фото."
 PROFILE_APPROVED = "🟢 Твоя анкета одобрена — её уже показывают."
 
 PROFILE_FIELD_SAVED = "✅ {field} обновлено.\n📬 Анкета отправлена на повторную проверку."
-PROFILE_CONTACT_OFF = (
-    "✅ Личка снята с продажи.\n📬 Анкета отправлена на повторную проверку."
-)
+# Prices are the author's own to set, so they change on the spot — and the
+# message has to say so, or «обновлено» reads like «ушло на проверку».
+PROFILE_PRICE_SAVED = "✅ {field}: <b>{price}</b> {coin}.\nИзменения уже в силе."
+PROFILE_CONTACT_OFF = "✅ Личка снята с продажи. Изменение уже в силе."
 
 
 def profile_field_saved(field: str) -> str:
     return _fmt("PROFILE_FIELD_SAVED", PROFILE_FIELD_SAVED, field=field)
+
+
+def profile_price_saved(field: str, price: int) -> str:
+    return _fmt(
+        "PROFILE_PRICE_SAVED", PROFILE_PRICE_SAVED, field=field, price=price, coin=coin()
+    )
 
 
 def profile_changes(old, new: dict) -> list[str]:

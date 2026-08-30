@@ -236,6 +236,11 @@ EDITABLE: dict[str, Item] = {
         "Анкета автора",
         vars={"field": "что поменяли"},
     ),
+    "PROFILE_PRICE_SAVED": Item(
+        "Цена обновлена, без проверки",
+        "Анкета автора",
+        vars=_COIN | {"field": "какая цена", "price": "новая цена"},
+    ),
     "PROFILE_CONTACT_OFF": Item("Личка снята с продажи", "Анкета автора"),
     "PROFILE_REVERTED": Item(
         "Правки отклонены, вернули прошлую",

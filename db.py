@@ -1744,6 +1744,30 @@ async def has_public_profile(user_id: int) -> bool:
         return await cur.fetchone() is not None
 
 
+async def set_profile_prices(
+    user_id: int, price_content: int, price_contact: int, contact_ok: bool
+) -> bool:
+    """Change what the author charges, and nothing else.
+
+    A price is a number the author owns — there is nothing in it for a
+    moderator to look at, so `status` is deliberately left where it was and the
+    profile stays in the feed. The backup moves with it, or turning down some
+    later photo edit would quietly roll the price back too.
+    """
+    cur = await conn().execute(
+        "UPDATE profiles SET price_content = ?, price_contact = ?, contact_ok = ?"
+        " WHERE user_id = ?",
+        (price_content, price_contact, int(contact_ok), user_id),
+    )
+    await conn().execute(
+        "UPDATE profile_backup SET price_content = ?, price_contact = ?,"
+        " contact_ok = ? WHERE user_id = ?",
+        (price_content, price_contact, int(contact_ok), user_id),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
 async def backup_profile(user_id: int) -> None:
     """Snapshot an approved profile, so an edit can be undone."""
     await conn().execute(
