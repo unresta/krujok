@@ -55,6 +55,24 @@ class CryptoError(Exception):
     """The provider refused, or could not be reached."""
 
 
+# A rejected key looks like a broken integration in the log, and the fix is
+# never in the code — so the panel says out loud what to go and check.
+KEY_HINTS = {
+    CRYPTOBOT: (
+        "Токен берётся в @CryptoBot → Crypto Pay → My Apps → API Token. "
+        "Проверь, что скопирован целиком и что контейнер перезапущен после "
+        "правки .env."
+    ),
+    XROCKET: (
+        "Токен берётся в @xRocket → Rocket Pay → приложение → API Token. "
+        "Ключ отдаётся один раз при создании — если приложение пересоздавали "
+        "или меняли ему API Version, старый ключ перестаёт работать. "
+        "Тестовый ключ (@xrocket_testnet_bot) на боевом адресе тоже даёт этот "
+        "отказ. И проверь, что контейнер перезапущен после правки .env."
+    ),
+}
+
+
 def keys() -> dict[str, str]:
     return {CRYPTOBOT: CRYPTOBOT_TOKEN.strip(), XROCKET: XROCKET_KEY.strip()}
 
@@ -208,6 +226,19 @@ async def status(provider: str, invoice_id: str) -> str:
     return {PAID: PAID, ACTIVE: ACTIVE, EXPIRED: EXPIRED}.get(raw, UNKNOWN)
 
 
+async def _alive(provider: str) -> bool:
+    """Is the service itself up? The only call that needs no key."""
+    api = CRYPTOBOT_API if provider == CRYPTOBOT else XROCKET_API
+    path = "/getMe" if provider == CRYPTOBOT else "/version"
+    try:
+        await _call("GET", f"{api.rstrip('/')}{path}", {})
+    except CryptoError as error:
+        # CryptoBot has no unauthenticated endpoint at all: a refusal there
+        # still proves the service answered.
+        return provider == CRYPTOBOT and str(error).startswith(("401", "403"))
+    return True
+
+
 async def check_key(provider: str) -> str:
     """A line for the panel: is this key actually good for anything."""
     key = keys().get(provider, "")
@@ -233,5 +264,12 @@ async def check_key(provider: str) -> str:
                 raise CryptoError(str(body.get("message") or body)[:120])
             name = body.get("data", {}).get("name", "")
     except CryptoError as error:
-        return f"🔴 ключ не работает: {error}"
+        text = str(error)
+        # «Ключ не работает» and «сервис лежит» are different problems with
+        # different fixes, and only one of them is worth touching .env over.
+        if text.startswith(("401", "403")):
+            return f"🔴 ключ отклонён сервисом.\n{KEY_HINTS[provider]}"
+        if not await _alive(provider):
+            return f"🟡 сервис не отвечает: {text[:120]}"
+        return f"🔴 ключ не работает: {text[:120]}"
     return f"🟢 подключено{f' · {name}' if name else ''}"

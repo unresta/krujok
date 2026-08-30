@@ -116,6 +116,12 @@ async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> N
         invoice = await crypto.create(provider, coins, user_id)
     except crypto.CryptoError as error:
         logger.error("%s invoice for %s failed: %s", provider, user_id, error)
+        # A rejected key is not a hiccup the payer should retry through — it is
+        # a настройка, and the log is where the admin will look for it.
+        if str(error).startswith(("401", "403")):
+            logger.error(
+                "%s: ключ отклонён. %s", provider, crypto.KEY_HINTS[provider]
+            )
         await message.answer(texts.CRYPTO_FAILED)
         return
 
