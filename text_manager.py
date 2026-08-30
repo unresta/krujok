@@ -236,6 +236,17 @@ EDITABLE: dict[str, Item] = {
         "Анкета автора",
         vars={"field": "что поменяли"},
     ),
+    "PROFILE_LINK_INTRO": Item("Пришли по ссылке автора", "Анкета автора"),
+    "PROFILE_LINK_SCREEN": Item(
+        "Ссылка на свою анкету",
+        "Анкета автора",
+        vars={"link": "сама ссылка", "hits": "сколько переходов"},
+    ),
+    "PROFILE_LINK_NEEDS_APPROVED": Item(
+        "Ссылку рано: анкета не одобрена", "Анкета автора", plain=True
+    ),
+    "PROFILE_LINK_GONE": Item("Анкета по ссылке недоступна", "Анкета автора"),
+    "PROFILE_LINK_OWN": Item("Это твоя же ссылка", "Анкета автора"),
     "PROFILE_STATUS_BOOST": Item(
         "Своя анкета: идёт продвижение",
         "Анкета автора",
@@ -821,6 +832,7 @@ _NUMBERS = {
     "sold": "9",
     "views": "310",
     "shown": "340",
+    "hits": "128",
     "earned": "900",
     "user_id": "123456789",
     "author_id": "123456789",
@@ -858,7 +870,7 @@ _WORDS = {
     "kind": "женский",
     "about": "пара строк о себе",
     "username": "durov",
-    "link": "https://t.me/bot?start=r1",
+    "link": "https://t.me/bot?start=p123456789",
     "title": "Реклама в канале",
     "field": "Фото",
     "reason": "реклама в анкете",

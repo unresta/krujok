@@ -35,6 +35,18 @@ async def start(message: Message, state: FSMContext) -> None:
     # A welcome post is shown before the menu and only ever once per person.
     await posts.show_welcome(message.bot, message.from_user.id)
     await ui.render_menu(message, message.from_user.id)
+    # Somebody who came for one author's card gets it last, so it stays on
+    # screen with its buy buttons instead of the menu.
+    await open_pending_profile(message.bot, message.from_user.id, message)
+
+
+async def open_pending_profile(bot, user_id: int, origin: Message) -> None:
+    """The profile they arrived for, once the gate and the rules are behind."""
+    from handlers import profiles
+
+    author_id = await db.take_pending_profile(user_id)
+    if author_id:
+        await profiles.open_by_link(bot, user_id, author_id, origin)
 
 
 @router.callback_query(F.data == "accept")
@@ -59,6 +71,8 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
     if first_time and settings.get("welcome_circle"):
         await db.grant_free_views(call.from_user.id, 1)
         await watch.serve(call.bot, call.from_user.id, call.message, notice=False)
+
+    await open_pending_profile(call.bot, call.from_user.id, call.message)
 
 
 @router.message(Command("menu", "cancel"))

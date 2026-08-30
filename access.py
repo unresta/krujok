@@ -216,16 +216,31 @@ def parse_payload(payload: str) -> int | None:
     return int(payload[1:])
 
 
-# Three kinds of link share one ?start= field, so the prefixes that mark them
-# are reserved: a campaign may not be called «r12» or «chq_sale», or a click on
-# it would be read as somebody's referral or as a cheque that does not exist.
+def parse_profile(payload: str) -> int | None:
+    """/start p123456 -> 123456 — a link an author hands out themselves."""
+    payload = (payload or "").strip()
+    if not payload.startswith("p") or not payload[1:].isdigit():
+        return None
+    return int(payload[1:])
+
+
+def profile_link(user_id: int) -> str:
+    return f"https://t.me/{bot_username}?start=p{user_id}"
+
+
+# Four kinds of link share one ?start= field, so the prefixes that mark them
+# are reserved: a campaign may not be called «r12», «p12» or «chq_sale», or a
+# click on it would be read as somebody's referral, somebody's profile, or a
+# cheque that does not exist.
 RESERVED = ("chq_",)
 
 
 def parse_campaign(payload: str) -> str | None:
-    """An ad campaign code — anything that is not a referral or a cheque."""
+    """An ad campaign code — anything that is not one of the other three."""
     code = (payload or "").strip().lower()
     if not code or parse_payload(code) is not None:
+        return None
+    if parse_profile(code) is not None:
         return None
     if code.startswith(RESERVED):
         return None
@@ -235,7 +250,7 @@ def parse_campaign(payload: str) -> str | None:
 
 
 def parse_start(payload: str) -> tuple[str, str]:
-    """What a /start payload actually is: («referral»|«cheque»|«campaign»|«»).
+    """What a /start payload is: («referral»|«profile»|«cheque»|«campaign»|«»).
 
     One place decides, so the middleware and the /start handler can never read
     the same link two different ways.
@@ -247,6 +262,8 @@ def parse_start(payload: str) -> tuple[str, str]:
         return "", ""
     if parse_payload(payload) is not None:
         return "referral", payload
+    if parse_profile(payload) is not None:
+        return "profile", payload
     code = cheques.parse_link(payload)
     if code:
         return "cheque", code

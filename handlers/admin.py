@@ -1332,12 +1332,19 @@ async def cb_link_new(call: CallbackQuery, state: FSMContext) -> None:
 async def got_campaign(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     code, _, title = raw.partition(" ")
-    reserved = code.lower().startswith(access.RESERVED)
+    # «Занято» и «не подходит» — разные ошибки, и вторая ничего не объясняет,
+    # когда человек взял код, который уже что-то значит.
+    reserved = (
+        code.lower().startswith(access.RESERVED)
+        or access.parse_payload(code) is not None
+        or access.parse_profile(code) is not None
+    )
     code = access.parse_campaign(code)
     if code is None:
         await message.answer(
             "Код занят: <code>chq_…</code> — это чеки, <code>r123</code> — "
-            "реферальные ссылки. Возьми другой."
+            "реферальные ссылки, <code>p123</code> — ссылки на анкеты. "
+            "Возьми другой."
             if reserved
             else "Код не подходит: латиница, цифры, _ и -, до 32 знаков."
         )

@@ -61,6 +61,11 @@ class UserMiddleware(BaseMiddleware):
             kind, value = access.parse_start(payload)
             if kind == "referral":
                 await access.remember_referrer(tg_user.id, payload)
+            elif kind == "profile":
+                # Waits on the row until the gate and the rules are behind them.
+                await db.remember_profile_link(
+                    tg_user.id, access.parse_profile(value)
+                )
             elif kind == "cheque":
                 # The code waits here until the gate lets them through.
                 await db.remember_cheque(tg_user.id, value)

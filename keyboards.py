@@ -19,6 +19,8 @@ from aiogram.types import (
     KeyboardButton,
     ReplyKeyboardMarkup,
 )
+from urllib.parse import quote
+
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
@@ -432,12 +434,34 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
         )
         b.row(
             InlineKeyboardButton(
+                text="🔗 Ссылка на анкету", callback_data="pf:link", style=PRIMARY
+            )
+        )
+        b.row(
+            InlineKeyboardButton(
                 text="🚫 Скрыть анкету", callback_data="pf:hide"
             )
         )
     b.row(
         InlineKeyboardButton(
             text="📝 Заполнить заново", callback_data="pf:start"
+        )
+    )
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
+
+
+def profile_link(link: str) -> InlineKeyboardMarkup:
+    """Copy it, or hand it straight to a chat — both in one tap."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="📋 Скопировать", copy_text=CopyTextButton(text=link))
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="📤 Поделиться",
+            url=f"https://t.me/share/url?url={quote(link)}",
+            style=PRIMARY,
         )
     )
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))

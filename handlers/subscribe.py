@@ -10,7 +10,7 @@ import db
 import posts
 import texts
 import ui
-from handlers import cheques
+from handlers import cheques, common
 
 router = Router()
 
@@ -33,3 +33,5 @@ async def check(call: CallbackQuery, state: FSMContext) -> None:
     if code:
         await cheques.redeem(call.bot, call.from_user.id, code, call.message)
     await ui.render_menu(call.message, call.from_user.id)
+    # …or the author whose link they followed.
+    await common.open_pending_profile(call.bot, call.from_user.id, call.message)

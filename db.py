@@ -327,6 +327,9 @@ MIGRATIONS = {
         "promo_views": "INTEGER NOT NULL DEFAULT 0",
         # A cheque opened before the gate waits here until the gate is passed.
         "pending_cheque": "TEXT NOT NULL DEFAULT ''",
+        # Same for a profile link: somebody came for one particular author, and
+        # dropping them on the main menu after the gate loses that visit.
+        "pending_profile": "INTEGER NOT NULL DEFAULT 0",
         # Who this is, for the panel: an id alone tells a moderator nothing.
         # Filled in from every update, so it stays current on its own.
         "name": "TEXT NOT NULL DEFAULT ''",
@@ -347,6 +350,9 @@ MIGRATIONS = {
         "boost_views0": "INTEGER NOT NULL DEFAULT 0",
         "boost_sold0": "INTEGER NOT NULL DEFAULT 0",
         "boost_told": "INTEGER NOT NULL DEFAULT 0",  # the report went out
+        # Visits through the author's own link, kept apart from feed views:
+        # traffic they brought themselves is not reach the bot delivered.
+        "link_hits": "INTEGER NOT NULL DEFAULT 0",
     },
     "gate_channels": {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
@@ -2497,6 +2503,39 @@ async def take_pending_cheque(user_id: int) -> str:
         )
         await conn().commit()
     return code
+
+
+async def remember_profile_link(user_id: int, author_id: int) -> None:
+    """Where this person was heading before the gate stopped them."""
+    await ensure_user(user_id)
+    await conn().execute(
+        "UPDATE users SET pending_profile = ? WHERE id = ?", (author_id, user_id)
+    )
+    await conn().commit()
+
+
+async def take_pending_profile(user_id: int) -> int:
+    """The profile they came for, cleared as it is read. 0 when there is none."""
+    async with conn().execute(
+        "SELECT pending_profile FROM users WHERE id = ?", (user_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    author_id = row["pending_profile"] if row else 0
+    if author_id:
+        await conn().execute(
+            "UPDATE users SET pending_profile = 0 WHERE id = ?", (user_id,)
+        )
+        await conn().commit()
+    return author_id
+
+
+async def count_link_hit(author_id: int) -> None:
+    """A visit through the author's own link — not a view the feed delivered."""
+    await conn().execute(
+        "UPDATE profiles SET link_hits = link_hits + 1 WHERE user_id = ?",
+        (author_id,),
+    )
+    await conn().commit()
 
 
 # --- sponsor channels ----------------------------------------------------

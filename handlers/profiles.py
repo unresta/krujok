@@ -18,6 +18,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import access
 import db
 import keyboards as kb
 import outbox
@@ -813,6 +814,52 @@ async def open_card(call: CallbackQuery) -> None:
             await db.get_purchase(call.from_user.id, author_id, "content") is not None,
             await db.get_purchase(call.from_user.id, author_id, "contact") is not None,
         ),
+    )
+
+
+async def open_by_link(bot, viewer_id: int, author_id: int, origin: Message) -> bool:
+    """The card somebody came for, straight from the author's own link.
+
+    Not marked as seen: the visitor was brought here by the author, not by the
+    feed, and taking the card out of their lap would cost a second chance to
+    sell it. The visit is counted apart, in `link_hits`.
+    """
+    profile = await db.get_profile(author_id)
+    if profile is None or profile["status"] != "approved":
+        await origin.answer(texts.PROFILE_LINK_GONE)
+        return False
+    if author_id == viewer_id:
+        await origin.answer(texts.PROFILE_LINK_OWN)
+        return False
+
+    await db.count_link_hit(author_id)
+    circles = len(await db.author_circles(author_id, await db.total_circles_max_id()))
+    await bot.send_photo(
+        chat_id=viewer_id,
+        photo=profile["photo_id"],
+        caption=texts.PROFILE_LINK_INTRO + "\n\n" + texts.profile_card(profile, circles),
+        reply_markup=kb.profile_card(
+            profile,
+            await db.get_purchase(viewer_id, author_id, "content") is not None,
+            await db.get_purchase(viewer_id, author_id, "contact") is not None,
+        ),
+    )
+    return True
+
+
+@router.callback_query(F.data == "pf:link")
+async def share_link(call: CallbackQuery) -> None:
+    """The author's own link, with the button that copies it."""
+    profile = await db.get_profile(call.from_user.id)
+    if profile is None or profile["status"] != "approved":
+        await call.answer(texts.PROFILE_LINK_NEEDS_APPROVED, show_alert=True)
+        return
+
+    link = access.profile_link(call.from_user.id)
+    await call.answer()
+    await call.message.answer(
+        texts.profile_link_screen(link, profile["link_hits"]),
+        reply_markup=kb.profile_link(link),
     )
 
 
