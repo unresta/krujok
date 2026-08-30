@@ -241,11 +241,19 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- One row per arrival through an ad link, and what that arrival went on to do.
+-- The milestones are stamped here rather than read off the users table: a base
+-- cleanup deletes users, and an advertiser's report must not shrink because we
+-- swept out somebody who blocked the bot a month later.
 CREATE TABLE IF NOT EXISTS campaign_hits (
-    code    TEXT    NOT NULL,
-    user_id INTEGER NOT NULL,
-    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    code       TEXT    NOT NULL,
+    user_id    INTEGER NOT NULL,
+    ts         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    subscribed INTEGER NOT NULL DEFAULT 0,
+    accepted   INTEGER NOT NULL DEFAULT 0,
+    paid       INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_campaign_hits_user ON campaign_hits(user_id);
 CREATE INDEX IF NOT EXISTS idx_hits_code ON campaign_hits(code, ts);
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -366,6 +374,12 @@ MIGRATIONS = {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
         "token": "TEXT",  # lets the buyer of the ad watch their own link
     },
+    "campaign_hits": {
+        # Stamped as they happen, so the funnel outlives the users row.
+        "subscribed": "INTEGER NOT NULL DEFAULT 0",
+        "accepted": "INTEGER NOT NULL DEFAULT 0",
+        "paid": "INTEGER NOT NULL DEFAULT 0",
+    },
     "circles": {
         "likes": "INTEGER NOT NULL DEFAULT 0",
         "dislikes": "INTEGER NOT NULL DEFAULT 0",
@@ -468,6 +482,7 @@ async def accept_rules(user_id: int) -> bool:
         "UPDATE users SET accepted = 1 WHERE id = ? AND accepted = 0", (user_id,)
     )
     await conn().commit()
+    await stamp_campaign_step(user_id, "accepted")
     return cur.rowcount > 0
 
 
@@ -546,6 +561,29 @@ async def backfill_identity() -> int:
         " WHERE p.user_id = users.id), '') WHERE username = ''"
         " AND EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = users.id"
         "             AND p.username IS NOT NULL AND p.username != '')"
+    )
+    await conn().commit()
+    return cur.rowcount
+
+
+async def backfill_campaign_funnel() -> int:
+    """Copy the milestones of everyone still here onto their arrival row.
+
+    Only fills what is still knowable: someone already swept out of the base
+    left their arrival behind, but not what they did after it.
+    """
+    cur = await conn().execute(
+        """
+        UPDATE campaign_hits SET
+            subscribed = MAX(subscribed, COALESCE(
+                (SELECT u.subscribed FROM users u WHERE u.id = campaign_hits.user_id), 0)),
+            accepted = MAX(accepted, COALESCE(
+                (SELECT u.accepted FROM users u WHERE u.id = campaign_hits.user_id), 0)),
+            paid = MAX(paid, COALESCE(
+                (SELECT 1 FROM payments p WHERE p.user_id = campaign_hits.user_id
+                   AND p.refunded = 0 LIMIT 1), 0))
+        WHERE subscribed = 0 OR accepted = 0 OR paid = 0
+        """
     )
     await conn().commit()
     return cur.rowcount
@@ -1083,7 +1121,24 @@ async def mark_subscribed(user_id: int) -> bool:
         "UPDATE users SET subscribed = 1 WHERE id = ? AND subscribed = 0", (user_id,)
     )
     await conn().commit()
+    await stamp_campaign_step(user_id, "subscribed")
     return cur.rowcount > 0
+
+
+_STEPS = ("subscribed", "accepted", "paid")
+
+
+async def stamp_campaign_step(user_id: int, step: str) -> None:
+    """Write a funnel milestone onto the arrival that brought this person.
+
+    Nothing happens for someone who did not come through a link — most people.
+    """
+    if step not in _STEPS:  # the column name goes into SQL, so it is checked
+        raise ValueError(step)
+    await conn().execute(
+        f"UPDATE campaign_hits SET {step} = 1 WHERE user_id = ?", (user_id,)
+    )
+    await conn().commit()
 
 
 async def delete_campaign(code: str) -> bool:
@@ -1108,6 +1163,12 @@ async def campaign_stats(code: str, window: int = 0) -> dict | None:
 
     A slice counts people who arrived inside the window, so it answers "is this
     link still working", not "what did the old crowd do lately".
+
+    The funnel is read off `campaign_hits`, not off the users table: an arrival
+    happened whatever became of the account afterwards, and an advertiser's
+    report must not shrink because the base was swept of people who blocked the
+    bot. What the cohort went on to make — circles, views, money — still joins
+    users, because those things stop existing along with them.
     """
     async with conn().execute(
         "SELECT * FROM campaigns WHERE code = ?", (code,)
@@ -1121,12 +1182,14 @@ async def campaign_stats(code: str, window: int = 0) -> dict | None:
         """
         SELECT
           (SELECT COUNT(*) FROM campaign_hits WHERE code = :c AND ts >= :s)  AS hits,
-          (SELECT COUNT(*) FROM users
-             WHERE source = :c AND created_at >= :s)                         AS users,
-          (SELECT COUNT(*) FROM users
-             WHERE source = :c AND created_at >= :s AND subscribed = 1)      AS subscribed,
-          (SELECT COUNT(*) FROM users
-             WHERE source = :c AND created_at >= :s AND accepted = 1)        AS accepted,
+          (SELECT COUNT(DISTINCT user_id) FROM campaign_hits
+             WHERE code = :c AND ts >= :s)                                   AS users,
+          (SELECT COUNT(DISTINCT user_id) FROM campaign_hits
+             WHERE code = :c AND ts >= :s AND subscribed = 1)                AS subscribed,
+          (SELECT COUNT(DISTINCT user_id) FROM campaign_hits
+             WHERE code = :c AND ts >= :s AND accepted = 1)                  AS accepted,
+          (SELECT COUNT(DISTINCT user_id) FROM campaign_hits
+             WHERE code = :c AND ts >= :s AND paid = 1)                      AS payers,
           (SELECT COUNT(*) FROM users
              WHERE source = :c AND created_at >= :s AND banned = 1)          AS banned,
           (SELECT COUNT(*) FROM profiles p JOIN users u ON u.id = p.user_id
@@ -1137,9 +1200,6 @@ async def campaign_stats(code: str, window: int = 0) -> dict | None:
                AND ci.status = 'approved')                                   AS circles,
           (SELECT COUNT(*) FROM views v JOIN users u ON u.id = v.user_id
              WHERE u.source = :c AND u.created_at >= :s)                     AS views,
-          (SELECT COUNT(DISTINCT pay.user_id) FROM payments pay
-             JOIN users u ON u.id = pay.user_id
-             WHERE u.source = :c AND pay.refunded = 0 AND pay.ts >= :s)      AS payers,
           (SELECT COALESCE(SUM(pay.stars),0) FROM payments pay
              JOIN users u ON u.id = pay.user_id
              WHERE u.source = :c AND pay.refunded = 0 AND pay.ts >= :s)      AS stars,
@@ -2357,6 +2417,7 @@ async def add_payment(
     except aiosqlite.IntegrityError:
         return False
     await conn().commit()
+    await stamp_campaign_step(user_id, "paid")
     return True
 
 
