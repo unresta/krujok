@@ -30,6 +30,10 @@ CRYPTOBOT_TOKEN: str = os.getenv("CRYPTOBOT_TOKEN", "")
 CRYPTOBOT_API: str = os.getenv("CRYPTOBOT_API", "https://pay.crypt.bot/api")
 XROCKET_KEY: str = os.getenv("XROCKET_KEY", "")
 XROCKET_API: str = os.getenv("XROCKET_API", "https://pay.xrocket.exchange")
+# Pay API v2: a separate service with its own credentials, and the one the bot
+# hands out tokens for now. Which of the two a key belongs to is worked out from
+# the key itself — see crypto._xrocket_flavour.
+XROCKET_API_V2: str = os.getenv("XROCKET_API_V2", "https://pay.api.xrocket.exchange")
 
 # --- BotStat: broadcasts through @BotManRobot, audience check in @BotSafeRobot
 # Access key: https://botstat.io/dashboard (раздел API). Without it only the
