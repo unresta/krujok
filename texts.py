@@ -591,13 +591,16 @@ PROFILE = (
     "{icon_uploaded} Загружено кружков: <b>{approved}</b>\n"
     "{icon_ratings} Оценки: {icon_like} <b>{likes}</b> | {icon_dislike} <b>{dislikes}</b>\n"
     "{icon_views} Просмотрено кружков: <b>{watched}</b>\n"
-    "{icon_balance} Баланс: <b>{coins}</b> {icon_coin}\n\n"
+    "{icon_balance} Баланс: <b>{coins}</b> {icon_coin}{withdraw}\n\n"
     "{icon_earnings} <b>Хочешь зарабатывать в Krujok — жми «Моя анкета» 👇</b>\n\n"
     "👥 Приглашено пользователей: {ref_done}\n"
-    "💸 К выводу: <b>{withdrawable}</b> {coin} (~{stars} ⭐)\n"
     "🛒 Продано: {sold_content} доступов · {sold_contact} контактов\n"
     "👀 Просмотров твоих кружков: {views}"
 )
+
+# Right under the balance and worded as a part of it: two numbers a screen apart
+# read as two wallets, and that is exactly the question this line answers.
+PROFILE_WITHDRAW = "\n💸 Из них можно вывести: <b>{withdrawable}</b> (~{stars} ⭐)"
 
 
 def profile(
@@ -611,8 +614,22 @@ def profile(
     ref_done: int,
     sales: dict | None = None,
     withdrawable: int = 0,
+    ever_earned: bool = False,
 ) -> str:
     sales = sales or {"content": 0, "contact": 0, "income": 0}
+    # Nothing ever earned means nothing to explain — a lone «вывести: 0» under
+    # the balance of someone who only watches is a question, not an answer.
+    withdraw = (
+        _fmt(
+            "PROFILE_WITHDRAW",
+            PROFILE_WITHDRAW,
+            withdrawable=withdrawable,
+            stars=settings.stars_for(withdrawable),
+            coin=coin(),
+        )
+        if ever_earned or withdrawable
+        else ""
+    )
     return _fmt(
         "PROFILE",
         PROFILE,
@@ -633,6 +650,7 @@ def profile(
         coins=coins,
         earned=earned,
         ref_done=ref_done,
+        withdraw=withdraw,
         withdrawable=withdrawable,
         stars=settings.stars_for(withdrawable),
         sold_content=sales["content"],
@@ -1054,16 +1072,24 @@ PAYOUT_SCREEN = (
     "💸 <b>Вывод</b>\n\n"
     "Доступно к выводу: <b>{available}</b> {coin} (~{stars} ⭐)\n"
     "Курс: {rate} монетки = 1 ⭐, минимум {low} монеток\n\n"
-    "Выводятся только заработанные монетки — купленные за ⭐ нельзя.{pending}"
+    "Выводятся только заработанные монетки — купленные за ⭐ нельзя. "
+    "Внутри бота сначала тратятся купленные, так что заработок остаётся "
+    "целым.{spent}{pending}"
 )
+# Why the number here is smaller than everything they ever made. Without this
+# line the only explanation is «бот посчитал неправильно».
+PAYOUT_SCREEN_SPENT = "\n\n🪙 Ещё {spent} заработанных ты потратил внутри бота."
 PAYOUT_SCREEN_PENDING = "\n\n🕒 Заявок в работе: {pending}"
 
 
-def payout_screen(available: int, pending: int) -> str:
+def payout_screen(available: int, pending: int, spent: int = 0) -> str:
     tail = (
         _fmt("PAYOUT_SCREEN_PENDING", PAYOUT_SCREEN_PENDING, pending=pending)
         if pending
         else ""
+    )
+    used = (
+        _fmt("PAYOUT_SCREEN_SPENT", PAYOUT_SCREEN_SPENT, spent=spent) if spent else ""
     )
     return _fmt(
         "PAYOUT_SCREEN",
@@ -1073,6 +1099,7 @@ def payout_screen(available: int, pending: int) -> str:
         stars=settings.stars_for(available),
         rate=settings.get("payout_rate"),
         low=settings.get("payout_min"),
+        spent=used,
         pending=tail,
     )
 

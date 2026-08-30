@@ -2006,6 +2006,7 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     ref_done, ref_wait = await db.referral_counts(user_id)
     sales = await db.sales_stats(user_id)
     available = await db.withdrawable(user_id)
+    used = await db.spent_earnings(user_id)
     text = (
         f"👤 {people.label(user)}\n"
         f"В боте с {_since(user['created_at'])}"
@@ -2023,7 +2024,10 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         + (f"\nПришёл от: {await people.of(user['ref_by'])}" if user["ref_by"] else "")
         + f"\n💰 Продажи: {sales['content']} контент · {sales['contact']} личка "
         f"(+{sales['income']} 🪙)"
-        + f"\n💸 Заработано {user['earned']}, к выводу {available}"
+        # Three numbers, because «заработал 300, к выводу 50» is a support
+        # ticket until it says where the other 250 went.
+        + f"\n💸 Заработано за всё время: {user['earned']} · к выводу: {available}"
+        + (f" · потратил в боте: {used}" if used else "")
     )
     b = InlineKeyboardBuilder()
     b.row(

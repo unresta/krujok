@@ -42,7 +42,9 @@ async def screen(call: CallbackQuery, state: FSMContext) -> None:
         [p for p in await db.open_payouts(100) if p["user_id"] == call.from_user.id]
     )
     await call.message.answer(
-        texts.payout_screen(available, pending),
+        texts.payout_screen(
+            available, pending, await db.spent_earnings(call.from_user.id)
+        ),
         reply_markup=kb.payout(available >= settings.get("payout_min")),
     )
     await call.answer()

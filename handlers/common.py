@@ -159,6 +159,7 @@ async def profile(message: Message, state: FSMContext) -> None:
             done,
             sales,
             available,
+            ever_earned=bool(user["earned"]),
         ),
         reply_markup=kb.profile(
             access.referral_link(user_id),

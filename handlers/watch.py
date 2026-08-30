@@ -86,6 +86,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         not free and not on_subscription and await db.use_free_view(user_id)
     )
     free = free or on_subscription or on_the_house
+    # Which half of the price is being spent, noted before it is: a send that
+    # fails has to return earnings as earnings.
+    from_earned = 0 if free else db.earned_share(user, cost)
     if not free and not await db.try_spend(user_id, cost):  # raced with another tap
         await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
         return
@@ -115,8 +118,8 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
             # Give the free circle back without re-stamping the reminder: a
             # failed send must not push the next nudge a whole cooldown away.
             await db.grant_free_views(user_id, 1)
-        elif not free:
-            await db.add_coins(user_id, cost)  # nothing delivered, nothing charged
+        elif not free:  # nothing delivered, nothing charged
+            await db.give_back(user_id, cost, from_earned)
         await origin.answer(texts.SEND_FAILED)
         return
 

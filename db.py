@@ -323,7 +323,13 @@ MIGRATIONS = {
     "users": {
         "ref_by": "INTEGER",
         "ref_credited": "INTEGER NOT NULL DEFAULT 0",
+        # Everything the user ever made inside the bot — a lifetime total, shown
+        # in the panel and never reduced by spending.
         "earned": "INTEGER NOT NULL DEFAULT 0",
+        # How much of the balance right now is earned rather than bought. Coins
+        # are spent bought-first, so this only falls when the bought ones run
+        # out — which is what keeps «к выводу» from promising more than there is.
+        "earned_left": "INTEGER NOT NULL DEFAULT 0",
         "accepted": "INTEGER NOT NULL DEFAULT 0",
         "source": "TEXT",  # campaign code the user arrived with
         "subscribed": "INTEGER NOT NULL DEFAULT 0",  # passed the channel gate
@@ -416,17 +422,38 @@ async def connect() -> None:
         "lower_u", 1, lambda value: value.lower() if value else value, deterministic=True
     )
     await _db.executescript(SCHEMA)
-    await _migrate()
+    added = await _migrate()
+    for column, sql in BACKFILLS.items():
+        if column in added:  # exactly once, on the run that adds the column
+            await _db.execute(sql)
     await _db.commit()
 
 
-async def _migrate() -> None:
+async def _migrate() -> set[str]:
+    """Add the missing columns, and say which ones were actually added."""
+    added = set()
     for table, columns in MIGRATIONS.items():
         async with _db.execute(f"PRAGMA table_info({table})") as cur:
             existing = {row["name"] for row in await cur.fetchall()}
         for name, spec in columns.items():
             if name not in existing:
                 await _db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
+                added.add(f"{table}.{name}")
+    return added
+
+
+# A new column that starts at zero for everyone is wrong for the users who were
+# already here; these run once, on the migration that adds it.
+BACKFILLS = {
+    # What is left of a lifetime of earnings: never more than the balance in
+    # hand, and never counting what already went out through a payout.
+    "users.earned_left": """
+        UPDATE users SET earned_left = MAX(0, MIN(coins,
+            earned - COALESCE((SELECT SUM(p.coins) FROM payouts p
+                               WHERE p.user_id = users.id
+                                 AND p.status IN ('open', 'paid')), 0)))
+    """,
+}
 
 
 async def close() -> None:
@@ -465,8 +492,24 @@ async def add_coins(user_id: int, amount: int, earned: bool = False) -> None:
     """`earned` marks coins the user made, and only those can be withdrawn."""
     await ensure_user(user_id)
     await conn().execute(
-        "UPDATE users SET coins = coins + ?, earned = earned + ? WHERE id = ?",
-        (amount, amount if earned else 0, user_id),
+        "UPDATE users SET coins = coins + ?, earned = earned + ?,"
+        " earned_left = earned_left + ? WHERE id = ?",
+        (amount, *((amount, amount) if earned else (0, 0)), user_id),
+    )
+    await conn().commit()
+
+
+async def restore_earned(user_id: int, amount: int) -> None:
+    """Put earned coins back without counting them as earned a second time.
+
+    A rejected payout is the case: those coins were made once and the lifetime
+    total already knows about them — only the spendable half comes back.
+    """
+    await ensure_user(user_id)
+    await conn().execute(
+        "UPDATE users SET coins = coins + ?, earned_left = earned_left + ?"
+        " WHERE id = ?",
+        (amount, amount, user_id),
     )
     await conn().commit()
 
@@ -475,7 +518,9 @@ async def deduct_clamped(user_id: int, amount: int) -> None:
     """Take coins back (refunds) without pushing the balance below zero."""
     await ensure_user(user_id)
     await conn().execute(
-        "UPDATE users SET coins = MAX(0, coins - ?) WHERE id = ?", (amount, user_id)
+        "UPDATE users SET coins = MAX(0, coins - ?),"
+        " earned_left = MIN(earned_left, MAX(0, coins - ?)) WHERE id = ?",
+        (amount, amount, user_id),
     )
     await conn().commit()
 
@@ -500,11 +545,52 @@ async def set_banned(user_id: int, banned: bool) -> None:
 
 
 async def try_spend(user_id: int, amount: int) -> bool:
-    """Deduct only if the balance covers it. Returns False when it does not."""
+    """Deduct only if the balance covers it. Returns False when it does not.
+
+    Bought coins go first: `earned_left` is only pushed down once the balance
+    itself drops below it, so a spender eats their own top-ups before their
+    earnings — and what is left to withdraw is always really there.
+    """
     await ensure_user(user_id)
     cur = await conn().execute(
-        "UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?",
-        (amount, user_id, amount),
+        "UPDATE users SET coins = coins - ?,"
+        " earned_left = MIN(earned_left, coins - ?)"
+        " WHERE id = ? AND coins >= ?",
+        (amount, amount, user_id, amount),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+def earned_share(user, amount: int) -> int:
+    """How much of a spend of `amount` comes out of earnings, bought coins first.
+
+    Worked out from a row already in hand, before the spend — a refund has to
+    put each half back where it came from, and afterwards the split is gone.
+    """
+    bought = user["coins"] - user["earned_left"]
+    return max(0, min(amount - bought, user["earned_left"]))
+
+
+async def give_back(user_id: int, amount: int, from_earned: int = 0) -> None:
+    """Undo a spend that bought nothing. Earnings return as earnings.
+
+    Handing the whole refund back as bought coins would quietly shrink what the
+    user may withdraw, and they never spent it on anything.
+    """
+    if amount - from_earned:
+        await add_coins(user_id, amount - from_earned)
+    if from_earned:
+        await restore_earned(user_id, from_earned)
+
+
+async def spend_earned(user_id: int, amount: int) -> bool:
+    """Take a payout out of the earned half, which is the only half it may touch."""
+    await ensure_user(user_id)
+    cur = await conn().execute(
+        "UPDATE users SET coins = coins - ?, earned_left = earned_left - ?"
+        " WHERE id = ? AND coins >= ? AND earned_left >= ?",
+        (amount, amount, user_id, amount, amount),
     )
     await conn().commit()
     return cur.rowcount > 0
@@ -2037,15 +2123,15 @@ async def buy_boost(user_id: int, days: int, price: int) -> int | None:
     Extending adds days to what is left and keeps the run going, so the report
     at the end covers everything that was paid for rather than the last slice.
     """
-    if not await try_spend(user_id, price):
-        return None
-
+    # Looked up before the coins move: there is nothing to lift without a
+    # profile, and a spend that has to be undone is worth not making.
     async with conn().execute(
         "SELECT boost_until, views, sold FROM profiles WHERE user_id = ?", (user_id,)
     ) as cur:
         row = await cur.fetchone()
-    if row is None:  # no profile to lift — give the coins straight back
-        await add_coins(user_id, price)
+    if row is None:
+        return None
+    if not await try_spend(user_id, price):
         return None
 
     now = int(time.time())
@@ -2195,6 +2281,7 @@ async def buy_access(
     existing = await get_purchase(buyer_id, author_id, kind)
     if existing is not None:
         return "already", existing
+    from_earned = earned_share(await get_user(buyer_id), price)
     if not await try_spend(buyer_id, price):
         return "poor", None
 
@@ -2207,7 +2294,7 @@ async def buy_access(
         )
         await conn().commit()
     except aiosqlite.IntegrityError:  # two taps at once
-        await add_coins(buyer_id, price)
+        await give_back(buyer_id, price, from_earned)
         return "already", await get_purchase(buyer_id, author_id, kind)
 
     await add_coins(author_id, share, earned=True)
@@ -2260,23 +2347,41 @@ async def sales_stats(user_id: int) -> dict:
 
 
 async def withdrawable(user_id: int) -> int:
-    """Earned coins minus what is already requested or paid out."""
+    """The earned part of the balance — what a payout may actually take.
+
+    A request already open has been frozen out of it, and anything spent inside
+    the bot is gone from it too, so this number never over-promises.
+    """
+    async with conn().execute(
+        "SELECT MIN(earned_left, coins) FROM users WHERE id = ?", (user_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    return max(0, (row and row[0]) or 0)
+
+
+async def spent_earnings(user_id: int) -> int:
+    """Earnings that went back into the bot rather than out of it.
+
+    The gap between a lifetime of earnings and what is left to withdraw is the
+    one thing an author cannot work out for themselves — see the payout screen.
+    """
     async with conn().execute(
         """
-        SELECT (SELECT earned FROM users WHERE id = :uid)
-             - (SELECT COALESCE(SUM(coins),0) FROM payouts
-                 WHERE user_id = :uid AND status IN ('open','paid'))
+        SELECT earned - earned_left
+             - COALESCE((SELECT SUM(p.coins) FROM payouts p
+                         WHERE p.user_id = users.id
+                           AND p.status IN ('open', 'paid')), 0)
+          FROM users WHERE id = ?
         """,
-        {"uid": user_id},
+        (user_id,),
     ) as cur:
-        return max(0, (await cur.fetchone())[0] or 0)
+        row = await cur.fetchone()
+    return max(0, (row and row[0]) or 0)
 
 
 async def create_payout(user_id: int, coins: int, stars: int, details: str) -> int | None:
     """Freezes the coins right away; a rejected request gives them back."""
-    if coins > await withdrawable(user_id):
-        return None
-    if not await try_spend(user_id, coins):
+    if not await spend_earned(user_id, coins):
         return None
     cur = await conn().execute(
         "INSERT INTO payouts(user_id, coins, stars, details) VALUES (?, ?, ?, ?)",
@@ -2312,8 +2417,9 @@ async def close_payout(payout_id: int, status: str) -> aiosqlite.Row | None:
         return None
     payout = await get_payout(payout_id)
     if status == "rejected" and payout is not None:
-        # `earned` was never reduced, so give the coins back without touching it.
-        await add_coins(payout["user_id"], payout["coins"])
+        # Back into the earned half they were frozen out of — returned as bought
+        # coins they would have become unwithdrawable on the way home.
+        await restore_earned(payout["user_id"], payout["coins"])
     return payout
 
 
