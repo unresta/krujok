@@ -8,7 +8,7 @@ import time
 
 import aiosqlite
 
-from config import DB_PATH
+from config import DB_PATH, MSK_OFFSET
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -610,6 +610,11 @@ async def mark_pushed(user_id: int, free_views: int) -> None:
 # --- paid subscriptions --------------------------------------------------
 
 
+def msk_day() -> int:
+    """Which Moscow day it is — what a daily allowance is counted against."""
+    return int(time.time() + MSK_OFFSET) // 86400
+
+
 def active_tier(user) -> str:
     """The tier in force right now, '' once it has run out.
 
@@ -655,13 +660,12 @@ async def use_tier_view(user_id: int, limit: int) -> bool:
     """Spend one of today's free circles. True while the allowance holds.
 
     `limit` of 0 means the tier has no ceiling, and nothing is counted at all.
-    The day is the UTC one — a counter that resets on the viewer's own midnight
-    would need a timezone the bot has never been told.
+    The day turns at midnight Moscow time — see MSK_OFFSET in config.
     """
     if not limit:
         return True
 
-    today = int(time.time()) // 86400
+    today = msk_day()
     cur = await conn().execute(
         """
         UPDATE users
@@ -681,7 +685,7 @@ async def refund_tier_view(user_id: int) -> None:
     await conn().execute(
         "UPDATE users SET tier_views = tier_views - 1"
         " WHERE id = ? AND tier_day = ? AND tier_views > 0",
-        (user_id, int(time.time()) // 86400),
+        (user_id, msk_day()),
     )
     await conn().commit()
 
@@ -692,7 +696,7 @@ def tier_views_left(user, limit: int) -> int:
         return 0
     if "tier_day" not in user.keys():
         return limit
-    if user["tier_day"] != int(time.time()) // 86400:
+    if user["tier_day"] != msk_day():
         return limit
     return max(0, limit - user["tier_views"])
 

@@ -77,6 +77,11 @@ PUSH_TICK = 900.0  # seconds between sweeps
 PROMO_ENABLED = 1
 PROMO_EVERY_HOURS = 6  # how rarely one person meets a promo post
 
+# Everything a user sees a date or a daily reset in runs on Moscow time: the
+# server may sit anywhere, and «сбросится в полночь» has to mean one thing.
+# Moscow has not shifted its clocks since 2014, so a fixed offset is enough.
+MSK_OFFSET = 3 * 3600
+
 # --- paid subscriptions ---
 # Priced per day in coins. A+ buys a daily allowance of free circles, the two
 # above it buy the allowance away entirely and let circles be saved.

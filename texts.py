@@ -18,7 +18,7 @@ import time
 
 import emoji
 import settings
-from config import ABOUT_MAX
+from config import ABOUT_MAX, MSK_OFFSET
 from keyboards import PERSON_TITLE, PREF_TITLE
 
 logger = logging.getLogger(__name__)
@@ -1372,7 +1372,7 @@ def tier_poor(price: int, coins: int) -> str:
 
 TIER_LIMIT_HIT = (
     "Бесплатные {views} {circles} на сегодня кончились — дальше как обычно, "
-    "{watch_cost} {coin} за просмотр. Лимит обнулится завтра, "
+    "{watch_cost} {coin} за просмотр. Лимит обнулится в полночь по Москве, "
     "а на A++ и Premium его нет вовсе."
 )
 
@@ -1413,4 +1413,5 @@ def days_left(until: int) -> str:
 
 
 def when(stamp: int) -> str:
-    return time.strftime("%d.%m.%Y %H:%M", time.localtime(stamp))
+    """Moscow time, and said so — the server's own clock is nobody's business."""
+    return time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + MSK_OFFSET)) + " МСК"
