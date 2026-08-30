@@ -89,8 +89,9 @@ async def hide_profile(call: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("pf:boost:"))
 async def buy_boost(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    views = int(call.data.split(":")[2])
-    if views not in BOOST_PACKS:
+    days = int(call.data.split(":")[2])
+    pack = next((p for p in BOOST_PACKS if p[0] == days), None)
+    if pack is None:
         await call.answer(texts.STALE_BUTTON, show_alert=True)
         return
 
@@ -99,15 +100,15 @@ async def buy_boost(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer(texts.BOOST_NEEDS_APPROVED, show_alert=True)
         return
 
-    price = views * settings.get("boost_price") // 100
-    left = await db.buy_boost(call.from_user.id, views, price)
-    if left is None:
+    price = settings.boost_price(*pack)
+    until = await db.buy_boost(call.from_user.id, days, price)
+    if until is None:
         user = await db.get_user(call.from_user.id)
         await call.answer(texts.boost_poor(price, user["coins"]), show_alert=True)
         return
 
     await call.answer(texts.BOUGHT_TOAST)
-    await call.message.answer(texts.boost_bought(views, price, left))
+    await call.message.answer(texts.boost_bought(days, price, until))
 
 
 @router.callback_query(F.data == "pf:boost")
@@ -121,7 +122,7 @@ async def boost_menu(call: CallbackQuery, state: FSMContext) -> None:
 
     user = await db.get_user(call.from_user.id)
     await call.message.answer(
-        texts.boost_screen(user["coins"], profile["boost"]),
+        texts.boost_screen(user["coins"], profile["boost_until"]),
         reply_markup=kb.boost_packs(),
     )
     await call.answer()

@@ -400,8 +400,8 @@ async def cb_tiers(call: CallbackQuery, state: FSMContext) -> None:
         + "\n\n🚀 <b>Продвижение анкет</b>\n"
         f"Продаж: {boost['sales']} на {boost['coins']} 🪙 "
         f"(за сутки {boost['coins_today']} 🪙)\n"
-        f"Куплено показов: {boost['bought']} · не откручено: {boost['left_owed']}\n"
-        f"Анкет в продвижении сейчас: {boost['running']}"
+        f"Куплено дней: {boost['days']} · покупателей: {boost['buyers']}\n"
+        f"Идёт сейчас у {boost['running']} анкет"
         + "\n\nЦены и лимиты — в «Экономике».",
         back_kb(
             [

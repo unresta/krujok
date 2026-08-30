@@ -93,9 +93,11 @@ TIER_PRO_PENDING = 50  # unmoderated uploads Premium may hold at once
 
 # --- paid reach for a profile ---
 # Everyone is shown once per lap of the feed, so what is sold is being drawn
-# early rather than being drawn again — see db.pick_profile.
-BOOST_PACKS = (100, 500, 2000)  # impressions one can buy at a time
-BOOST_PRICE = 50  # coins per 100 impressions
+# early rather than being drawn again — see db.pick_profile. Sold by the day:
+# a run renews, while a bundle of impressions is bought once and is also a
+# debt the feed then owes.
+BOOST_PACKS = ((1, 0), (7, 17), (30, 33))  # (дней, % скидки за срок)
+BOOST_PRICE = 120  # coins a day at full price
 BOOST_WEIGHT = 5  # how many times likelier a boosted card is to come up
 
 # --- cheques ---

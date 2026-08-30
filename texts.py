@@ -141,10 +141,11 @@ FAQ = (
     "По умолчанию нет: кружочки уходят с защитой от пересылки и сохранения. "
     "Защита снимается подпиской A++ или Premium — они в «Подписке».\n\n"
     "<b>Как получить больше просмотров анкеты?</b>\n"
-    "Кнопка «🚀 Продвинуть анкету» в «Моей анкете». Покупаешь показы — "
-    "твоя карточка идёт в начале выдачи, пока они не кончатся. Каждый "
-    "листающий всё равно видит анкету один раз за круг, но до конца круга "
-    "доходят немногие, поэтому попасть в начало и значит больше охвата.\n\n"
+    "Кнопка «🚀 Продвижение» в «Моей анкете». Пока оно оплачено, твоя "
+    "карточка идёт в начале выдачи. Каждый листающий всё равно видит анкету "
+    "один раз за круг, но до конца круга доходят немногие — поэтому попасть "
+    "в начало и значит больше охвата. Когда срок кончится, бот пришлёт, "
+    "сколько человек её увидело.\n\n"
     "<b>Что дают подписки?</b>\n"
     "Просмотр кружочков перестаёт стоить монетки: A+ даёт бесплатный лимит "
     "в день, A++ и Premium — без лимита, плюс пересылка и скачивание. "
@@ -846,7 +847,7 @@ PROFILE_STATUS = (
     "Личка: {contact}\n"
     "Показов: {views} · покупок: {sold}{boost}"
 )
-PROFILE_STATUS_BOOST = "\n🚀 Оплаченных показов впереди: <b>{left}</b>"
+PROFILE_STATUS_BOOST = "\n🚀 Продвижение до {left}"
 
 
 def _status_label(status: str) -> str:
@@ -864,7 +865,9 @@ def _contact_line(profile) -> str:
 
 
 def profile_status(profile) -> str:  # noqa: D401 — the author's own view
-    left = profile["boost"] if "boost" in profile.keys() else 0
+    import db  # late: db does not import texts, but texts is imported very early
+
+    left = when(profile["boost_until"]) if db.boost_on(profile) else ""
     return _fmt(
         "PROFILE_STATUS",
         PROFILE_STATUS,
@@ -1440,39 +1443,41 @@ def when(stamp: int) -> str:
 
 BOOST_SCREEN = (
     "🚀 <b>Продвижение анкеты</b>\n\n"
-    "Твою анкету показывают тем, кто листает «Смотреть анкеты». Каждый "
-    "видит её один раз за круг, но до конца круга доходят немногие — "
-    "продвижение ставит тебя в начало, а не показывает дважды.\n\n"
-    "Оплачивается показами: купил {example} — ровно столько раз твою карточку "
-    "и покажут, дальше всё как обычно. Срока нет, показы не сгорают.\n\n"
+    "Твою анкету показывают тем, кто листает «Смотреть анкеты». Каждый видит "
+    "её один раз за круг, но до конца круга доходят немногие — продвижение "
+    "ставит тебя в начало выдачи, пока оно оплачено.\n\n"
     "{coin} Баланс: <b>{coins}</b>\n"
-    "Осталось оплаченных показов: <b>{left}</b>"
+    "{state}\n\n"
+    "Выбери срок:"
 )
+BOOST_RUNNING = "🟢 Продвижение идёт — до {until} ({left}).\nПокажем за это время тем больше, чем больше людей листает ленту."
+BOOST_IDLE = "⚪ Сейчас анкета в общей очереди."
 
 
-def boost_screen(coins: int, left: int) -> str:
-    from config import BOOST_PACKS
-
-    return _fmt(
-        "BOOST_SCREEN",
-        BOOST_SCREEN,
-        example=f"{BOOST_PACKS[0]} показов",
-        coin=coin(),
-        coins=coins,
-        left=left,
+def boost_screen(coins: int, until: int) -> str:
+    state = (
+        _fmt("BOOST_RUNNING", BOOST_RUNNING, until=when(until), left=days_left(until))
+        if until > time.time()
+        else _fmt("BOOST_IDLE", BOOST_IDLE)
     )
+    return _fmt("BOOST_SCREEN", BOOST_SCREEN, coin=coin(), coins=coins, state=state)
 
 
 BOOST_BOUGHT = (
-    "🟢 Куплено <b>{views}</b> показов за {price} {coin}.\n"
-    "Всего оплаченных показов: <b>{left}</b>.\n"
-    "Анкета уже идёт в начале выдачи."
+    "🟢 Продвижение на {days} — списано {price} {coin}.\n"
+    "Работает до <b>{until}</b>, анкета уже идёт в начале выдачи.\n"
+    "Когда закончится, пришлю, сколько людей её увидело."
 )
 
 
-def boost_bought(views: int, price: int, left: int) -> str:
+def boost_bought(days: int, price: int, until: int) -> str:
     return _fmt(
-        "BOOST_BOUGHT", BOOST_BOUGHT, views=views, price=price, coin=coin(), left=left
+        "BOOST_BOUGHT",
+        BOOST_BOUGHT,
+        days=day_word(days),
+        price=price,
+        coin=coin(),
+        until=when(until),
     )
 
 
@@ -1487,3 +1492,29 @@ BOOST_NEEDS_APPROVED = (
     "Продвигать пока нечего: анкета должна быть одобрена и видна в ленте. "
     "Как только её одобрят — возвращайся."
 )
+
+BOOST_REPORT = (
+    "🚀 <b>Продвижение закончилось</b>\n\n"
+    "Анкету показали <b>{shown}</b> {shown_word}, "
+    "купили доступ <b>{sold}</b> {sold_word}.\n\n"
+    "Сейчас она вернулась в общую очередь — продлить можно в «Моей анкете»."
+)
+
+
+def times_word(count: int) -> str:
+    """1 раз, 2 раза, 5 раз."""
+    tail = count % 100
+    if 11 <= tail <= 14:
+        return "раз"
+    return "раза" if 2 <= tail % 10 <= 4 else "раз"
+
+
+def boost_report(shown: int, sold: int) -> str:
+    return _fmt(
+        "BOOST_REPORT",
+        BOOST_REPORT,
+        shown=shown,
+        shown_word=times_word(shown),
+        sold=sold,
+        sold_word=times_word(sold),
+    )

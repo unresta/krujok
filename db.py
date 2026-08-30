@@ -21,16 +21,16 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
--- Reach an author bought for their profile. The profiles row carries what is
--- left; this is the receipt, and what the panel adds up.
-CREATE TABLE IF NOT EXISTS boost_sales (
+-- Reach an author bought for their profile. The profiles row carries when it
+-- runs out; this is the receipt, and what the panel adds up.
+CREATE TABLE IF NOT EXISTS boost_orders (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    views   INTEGER NOT NULL,             -- impressions bought
+    days    INTEGER NOT NULL,
     price   INTEGER NOT NULL,             -- coins actually taken
     ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
-CREATE INDEX IF NOT EXISTS idx_boost_sales_user ON boost_sales(user_id, ts);
+CREATE INDEX IF NOT EXISTS idx_boost_orders_user ON boost_orders(user_id, ts);
 
 -- Every subscription ever sold, for the panel's takings and for answering
 -- «за что списали»: the users row only carries the one in force.
@@ -340,8 +340,13 @@ MIGRATIONS = {
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
-        # Paid reach: impressions still owed, counted down as the card is shown.
-        "boost": "INTEGER NOT NULL DEFAULT 0",
+        # Paid reach, sold by the day. What the run started from is kept too:
+        # «за неделю показали 340 раз» is the line that sells the next one.
+        "boost_until": "INTEGER NOT NULL DEFAULT 0",
+        "boost_from": "INTEGER NOT NULL DEFAULT 0",
+        "boost_views0": "INTEGER NOT NULL DEFAULT 0",
+        "boost_sold0": "INTEGER NOT NULL DEFAULT 0",
+        "boost_told": "INTEGER NOT NULL DEFAULT 0",  # the report went out
     },
     "gate_channels": {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
@@ -1893,7 +1898,8 @@ async def pick_profile(viewer_id: int, boost_weight: int = 0) -> aiosqlite.Row |
     if not boost_weight:
         return rows[0]
 
-    weights = [boost_weight if row["boost"] > 0 else 1 for row in rows]
+    now = time.time()
+    weights = [boost_weight if row["boost_until"] > now else 1 for row in rows]
     return random.choices(rows, weights=weights, k=1)[0]
 
 
@@ -1910,52 +1916,98 @@ async def mark_profile_seen(viewer_id: int, author_id: int) -> None:
         "INSERT OR IGNORE INTO profile_views(buyer_id, author_id) VALUES (?, ?)",
         (viewer_id, author_id),
     )
-    # Paid impressions are spent here and nowhere else: this is the one place a
-    # card is actually put in front of somebody.
     await conn().execute(
-        "UPDATE profiles SET views = views + 1,"
-        " boost = CASE WHEN boost > 0 THEN boost - 1 ELSE 0 END"
-        " WHERE user_id = ?",
-        (author_id,),
+        "UPDATE profiles SET views = views + 1 WHERE user_id = ?", (author_id,)
     )
     await conn().commit()
 
 
-async def buy_boost(user_id: int, views: int, price: int) -> int | None:
-    """Take the coins and add the impressions. None when the balance is short.
+def boost_on(profile) -> bool:
+    """Whether paid reach is in force right now."""
+    if profile is None or "boost_until" not in profile.keys():
+        return False
+    return profile["boost_until"] > time.time()
 
-    Buying again while some are left adds to them — reach does not expire, so
-    there is nothing to reset.
+
+async def buy_boost(user_id: int, days: int, price: int) -> int | None:
+    """Take the coins and put the profile up front for that long.
+
+    Extending adds days to what is left and keeps the run going, so the report
+    at the end covers everything that was paid for rather than the last slice.
     """
     if not await try_spend(user_id, price):
         return None
-    await conn().execute(
-        "UPDATE profiles SET boost = boost + ? WHERE user_id = ?", (views, user_id)
-    )
-    await conn().execute(
-        "INSERT INTO boost_sales(user_id, views, price) VALUES (?, ?, ?)",
-        (user_id, views, price),
-    )
-    await conn().commit()
+
     async with conn().execute(
-        "SELECT boost FROM profiles WHERE user_id = ?", (user_id,)
+        "SELECT boost_until, views, sold FROM profiles WHERE user_id = ?", (user_id,)
     ) as cur:
         row = await cur.fetchone()
-    return row[0] if row else views
+    if row is None:  # no profile to lift — give the coins straight back
+        await add_coins(user_id, price)
+        return None
+
+    now = int(time.time())
+    running = row["boost_until"] > now
+    until = (row["boost_until"] if running else now) + days * 86400
+
+    if running:
+        await conn().execute(
+            "UPDATE profiles SET boost_until = ? WHERE user_id = ?", (until, user_id)
+        )
+    else:
+        # A fresh run: remember what the counters stood at, so the report can
+        # say what this money actually bought.
+        await conn().execute(
+            "UPDATE profiles SET boost_until = :until, boost_from = :now,"
+            " boost_views0 = views, boost_sold0 = sold, boost_told = 0"
+            " WHERE user_id = :uid",
+            {"until": until, "now": now, "uid": user_id},
+        )
+    await conn().execute(
+        "INSERT INTO boost_orders(user_id, days, price) VALUES (?, ?, ?)",
+        (user_id, days, price),
+    )
+    await conn().commit()
+    return until
+
+
+async def finished_boosts(limit: int = 50) -> list[aiosqlite.Row]:
+    """Runs that have just ended and were not reported on yet."""
+    async with conn().execute(
+        """
+        SELECT user_id, boost_from, boost_until,
+               views - boost_views0 AS shown,
+               sold - boost_sold0   AS sold_during
+          FROM profiles
+         WHERE boost_until > 0 AND boost_told = 0
+           AND boost_until <= strftime('%s','now')
+         ORDER BY boost_until LIMIT ?
+        """,
+        (limit,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def mark_boost_told(user_id: int) -> None:
+    await conn().execute(
+        "UPDATE profiles SET boost_told = 1 WHERE user_id = ?", (user_id,)
+    )
+    await conn().commit()
 
 
 async def boost_stats() -> dict:
-    """What paid reach has taken in, and how much of it is still owed."""
+    """What paid reach has taken in, and how much of it is running."""
     async with conn().execute(
         """
         SELECT
-          (SELECT COUNT(*) FROM boost_sales)                        AS sales,
-          (SELECT COALESCE(SUM(views), 0) FROM boost_sales)          AS bought,
-          (SELECT COALESCE(SUM(price), 0) FROM boost_sales)          AS coins,
-          (SELECT COALESCE(SUM(price), 0) FROM boost_sales
-             WHERE ts > strftime('%s','now') - 86400)                AS coins_today,
-          (SELECT COUNT(*) FROM profiles WHERE boost > 0)            AS running,
-          (SELECT COALESCE(SUM(boost), 0) FROM profiles)             AS left_owed
+          (SELECT COUNT(*) FROM boost_orders)                        AS sales,
+          (SELECT COALESCE(SUM(days), 0) FROM boost_orders)           AS days,
+          (SELECT COALESCE(SUM(price), 0) FROM boost_orders)          AS coins,
+          (SELECT COALESCE(SUM(price), 0) FROM boost_orders
+             WHERE ts > strftime('%s','now') - 86400)                 AS coins_today,
+          (SELECT COUNT(*) FROM profiles
+             WHERE boost_until > strftime('%s','now'))                AS running,
+          (SELECT COUNT(DISTINCT user_id) FROM boost_orders)          AS buyers
         """
     ) as cur:
         return dict(await cur.fetchone())

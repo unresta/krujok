@@ -93,7 +93,7 @@ TITLES: dict[str, str] = {
     "tier_pro_price": "Premium монеток в день",
     "tier_a1_views": "A+ кружков в день",
     "tier_pro_pending": "Premium кружков на проверке",
-    "boost_price": "Продвижение: монеток за 100",
+    "boost_price": "Продвижение: монеток в день",
     "boost_weight": "Продвижение: вес в выдаче",
 }
 
@@ -194,6 +194,12 @@ def reward(gender: str) -> int:
 def author_share(price: int) -> int:
     """What the author keeps from a sale; the rest is the service's cut."""
     return price * _values["author_share"] // 100
+
+
+def boost_price(days: int, discount: int) -> int:
+    """What that many days of paid reach cost, rounded down to a tidy ten."""
+    full = days * _values["boost_price"] * (100 - discount) // 100
+    return max(1, full // 10 * 10) if full >= 10 else max(1, full)
 
 
 def coins_for(stars: int) -> int:

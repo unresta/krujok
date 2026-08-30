@@ -15,6 +15,7 @@ from aiogram.types import (
 )
 
 import access
+import boosts
 import db
 import emoji
 import invoices
@@ -107,6 +108,8 @@ async def main() -> None:
             )
 
     reminders = asyncio.create_task(pushes.run(bot))
+    # Paid reach says nothing on its own when it runs out — see boosts.py.
+    reports = asyncio.create_task(boosts.run(bot))
     # Crypto invoices are confirmed by asking, not by being told — see crypto.py.
     watcher = asyncio.create_task(invoices.run(bot))
     try:
@@ -114,6 +117,7 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         reminders.cancel()
+        reports.cancel()
         watcher.cancel()
         await outbox.close()  # the moderation chats' senders
         await db.close()
