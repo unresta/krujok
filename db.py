@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS campaign_hits (
     paid       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_hits_user ON campaign_hits(user_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_hits_code ON campaign_hits(code, ts);
 CREATE INDEX IF NOT EXISTS idx_hits_code ON campaign_hits(code, ts);
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -1149,13 +1150,28 @@ async def delete_campaign(code: str) -> bool:
 
 
 async def campaigns() -> list[aiosqlite.Row]:
+    """The list, counted the same way the report is — by arrivals, not by rows
+    in `users` that a base cleanup can take away."""
     async with conn().execute(
         """
-        SELECT c.*, (SELECT COUNT(*) FROM users u WHERE u.source = c.code) AS users
+        SELECT c.*, (SELECT COUNT(DISTINCT h.user_id) FROM campaign_hits h
+                      WHERE h.code = c.code) AS users
         FROM campaigns c ORDER BY c.hits DESC, c.created_at
         """
     ) as cur:
         return list(await cur.fetchall())
+
+
+async def campaign_reach() -> int:
+    """People who came through any link at all.
+
+    Not the sum of the per-link counts: somebody who clicked two of them has an
+    arrival on each, and is still one person.
+    """
+    async with conn().execute(
+        "SELECT COUNT(DISTINCT user_id) FROM campaign_hits"
+    ) as cur:
+        return (await cur.fetchone())[0]
 
 
 async def campaign_stats(code: str, window: int = 0) -> dict | None:

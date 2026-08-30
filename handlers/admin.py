@@ -1302,7 +1302,7 @@ async def cb_links(call: CallbackQuery, state: FSMContext) -> None:
         )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
 
-    total_users = sum(row["users"] for row in rows)
+    total_users = await db.campaign_reach()
     await _edit(
         call,
         "🔗 <b>Рекламные ссылки</b>\n\n"
