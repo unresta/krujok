@@ -42,7 +42,6 @@ DEFAULTS: dict[str, int] = {
     "stars_per_usd": config.STARS_PER_USD,
     "usdt_rate": config.USDT_RATE,
     "card_price": config.CARD_PRICE,
-    "card_fee": config.CARD_FEE,
     "subs_recurring": 0,
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_circles": config.PROMO_EVERY_CIRCLES,
@@ -96,7 +95,6 @@ TITLES: dict[str, str] = {
     "stars_per_usd": "Звёзд за 1 $ (курс TG)",
     "usdt_rate": "Монеток за 1 USDT",
     "card_price": "Копеек за 1 монетку (карта)",
-    "card_fee": "Надбавка картой, %",
     "subs_recurring": "Автопродление подписок, 0/1",
     "promo_every_circles": "Показ раз в N кружков",
     "cheque_min_refs": "Рефералов для чека",
@@ -129,7 +127,6 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "stars_per_usd",
         "usdt_rate",
         "card_price",
-        "card_fee",
     ),
     "💎 Автопродление": ("subs_recurring",),
     "💸 Вывод": ("payout_min", "payout_rate"),
@@ -183,7 +180,6 @@ LIMITS: dict[str, tuple[int, int]] = {
     "stars_per_usd": (1, 100_000),
     "usdt_rate": (1, 1_000_000),
     "card_price": (1, 1_000_000),
-    "card_fee": (0, 100),
     "subs_recurring": (0, 1),
     "promo_enabled": (0, 1),
     "promo_every_circles": (1, 1000),
@@ -273,13 +269,13 @@ def stars_for(coins: int) -> int:
 
 
 def card_kopecks(coins: int) -> int:
-    """What those coins cost by card, in kopecks, surcharge included.
+    """What those coins cost by card, in kopecks.
 
-    Rounded up: a fraction of a kopeck is never the shop's to eat, and never
-    the payer's to be charged twice for.
+    The processor's commission is not added here: whether it comes off the shop
+    or off the payer is chosen in the ParityPay dashboard, and adding a second
+    percentage on this side would charge for it twice.
     """
-    base = coins * _values["card_price"] * (100 + _values["card_fee"])
-    return -(-base // 100)  # ceiling division
+    return coins * _values["card_price"]
 
 
 def card_rubles(coins: int) -> str:

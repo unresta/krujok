@@ -139,10 +139,9 @@ USDT_RATE = 33  # coins for 1 USDT
 CRYPTO_ASSET = "USDT"  # what invoices are issued in, both providers
 # Card price of one coin, in kopecks. Defaults to what a coin costs in stars
 # (STAR_COST × STAR_PRICE), so the three checkouts start out at the same price.
+# Nothing is added on top: who pays the processor's commission is a setting in
+# the ParityPay dashboard, not a number this bot invents.
 CARD_PRICE = STAR_COST * STAR_PRICE
-# Added on top of that price at checkout. The payer sees the total on the
-# payment form before they pay anything.
-CARD_FEE = 11  # percent
 # Recurring charges are checked far more rarely than one-off invoices: a
 # subscription renews once a day at the very most, and the processor allows
 # 60 requests a minute for everything put together.

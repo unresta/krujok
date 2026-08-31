@@ -2750,18 +2750,11 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
     sample = config.STAR_PACKS[0]
     coins = settings.coins_for(sample)
-    base = coins * settings.get("card_price")
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
             text=f"💰 Копеек за монетку: {settings.get('card_price')}",
             callback_data="a:econ:k:card_price",
-        )
-    )
-    b.row(
-        InlineKeyboardButton(
-            text=f"➕ Надбавка: {settings.get('card_fee')}%",
-            callback_data="a:econ:k:card_fee",
         )
     )
     on = bool(settings.get("subs_recurring"))
@@ -2783,14 +2776,12 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
         "Списания идут через СБП — процессинг умеет повторять только их. "
         "Включать только после согласования подписок с менеджером ParityPay: "
         "до этого счёт с подпиской просто не создастся.\n\n"
-        f"Цена: {settings.get('card_price')} коп. за монетку "
-        f"+ {settings.get('card_fee')}%\n"
-        f"{coins} монеток: {base // 100}.{base % 100:02d} ₽ → "
-        f"<b>{settings.card_rubles(coins)} ₽</b> к оплате\n"
+        f"Цена: {settings.get('card_price')} коп. за монетку\n"
+        f"{coins} монеток: <b>{settings.card_rubles(coins)} ₽</b>\n"
         f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
         f"{int(config.INVOICE_POLL)} сек\n\n"
-        "Надбавка на кнопке у пользователя показана процентом, отдельной "
-        "строкой в счёте не расписывается — платёжная форма показывает итог.\n\n"
+        "Комиссию бот сверху не добавляет: кто её платит — касса или "
+        "плательщик — выбирается в личном кабинете ParityPay.\n\n"
         "Ключи задаются в <code>.env</code>: <code>PARITYPAY_SHOP_ID</code> "
         "(UUID кассы) и <code>PARITYPAY_SECRET</code> (ключ №1). Без них "
         "способ не показывается покупателю.",
