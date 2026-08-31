@@ -35,9 +35,29 @@ FIRST_SWEEP = 60.0  # after a restart, do not make the first batch wait a tick
 # Filled in by every pass, read by the admin panel.
 last_sweep: dict = {"at": 0.0, "sent": 0, "failed": 0, "skipped": "", "error": ""}
 
+# Updated as a pass runs, so the panel can show it moving. A batch of a
+# thousand takes about a minute, and a screen that says nothing for a minute
+# looks like a screen that did nothing.
+running: dict = {"active": False, "done": 0, "total": 0, "sent": 0, "failed": 0}
+
 
 async def sweep(bot: Bot) -> tuple[int, int]:
-    """One pass. Returns (delivered, failed)."""
+    """One pass. Returns (delivered, failed).
+
+    Only one at a time: the timer and the panel's «Отправить сейчас» would
+    otherwise take the same people out of the queue twice over.
+    """
+    if running["active"]:
+        last_sweep["skipped"] = "проход уже идёт"
+        return 0, 0
+    running.update(active=True, done=0, total=0, sent=0, failed=0)
+    try:
+        return await _sweep(bot)
+    finally:
+        running["active"] = False
+
+
+async def _sweep(bot: Bot) -> tuple[int, int]:
     last_sweep["at"] = time.time()
     last_sweep["error"] = ""
     last_sweep["skipped"] = ""
@@ -68,9 +88,9 @@ async def sweep(bot: Bot) -> tuple[int, int]:
 
     free = settings.get("push_free_views")
     sent = failed = 0
-    for user_id, accepted in [(u, True) for u in user_ids] + [
-        (u, False) for u in newcomers
-    ]:
+    queue = [(u, True) for u in user_ids] + [(u, False) for u in newcomers]
+    running["total"] = len(queue)
+    for user_id, accepted in queue:
         # The stamp goes down before the send: a failure must not queue the
         # same person up again on the next tick.
         await db.mark_pushed(user_id, free)
@@ -84,6 +104,7 @@ async def sweep(bot: Bot) -> tuple[int, int]:
             sent += 1
         else:
             failed += 1
+        running.update(done=sent + failed, sent=sent, failed=failed)
         await asyncio.sleep(SEND_PAUSE)
 
     last_sweep["sent"], last_sweep["failed"] = sent, failed

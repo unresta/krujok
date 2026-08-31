@@ -1309,10 +1309,53 @@ async def cb_push_toggle(call: CallbackQuery, state: FSMContext) -> None:
     await cb_push(call, state)
 
 
+PUSH_REFRESH = 2.0  # seconds between redraws — Telegram throttles edits
+
+
+def _push_progress() -> str:
+    """The bar the admin watches while a pass runs."""
+    live = pushes.running
+    total, done = live["total"], live["done"]
+    if not total:  # the queue is still being picked
+        return "⏳ <b>Рассылка идёт</b>\n\nСобираю очередь…"
+    filled = round(10 * done / total)
+    return (
+        "⏳ <b>Рассылка идёт</b>\n\n"
+        f"{'█' * filled}{'░' * (10 - filled)}  {done} из {total}\n\n"
+        f"Доставлено: {live['sent']}\nНе дошло: {live['failed']}"
+    )
+
+
 @router.callback_query(F.data == "a:push:now")
-async def cb_push_now(call: CallbackQuery) -> None:
+async def cb_push_now(call: CallbackQuery, state: FSMContext) -> None:
+    """Run a pass and let the screen show it happening.
+
+    A batch of a thousand takes about a minute. Waiting for it and only then
+    redrawing looked exactly like a button that did nothing at all.
+    """
+    if pushes.running["active"]:
+        await call.answer("Рассылка уже идёт.", show_alert=True)
+        return
+
     await call.answer("Пошла рассылка")
-    sent, failed = await pushes.sweep(call.bot)
+    await _edit(call, _push_progress(), None)
+    task = asyncio.create_task(pushes.sweep(call.bot))
+    while not task.done():
+        await asyncio.sleep(PUSH_REFRESH)
+        with suppress(TelegramAPIError):  # nothing changed since the last draw
+            await _edit(call, _push_progress(), None)
+
+    try:
+        sent, failed = task.result()
+    except Exception as error:  # noqa: BLE001 — the panel says what broke
+        logger.exception("ручная рассылка сорвалась: %s", error)
+        await _edit(
+            call,
+            f"🔴 <b>Рассылка сорвалась</b>\n\n<code>{html.escape(str(error))[:300]}</code>",
+            back_kb([InlineKeyboardButton(text="⬅️ К напоминаниям", callback_data="a:push")]),
+        )
+        return
+
     await _edit(
         call,
         f"<b>Напоминания отправлены</b>\n\nДоставлено: {sent}\nНе дошло: {failed}"
@@ -1322,7 +1365,7 @@ async def cb_push_now(call: CallbackQuery) -> None:
             if not sent and not failed
             else ""
         ),
-        back_kb(),
+        back_kb([InlineKeyboardButton(text="⬅️ К напоминаниям", callback_data="a:push")]),
     )
 
 
