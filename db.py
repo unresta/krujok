@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import secrets
 import time
@@ -9,6 +10,8 @@ import time
 import aiosqlite
 
 from config import DB_PATH, MSK_OFFSET
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -373,7 +376,10 @@ MIGRATIONS = {
         # circles, not in hours.
         "promo_views": "INTEGER NOT NULL DEFAULT 0",
         # A cheque opened before the gate waits here until the gate is passed.
+        # With the moment it was opened: it is meant to survive a minute at the
+        # gate, not to sit here for weeks and go off on an unrelated /start.
         "pending_cheque": "TEXT NOT NULL DEFAULT ''",
+        "pending_cheque_at": "INTEGER NOT NULL DEFAULT 0",
         # Same for a profile link: somebody came for one particular author, and
         # dropping them on the main menu after the gate loses that visit.
         "pending_profile": "INTEGER NOT NULL DEFAULT 0",
@@ -2871,26 +2877,48 @@ async def drop_stale_cheques() -> int:
     return cur.rowcount
 
 
+# How long a cheque waits on the row. It only has to outlive the walk to the
+# channel and back; anything older is somebody pressing /start for their own
+# reasons, and cashing it in then arrives as «активации закончились» out of
+# nowhere.
+CHEQUE_PENDING_TTL = 3600
+
+
 async def remember_cheque(user_id: int, code: str) -> None:
     await ensure_user(user_id)
     await conn().execute(
-        "UPDATE users SET pending_cheque = ? WHERE id = ?", (code, user_id)
+        "UPDATE users SET pending_cheque = ?,"
+        " pending_cheque_at = strftime('%s','now') WHERE id = ?",
+        (code, user_id),
     )
     await conn().commit()
 
 
 async def take_pending_cheque(user_id: int) -> str:
-    """The cheque this person opened before the gate, cleared as it is read."""
+    """The cheque this person opened before the gate, cleared as it is read.
+
+    A stale one is cleared too, and returned as nothing: the click it came from
+    is long over, and the person pressing /start now did not ask for it.
+    """
     async with conn().execute(
-        "SELECT pending_cheque FROM users WHERE id = ?", (user_id,)
+        "SELECT pending_cheque, pending_cheque_at > strftime('%s','now') - ?"
+        " AS fresh FROM users WHERE id = ?",
+        (CHEQUE_PENDING_TTL, user_id),
     ) as cur:
         row = await cur.fetchone()
     code = row["pending_cheque"] if row else ""
-    if code:
-        await conn().execute(
-            "UPDATE users SET pending_cheque = '' WHERE id = ?", (user_id,)
-        )
-        await conn().commit()
+    if not code:
+        return ""
+
+    await conn().execute(
+        "UPDATE users SET pending_cheque = '', pending_cheque_at = 0"
+        " WHERE id = ?",
+        (user_id,),
+    )
+    await conn().commit()
+    if not row["fresh"]:
+        logger.info("чек %s для %s протух — не активируем", code, user_id)
+        return ""
     return code
 
 
