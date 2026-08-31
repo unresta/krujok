@@ -345,6 +345,16 @@ EDITABLE: dict[str, Item] = {
         "Анкета автора",
         vars={"reason": "текст причины"},
     ),
+    "PROFILE_FROZEN": Item(
+        "Анкета снята с показа по жалобам",
+        "Анкета автора",
+        vars={"reason": "список жалоб, если они есть"},
+    ),
+    "PROFILE_FROZEN_REASONS": Item(
+        "…список, на что жаловались",
+        "Анкета автора",
+        vars={"list": "перечень причин"},
+    ),
     "PROFILE_STATUS": Item(
         "Своя анкета: карточка",
         "Анкета автора",
@@ -954,6 +964,7 @@ _COMPOSED = {
     ("PROFILE", "withdraw"): "PROFILE_WITHDRAW",
     ("PROFILE_REVERTED", "reason"): "PROFILE_REASON_TAIL",
     ("PROFILE_REJECTED", "reason"): "PROFILE_REASON_TAIL",
+    ("PROFILE_FROZEN", "reason"): "PROFILE_FROZEN_REASONS",
     ("REJECTED", "reason"): "CIRCLE_REASON_TAIL",
     ("CIRCLE_DELETED", "reason"): "CIRCLE_REASON_TAIL",
     ("PROFILE_STATUS", "status"): "STATUS_APPROVED",

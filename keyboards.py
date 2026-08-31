@@ -607,6 +607,17 @@ def refill_profile() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def fix_profile() -> InlineKeyboardMarkup:
+    """Goes with a freeze: the anketa is intact, so it opens rather than restarts."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🧾 Моя анкета", callback_data="pf:edit_menu", style=SUCCESS
+        )
+    )
+    return b.as_markup()
+
+
 def profile_reasons(user_id: int) -> InlineKeyboardMarkup:
     """Why the profile is being turned down — the author gets told."""
     from texts import REJECT_REASONS

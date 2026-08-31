@@ -581,11 +581,20 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
     if verdict in ("hide", "keep"):  # verdict on a complaint, not on a new profile
         was = await db.get_profile(user_id)
         status = "rejected" if verdict == "hide" else "approved"
+        # Read before clearing: what people complained about is the one thing
+        # the author needs to know, and the complaints are about to be closed.
+        complaints = [
+            texts.PROFILE_REPORT_REASONS.get(row["reason"], texts.NO_REASON)
+            for row in await db.profile_report_reasons(user_id)
+        ]
         await db.set_profile_status(user_id, status)
         await db.clear_profile_reports(user_id)
         if verdict == "hide":
-            await db.drop_profile_backup(user_id)  # nothing here is worth restoring
-            await _tell_author(call.bot, user_id, "rejected", "жалобы пользователей")
+            # The anketa itself stays whole — only its rollback snapshot goes,
+            # because the version that collected the complaints is not one to
+            # come back to if the author's next edit is turned down.
+            await db.drop_profile_backup(user_id)
+            await _tell_author(call.bot, user_id, "frozen", complaints=complaints)
         elif was is not None and was["status"] != "approved":
             # Keeping a profile that was already hidden puts it back on screen,
             # and the author has no other way of learning that.
@@ -643,11 +652,16 @@ async def _decide(bot, user_id: int, status: str, reason: str) -> str:
     return f"{mark} · {reason}" if reason else mark
 
 
-async def _tell_author(bot, user_id: int, status: str, reason: str = "") -> None:
+async def _tell_author(
+    bot, user_id: int, status: str, reason: str = "", complaints: list | None = None
+) -> None:
     if status == "approved":
         text, markup = texts.PROFILE_APPROVED, None
     elif status == "reverted":
         text, markup = texts.profile_reverted(reason), kb.refill_profile()
+    elif status == "frozen":
+        # Taken off display, not taken away: the way back is the edit menu.
+        text, markup = texts.profile_frozen(complaints or []), kb.fix_profile()
     else:
         text, markup = texts.profile_rejected(reason), kb.refill_profile()
 

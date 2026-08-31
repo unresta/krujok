@@ -930,6 +930,29 @@ def profile_rejected(reason: str = "") -> str:
     return _fmt("PROFILE_REJECTED", PROFILE_REJECTED, reason=_reason_tail(reason))
 
 
+# Hidden by complaints is not the same as turned down: the anketa is still
+# there, whole, and the author fixes it themselves rather than starting over.
+PROFILE_FROZEN = (
+    "🚫 <b>Твоя анкета снята с показа по жалобам.</b>{reason}\n\n"
+    "Она никуда не делась. Открой «Моя анкета», поправь то, на что жалуются, — "
+    "и она сама уйдёт на проверку. Кружочки и монетки остаются при тебе."
+)
+PROFILE_FROZEN_REASONS = "\n\nНа что жаловались:\n{list}"
+
+
+def profile_frozen(reasons: list[str]) -> str:
+    tail = (
+        _fmt(
+            "PROFILE_FROZEN_REASONS",
+            PROFILE_FROZEN_REASONS,
+            list="\n".join(f"• {r}" for r in reasons),
+        )
+        if reasons
+        else ""
+    )
+    return _fmt("PROFILE_FROZEN", PROFILE_FROZEN, reason=tail)
+
+
 PROFILE_EMPTY_WAIT = "Анкет пока нет — все просмотрены. Загляни позже."
 
 PROFILE_EMPTY_PITCH = (
