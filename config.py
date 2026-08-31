@@ -121,6 +121,9 @@ REPORTS_TO_HIDE = 5  # complaints that pull a circle out of rotation on their ow
 AUTHOR_SHARE = 50  # percent of a sale that reaches the author
 PRICE_MIN = 1
 PRICE_MAX = 10_000
+# Smallest top-up worth offering. Below it the new circles are too few to
+# price: the author's cut of one coin is nothing, and the button is noise.
+TOPUP_MIN = 5
 PAYOUT_MIN = 1000  # coins
 PAYOUT_RATE = 3  # coins per star when cashing out
 ABOUT_MAX = 300  # characters in a profile description

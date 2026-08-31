@@ -313,8 +313,17 @@ def faq() -> InlineKeyboardMarkup:
 # --- author profiles -----------------------------------------------------
 
 
-def profile_card(profile, bought_content: bool, bought_contact: bool) -> InlineKeyboardMarkup:
-    """The buy buttons disappear once the thing is already owned."""
+def profile_card(
+    profile,
+    bought_content: bool,
+    bought_contact: bool,
+    topup: int = 0,
+) -> InlineKeyboardMarkup:
+    """The buy buttons disappear once the thing is already owned.
+
+    `topup` is what the circles added since the purchase cost, when there are
+    enough of them to be worth selling — otherwise nothing is offered.
+    """
     author = profile["user_id"]
     b = InlineKeyboardBuilder()
     if bought_content:
@@ -323,6 +332,12 @@ def profile_card(profile, bought_content: bool, bought_contact: bool) -> InlineK
                 text="🎬 Кружочки автора", callback_data=f"pf:show:{author}", style=SUCCESS
             )
         )
+        if topup:
+            b.row(
+                _coin_button(
+                    f"Докупить новые за {topup}", f"pf:topup:{author}", PRIMARY
+                )
+            )
     else:
         b.row(
             _coin_button(
@@ -346,6 +361,17 @@ def profile_card(profile, bought_content: bool, bought_contact: bool) -> InlineK
     b.row(
         InlineKeyboardButton(
             text="⚠️ Пожаловаться", callback_data=f"pf:rep:{author}", style=DANGER
+        )
+    )
+    return b.as_markup()
+
+
+def topup_offer(author_id: int) -> InlineKeyboardMarkup:
+    """Goes with the nudge: the card is where the price and the button live."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🎬 Открыть анкету", callback_data=f"pf:card:{author_id}", style=SUCCESS
         )
     )
     return b.as_markup()

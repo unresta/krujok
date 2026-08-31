@@ -872,16 +872,16 @@ async def open_card(call: CallbackQuery) -> None:
         return
 
     await call.answer()
-    circles = len(await db.author_circles(author_id, await db.total_circles_max_id()))
+    have, circles, _ = await topup_state(call.from_user.id, profile)
+    bought = await db.get_purchase(call.from_user.id, author_id, "content")
+    caption = texts.profile_card(profile, circles)
+    if bought is not None:
+        caption += texts.topup_line(have, circles, profile["price_content"])
     await call.bot.send_photo(
         chat_id=call.from_user.id,
         photo=profile["photo_id"],
-        caption=texts.profile_card(profile, circles),
-        reply_markup=kb.profile_card(
-            profile,
-            await db.get_purchase(call.from_user.id, author_id, "content") is not None,
-            await db.get_purchase(call.from_user.id, author_id, "contact") is not None,
-        ),
+        caption=caption,
+        reply_markup=await _card_markup(call.from_user.id, profile),
     )
 
 
@@ -901,16 +901,16 @@ async def open_by_link(bot, viewer_id: int, author_id: int, origin: Message) -> 
         return False
 
     await db.count_link_hit(author_id)
-    circles = len(await db.author_circles(author_id, await db.total_circles_max_id()))
+    have, circles, _ = await topup_state(viewer_id, profile)
+    bought = await db.get_purchase(viewer_id, author_id, "content")
+    caption = texts.PROFILE_LINK_INTRO + "\n\n" + texts.profile_card(profile, circles)
+    if bought is not None:
+        caption += texts.topup_line(have, circles, profile["price_content"])
     await bot.send_photo(
         chat_id=viewer_id,
         photo=profile["photo_id"],
-        caption=texts.PROFILE_LINK_INTRO + "\n\n" + texts.profile_card(profile, circles),
-        reply_markup=kb.profile_card(
-            profile,
-            await db.get_purchase(viewer_id, author_id, "content") is not None,
-            await db.get_purchase(viewer_id, author_id, "contact") is not None,
-        ),
+        caption=caption,
+        reply_markup=await _card_markup(viewer_id, profile),
     )
     return True
 
@@ -970,6 +970,74 @@ async def buy_content(call: CallbackQuery) -> None:
                 is not None,
             )
         )
+
+
+@router.callback_query(F.data.startswith("pf:topup:"))
+async def topup_content(call: CallbackQuery) -> None:
+    """Move an old purchase up to the catalogue as it stands today."""
+    author_id = int(call.data.split(":")[2])
+    profile = await db.get_profile(author_id)
+    purchase = await db.get_purchase(call.from_user.id, author_id, "content")
+    if profile is None or purchase is None:
+        await call.answer(texts.BUY_FIRST, show_alert=True)
+        return
+
+    have, total, cost = await topup_state(call.from_user.id, profile)
+    if not total - have:
+        await call.answer(texts.TOPUP_GONE, show_alert=True)
+        return
+    if not cost:  # too few new ones to price — see settings.topup_worth_it
+        await call.answer(texts.TOPUP_SMALL, show_alert=True)
+        return
+
+    new_max = await db.total_circles_max_id()
+    ok = await db.topup_access(
+        call.from_user.id, author_id, cost, settings.author_share(cost), new_max
+    )
+    if not ok:
+        user = await db.get_user(call.from_user.id)
+        await call.answer(texts.not_enough(user["coins"]), show_alert=True)
+        return
+
+    await _notify_author(call.bot, author_id, "content", settings.author_share(cost))
+    await call.answer(texts.BOUGHT_TOAST)
+    await call.message.answer(texts.topup_done(total - have, total))
+    with suppress(TelegramAPIError):
+        await call.message.edit_reply_markup(
+            reply_markup=await _card_markup(call.from_user.id, profile)
+        )
+
+
+async def tell_buyers(bot, author_id: int) -> int:
+    """Let this author's buyers know there is something new worth opening.
+
+    Told once per batch of new circles, not once per circle: the marker is
+    cleared when they top up, so the next batch can knock again. People who
+    have nothing to buy yet are left alone — and so are the ones whose share
+    of the catalogue is still too small to price.
+    """
+    profile = await db.get_profile(author_id)
+    if profile is None:
+        return 0
+    total = await db.author_circle_count(author_id)
+    sent = 0
+    for purchase in await db.topup_candidates(author_id):
+        have = await db.author_circle_count(author_id, purchase["max_circle_id"])
+        cost = settings.topup_price(profile["price_content"], have, total)
+        if not settings.topup_worth_it(cost):
+            continue
+        await db.mark_topup_told(purchase["buyer_id"], author_id)
+        with suppress(TelegramAPIError):  # blocked the bot, nothing to do
+            await bot.send_message(
+                purchase["buyer_id"],
+                texts.topup_news(total - have, cost),
+                reply_markup=kb.topup_offer(author_id),
+            )
+            sent += 1
+        await asyncio.sleep(SEND_PAUSE)
+    if sent:
+        logger.info("докупка: позвали %s покупателей автора %s", sent, author_id)
+    return sent
 
 
 @router.callback_query(F.data.startswith("pf:contact:"))
@@ -1036,13 +1104,33 @@ async def show_circles(call: CallbackQuery) -> None:
         )
 
 
+async def topup_state(viewer_id: int, profile) -> tuple[int, int, int]:
+    """(open to them, the author has, what the rest costs) for this pair.
+
+    A purchase is frozen at the catalogue of its day, so an author who keeps
+    uploading leaves their own buyers behind. This is what the card needs to
+    say so, and what the "докупить" button is priced from.
+    """
+    author_id = profile["user_id"]
+    purchase = await db.get_purchase(viewer_id, author_id, "content")
+    total = await db.author_circle_count(author_id)
+    if purchase is None:
+        return 0, total, 0
+    have = await db.author_circle_count(author_id, purchase["max_circle_id"])
+    cost = settings.topup_price(profile["price_content"], have, total)
+    return have, total, cost if settings.topup_worth_it(cost) else 0
+
+
 async def _card_markup(viewer_id: int, profile):
     """The card's own buttons, rebuilt after the reasons menu covered them."""
     author_id = profile["user_id"]
+    bought = await db.get_purchase(viewer_id, author_id, "content") is not None
+    _, _, cost = await topup_state(viewer_id, profile) if bought else (0, 0, 0)
     return kb.profile_card(
         profile,
-        await db.get_purchase(viewer_id, author_id, "content") is not None,
+        bought,
         await db.get_purchase(viewer_id, author_id, "contact") is not None,
+        topup=cost,
     )
 
 

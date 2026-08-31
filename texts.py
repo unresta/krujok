@@ -1101,6 +1101,77 @@ CONTACT_NOT_FOR_SALE = "Автор не продаёт личку."
 NOTHING_TO_SELL = "У автора пока нет кружочков — покупать нечего."
 ALREADY_BOUGHT = "Уже куплено."
 
+# --- topping an old purchase up to today's catalogue ----------------------
+
+# The line under a bought card. It is on screen every time, so it says where the
+# person stands even when there is nothing to buy — «открыто 38 из 112» with no
+# way forward was the whole complaint.
+TOPUP_OPEN = "\n\n🎬 Открыто {have} из {total} — можно докупить {missing} за {cost} {coin}"
+TOPUP_SOON = (
+    "\n\n🎬 Открыто {have} из {total}. Автор выложил новые — докупить можно "
+    "будет, когда наберётся ещё {left} {circles}"
+)
+TOPUP_ALL = "\n\n🎬 Открыто всё, что есть у автора: {have}"
+
+
+def topup_line(have: int, total: int, price: int) -> str:
+    """Where this buyer stands with this author, in one line."""
+    missing = max(0, total - have)
+    if not missing:
+        return _fmt("TOPUP_ALL", TOPUP_ALL, have=have)
+    cost = settings.topup_price(price, have, total)
+    if settings.topup_worth_it(cost):
+        return _fmt(
+            "TOPUP_OPEN",
+            TOPUP_OPEN,
+            have=have, total=total, missing=missing, cost=cost, coin=coin(),
+        )
+    # How many more circles until the price clears the floor, so the wait has a
+    # number on it instead of being «когда-нибудь».
+    left = 1
+    while total + left > 0 and not settings.topup_worth_it(
+        settings.topup_price(price, have, total + left)
+    ):
+        left += 1
+        if left > 1000:  # a price so low it never clears; say nothing rather than lie
+            return _fmt("TOPUP_ALL", TOPUP_ALL, have=have)
+    return _fmt(
+        "TOPUP_SOON",
+        TOPUP_SOON,
+        have=have, total=total, left=left, circles=circles_word(left),
+    )
+
+
+TOPUP_DONE = (
+    "🟢 Докуплено: открылись ещё {added} {circles}.\n"
+    "Теперь доступно {total} — жми «Кружочки автора»."
+)
+
+
+def topup_done(added: int, total: int) -> str:
+    return _fmt(
+        "TOPUP_DONE", TOPUP_DONE, added=added, circles=circles_word(added), total=total
+    )
+
+
+TOPUP_NEWS = (
+    "🎬 У автора, чьи кружочки ты покупал, появились новые: "
+    "<b>{missing}</b> {circles}.\n"
+    "Открыть их — <b>{cost}</b> {coin}."
+)
+
+
+def topup_news(missing: int, cost: int) -> str:
+    return _fmt(
+        "TOPUP_NEWS",
+        TOPUP_NEWS,
+        missing=missing, circles=circles_word(missing), cost=cost, coin=coin(),
+    )
+
+
+TOPUP_GONE = "Новых кружочков у автора пока нет."
+TOPUP_SMALL = "Новых пока слишком мало — докупить можно будет позже."
+
 
 # --- payouts -------------------------------------------------------------
 

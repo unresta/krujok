@@ -1,3 +1,4 @@
+import asyncio
 import html
 import logging
 from contextlib import suppress
@@ -180,6 +181,10 @@ async def _decide(
         # was already paid, and saying «+0» would read as a mistake.
         note = texts.approved(reward, balance) if pay else texts.CIRCLE_RESTORED
         mark = "🟢 одобрено"
+        # A circle only becomes sellable once it is approved, so this is the
+        # moment the author's old buyers have something new to open.
+        if uploader:
+            asyncio.create_task(_tell_buyers(bot, uploader))
     else:
         note = texts.rejected(reason)
         mark = "🔴 отклонено"
@@ -188,6 +193,16 @@ async def _decide(
         with suppress(TelegramAPIError):  # user may have blocked the bot
             await bot.send_message(uploader, note)
     return mark
+
+
+async def _tell_buyers(bot, author_id: int) -> None:
+    """Runs beside the verdict: a hundred buyers must not hold up the card."""
+    from handlers import profiles
+
+    try:
+        await profiles.tell_buyers(bot, author_id)
+    except Exception as error:  # noqa: BLE001 — a nudge is never worth a crash
+        logger.warning("докупка: не позвали покупателей %s: %s", author_id, error)
 
 
 def _verdict_line(mark: str, reason: str, moderator) -> str:

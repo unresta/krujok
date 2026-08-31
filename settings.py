@@ -43,6 +43,7 @@ DEFAULTS: dict[str, int] = {
     "usdt_rate": config.USDT_RATE,
     "card_price": config.CARD_PRICE,
     "subs_recurring": 0,
+    "topup_min": config.TOPUP_MIN,
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_circles": config.PROMO_EVERY_CIRCLES,
     "cheque_min_refs": config.CHEQUE_MIN_REFS,
@@ -98,6 +99,7 @@ TITLES: dict[str, str] = {
     "usdt_rate": "Монеток за 1 USDT",
     "card_price": "Копеек за 1 монетку (карта)",
     "subs_recurring": "Автопродление подписок, 0/1",
+    "topup_min": "Минимум докупки, монеток",
     "promo_every_circles": "Показ раз в N кружков",
     "cheque_min_refs": "Рефералов для чека",
     "tier_a1_price": "A+ монеток в день",
@@ -121,7 +123,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "reward_f",
         "reward_m",
     ),
-    "💰 Продажи": ("author_share", "price_min", "price_max"),
+    "💰 Продажи": ("author_share", "price_min", "price_max", "topup_min"),
     "⭐ Покупка монеток": (
         "star_cost",
         "min_stars",
@@ -183,6 +185,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "usdt_rate": (1, 1_000_000),
     "card_price": (1, 1_000_000),
     "subs_recurring": (0, 1),
+    "topup_min": (1, 10_000),
     "promo_enabled": (0, 1),
     "promo_every_circles": (1, 1000),
     "cheque_min_refs": (1, 1000),
@@ -268,6 +271,32 @@ def stars_of(coins: int) -> int:
 def stars_for(coins: int) -> int:
     """Cashing out, which runs on its own rate — see «Вывод» in the panel."""
     return coins // _values["payout_rate"]
+
+
+def topup_price(price: int, have: int, total: int) -> int:
+    """What the circles a buyer has not got yet cost them.
+
+    The author sells access to a catalogue, so the share of it that is missing
+    is the share of the price that is owed: 38 of 112 open at a price of 50
+    means 74/112 of 50, rounded up — 33. Someone who bought early therefore
+    pays more over time than a latecomer, which is what buying early is.
+
+    The price is today's, not the one at the first purchase: it is the number
+    on the card, and the author moved it on purpose.
+    """
+    missing = max(0, total - have)
+    if missing <= 0 or total <= 0:
+        return 0
+    return -(-price * missing // total)  # ceiling division
+
+
+def topup_worth_it(cost: int) -> bool:
+    """Below the floor the offer is not made at all.
+
+    Two new circles out of a hundred come to a coin, of which the author's cut
+    rounds to nothing — a button that takes money and pays no one.
+    """
+    return cost >= _values["topup_min"]
 
 
 def card_kopecks(coins: int) -> int:

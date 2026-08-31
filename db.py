@@ -482,6 +482,12 @@ MIGRATIONS = {
     "reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
     },
+    "purchases": {
+        # Set when the buyer has been told there is something new worth buying,
+        # cleared when they buy it. Without it every approved circle would send
+        # the same nudge again.
+        "topup_told": "INTEGER NOT NULL DEFAULT 0",
+    },
     "profile_reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",
     },
@@ -2467,6 +2473,62 @@ async def get_purchase(buyer_id: int, author_id: int, kind: str) -> aiosqlite.Ro
         (buyer_id, author_id, kind),
     ) as cur:
         return await cur.fetchone()
+
+
+async def author_circle_count(author_id: int, up_to: int = 0) -> int:
+    """Approved circles of this author, all of them or up to a boundary."""
+    async with conn().execute(
+        "SELECT COUNT(*) FROM circles WHERE uploader_id = ? AND status = 'approved'"
+        + (" AND id <= ?" if up_to else ""),
+        (author_id, up_to) if up_to else (author_id,),
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def topup_access(
+    buyer_id: int, author_id: int, price: int, share: int, new_max: int
+) -> bool:
+    """Move a buyer's boundary up to today's catalogue, for a price.
+
+    The purchase row is updated rather than doubled: this is the same buyer and
+    the same access, just wider, and a second row would count as a second sale
+    everywhere the panel adds them up.
+    """
+    if price and not await try_spend(buyer_id, price):
+        return False
+    cur = await conn().execute(
+        "UPDATE purchases SET max_circle_id = ?, price = price + ?,"
+        " author_share = author_share + ?, topup_told = 0"
+        " WHERE buyer_id = ? AND author_id = ? AND kind = 'content'"
+        " AND max_circle_id < ?",
+        (new_max, price, share, buyer_id, author_id, new_max),
+    )
+    await conn().commit()
+    if cur.rowcount == 0:  # somebody topped the same purchase up first
+        if price:
+            await add_coins(buyer_id, price)
+        return False
+    await add_coins(author_id, share, earned=True)
+    return True
+
+
+async def topup_candidates(author_id: int, limit: int = 200) -> list[aiosqlite.Row]:
+    """Buyers of this author who have not been told about the new circles yet."""
+    async with conn().execute(
+        "SELECT * FROM purchases WHERE author_id = ? AND kind = 'content'"
+        " AND topup_told = 0 ORDER BY ts LIMIT ?",
+        (author_id, limit),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def mark_topup_told(buyer_id: int, author_id: int) -> None:
+    await conn().execute(
+        "UPDATE purchases SET topup_told = 1"
+        " WHERE buyer_id = ? AND author_id = ? AND kind = 'content'",
+        (buyer_id, author_id),
+    )
+    await conn().commit()
 
 
 async def get_user_purchases(buyer_id: int, kind: str) -> list[aiosqlite.Row]:
