@@ -148,13 +148,6 @@ CARD_PRICE = STAR_COST * STAR_PRICE
 SUBS_POLL = 300.0  # seconds between subscription checks
 SUBS_BATCH = 20    # subscriptions asked about in one pass
 
-# --- legal ---
-# Both documents have to be one tap from every screen where money changes
-# hands: card acquirers check for exactly that. The wording also lives in
-# docs/*.txt, so a page that gets lost can be republished from the repo.
-TERMS_URL = "https://telegra.ph/PUBLICHNAYA-OFERTA-08-28-19"
-PRIVACY_URL = "https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-08-28-90"
-
 # Channel users must join before they can use the bot; empty turns the gate off.
 # The bot has to be an administrator there to see who is a member.
 CHANNEL: str = os.getenv("CHANNEL", "")

@@ -25,7 +25,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
 import settings
-from config import PRIVACY_URL, STAR_PACKS, TERMS_URL
+from config import STAR_PACKS
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -802,17 +802,7 @@ def buy() -> InlineKeyboardMarkup:
         )
     )
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
-    _legal_row(kb)
     return kb.as_markup()
-
-
-# One row, unstyled, always last: the two documents have to be one tap from
-# anywhere money changes hands — acquirers check for exactly that.
-def _legal_row(b: InlineKeyboardBuilder) -> None:
-    b.row(
-        InlineKeyboardButton(text="📄 Оферта", url=TERMS_URL),
-        InlineKeyboardButton(text="🔒 Конфиденциальность", url=PRIVACY_URL),
-    )
 
 
 def buy_payment_method() -> InlineKeyboardMarkup:
@@ -846,7 +836,6 @@ def buy_payment_method() -> InlineKeyboardMarkup:
             )
         )
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
-    _legal_row(kb)  # terms of the purchase, readable before paying
     return kb.as_markup()
 
 
@@ -971,7 +960,6 @@ def tier_pay(code: str, days: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="⬅️ Назад", callback_data=f"tier:{code}"),
         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
     )
-    _legal_row(kb)
     return kb.as_markup()
 
 
