@@ -111,10 +111,10 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("pay_method:"))
-async def pay_with_crypto(call: CallbackQuery, state: FSMContext) -> None:
-    """Everything that is not Stars is an invoice at one of the crypto bots."""
+async def pay_outside(call: CallbackQuery, state: FSMContext) -> None:
+    """Everything that is not Stars is an invoice at an outside processor."""
     provider = call.data.split(":", 1)[1]
-    if provider not in crypto.available():
+    if provider not in invoices.available():
         await call.answer(texts.BUY_CARD_SOON, show_alert=True)
         return
 

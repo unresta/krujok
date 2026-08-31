@@ -1,6 +1,7 @@
-"""Watching crypto invoices until they are paid.
+"""Watching outside invoices until they are paid.
 
-The provider is never asked to call us — there is no public endpoint to call —
+Three processors, one shape: CryptoBot and xRocket take crypto, ParityPay takes
+cards. None of them is asked to call us — there is no public endpoint to call —
 so an open invoice is checked on a timer, and the payer gets a button that does
 the same check on demand. Both paths end in credit(), which is where the coins
 are actually handed over, once.
@@ -17,10 +18,24 @@ from aiogram.exceptions import TelegramAPIError
 import crypto
 import db
 import keyboards as kb
+import paritypay
 import texts
 from config import INVOICE_POLL, INVOICE_TTL
 
 logger = logging.getLogger(__name__)
+
+# Everything a processor has to answer to is create/status, so which module
+# speaks to it is the only thing that ever differs.
+FAILED = (crypto.CryptoError, paritypay.ParityError)
+
+
+def gateway(provider: str):
+    return paritypay if provider == paritypay.PROVIDER else crypto
+
+
+def available() -> list[str]:
+    """Processors with keys, card first — it is the one most people reach for."""
+    return ([paritypay.PROVIDER] if paritypay.enabled() else []) + crypto.available()
 
 # A provider may confirm a payment slightly after the invoice stops being
 # payable, so an invoice is watched a little longer than it lives.
@@ -70,7 +85,8 @@ async def credit(bot: Bot, invoice) -> bool:
 
 async def check_one(bot: Bot, invoice) -> str:
     """Ask the provider about one invoice and act on the answer."""
-    state = await crypto.status(invoice["provider"], invoice["invoice_id"])
+    provider = invoice["provider"]
+    state = await gateway(provider).status(provider, invoice["invoice_id"])
     if state == crypto.PAID:
         await credit(bot, invoice)
         return crypto.PAID
@@ -99,7 +115,7 @@ async def run(bot: Bot) -> None:
     """Background loop; a provider being down must not take the bot with it."""
     while True:
         await asyncio.sleep(INVOICE_POLL)
-        if not crypto.enabled():
+        if not available():
             continue
         try:
             await sweep(bot)
@@ -113,14 +129,16 @@ async def run(bot: Bot) -> None:
 async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> None:
     """Create an invoice and put its card in front of the payer."""
     try:
-        invoice = await crypto.create(provider, coins, user_id)
-    except crypto.CryptoError as error:
+        invoice = await gateway(provider).create(provider, coins, user_id)
+    except FAILED as error:
         logger.error("%s invoice for %s failed: %s", provider, user_id, error)
         # A rejected key is not a hiccup the payer should retry through — it is
         # a настройка, and the log is where the admin will look for it.
-        if str(error).startswith(("401", "403")):
+        if str(error).startswith(("400", "401", "403")):
             logger.error(
-                "%s: ключ отклонён. %s", provider, crypto.KEY_HINTS[provider]
+                "%s: ключ отклонён. %s",
+                provider,
+                crypto.KEY_HINTS.get(provider, "проверь ключи в .env"),
             )
         await message.answer(texts.CRYPTO_FAILED)
         return

@@ -816,10 +816,19 @@ def _legal_row(b: InlineKeyboardBuilder) -> None:
 
 
 def buy_payment_method() -> InlineKeyboardMarkup:
-    """Stars always, crypto only where a key for that provider is configured."""
+    """Card first, then Stars, then whichever crypto has a key configured."""
     import crypto
+    import paritypay
 
     kb = InlineKeyboardBuilder()
+    if paritypay.enabled():
+        kb.row(
+            InlineKeyboardButton(
+                text=f"{paritypay.ICON} Картой · {settings.get('card_fee')}%",
+                callback_data=f"pay_method:{paritypay.PROVIDER}",
+                style=SUCCESS,
+            )
+        )
     kb.row(
         InlineKeyboardButton(
             text="⭐ Telegram Stars",

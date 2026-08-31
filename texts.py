@@ -551,8 +551,10 @@ CRYPTO_INVOICE = (
 
 def crypto_invoice(provider: str, amount: str, asset: str, coins: int) -> str:
     import crypto
+    import paritypay
     from config import INVOICE_TTL
 
+    titles = {**crypto.TITLES, **paritypay.TITLES}
     return _fmt(
         "CRYPTO_INVOICE",
         CRYPTO_INVOICE,
@@ -560,7 +562,7 @@ def crypto_invoice(provider: str, amount: str, asset: str, coins: int) -> str:
         asset=asset,
         coins=coins,
         coin=coin(),
-        provider=crypto.TITLES.get(provider, provider),
+        provider=titles.get(provider, provider),
         minutes=INVOICE_TTL // 60,
     )
 
@@ -1403,7 +1405,7 @@ PROFILE_SAVED_TOAST = "Готово 🟢"
 CONTACT_OFF_TOAST = "Личка больше не продаётся."
 USERNAME_SEEN = "Вижу 🟢"
 BUY_NO_AMOUNT = "Сумма не выбрана — начни заново."
-BUY_CARD_SOON = "⚠️ Оплата картой пока недоступна. Используйте Telegram Stars."
+BUY_CARD_SOON = "⚠️ Этот способ оплаты сейчас недоступен. Выбери другой."
 
 SENDING_CIRCLES = "Отправляю {count}"
 

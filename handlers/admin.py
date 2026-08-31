@@ -42,6 +42,7 @@ import invoices
 import outbox
 import people
 import posts
+import paritypay
 import pushes
 import sponsors
 from handlers import cheques
@@ -2719,14 +2720,18 @@ async def cb_pay(call: CallbackQuery) -> None:
     lines = [await _payment_line(r) for r in rows]
     body = "\n\n".join(lines) if lines else "Платежей пока нет."
     totals = await db.crypto_totals()
+    titles = {**crypto.TITLES, paritypay.PROVIDER: paritypay.TITLE}
     crypto_lines = "\n".join(
-        f"• {crypto.TITLES.get(t['provider'], t['provider'])}: {t['payments']} шт · "
+        f"• {titles.get(t['provider'], t['provider'])}: {t['payments']} шт · "
         f"{t['amount']:.2f} {t['asset']} → {t['coins']} 🪙"
         for t in totals
     )
 
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="🪙 Крипта", callback_data="a:crypto"))
+    b.row(
+        InlineKeyboardButton(text="💳 Карта", callback_data="a:card"),
+        InlineKeyboardButton(text="🪙 Крипта", callback_data="a:crypto"),
+    )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     await _edit(
         call,
@@ -2736,6 +2741,47 @@ async def cb_pay(call: CallbackQuery) -> None:
         b.as_markup(),
     )
     await call.answer()
+
+
+@router.callback_query(F.data == "a:card")
+async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
+    """Whether the card checkout is actually working, without leaving the panel."""
+    await state.clear()
+    await call.answer()
+    sample = config.STAR_PACKS[0]
+    coins = settings.coins_for(sample)
+    base = coins * settings.get("card_price")
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text=f"💰 Копеек за монетку: {settings.get('card_price')}",
+            callback_data="a:econ:k:card_price",
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"➕ Надбавка: {settings.get('card_fee')}%",
+            callback_data="a:econ:k:card_fee",
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"))
+    await _edit(
+        call,
+        "💳 <b>Оплата картой</b>\n\n"
+        f"ParityPay: {await paritypay.check_key()}\n\n"
+        f"Цена: {settings.get('card_price')} коп. за монетку "
+        f"+ {settings.get('card_fee')}%\n"
+        f"{coins} монеток: {base // 100}.{base % 100:02d} ₽ → "
+        f"<b>{settings.card_rubles(coins)} ₽</b> к оплате\n"
+        f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
+        f"{int(config.INVOICE_POLL)} сек\n\n"
+        "Надбавка на кнопке у пользователя показана процентом, отдельной "
+        "строкой в счёте не расписывается — платёжная форма показывает итог.\n\n"
+        "Ключи задаются в <code>.env</code>: <code>PARITYPAY_SHOP_ID</code> "
+        "(UUID кассы) и <code>PARITYPAY_SECRET</code> (ключ №1). Без них "
+        "способ не показывается покупателю.",
+        b.as_markup(),
+    )
 
 
 @router.callback_query(F.data == "a:crypto")

@@ -41,6 +41,8 @@ DEFAULTS: dict[str, int] = {
     "star_price": config.STAR_PRICE,
     "stars_per_usd": config.STARS_PER_USD,
     "usdt_rate": config.USDT_RATE,
+    "card_price": config.CARD_PRICE,
+    "card_fee": config.CARD_FEE,
     "promo_enabled": config.PROMO_ENABLED,
     "promo_every_circles": config.PROMO_EVERY_CIRCLES,
     "cheque_min_refs": config.CHEQUE_MIN_REFS,
@@ -92,6 +94,8 @@ TITLES: dict[str, str] = {
     "star_price": "Цена 1 ⭐ в копейках",
     "stars_per_usd": "Звёзд за 1 $ (курс TG)",
     "usdt_rate": "Монеток за 1 USDT",
+    "card_price": "Копеек за 1 монетку (карта)",
+    "card_fee": "Надбавка картой, %",
     "promo_every_circles": "Показ раз в N кружков",
     "cheque_min_refs": "Рефералов для чека",
     "tier_a1_price": "A+ монеток в день",
@@ -122,6 +126,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "star_price",
         "stars_per_usd",
         "usdt_rate",
+        "card_price",
+        "card_fee",
     ),
     "💸 Вывод": ("payout_min", "payout_rate"),
     "🎁 Бонусы": ("welcome_bonus", "welcome_circle", "sub_bonus", "ref_reward"),
@@ -173,6 +179,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "star_price": (1, 1_000_000),
     "stars_per_usd": (1, 100_000),
     "usdt_rate": (1, 1_000_000),
+    "card_price": (1, 1_000_000),
+    "card_fee": (0, 100),
     "promo_enabled": (0, 1),
     "promo_every_circles": (1, 1000),
     "cheque_min_refs": (1, 1000),
@@ -258,6 +266,22 @@ def stars_of(coins: int) -> int:
 def stars_for(coins: int) -> int:
     """Cashing out, which runs on its own rate — see «Вывод» in the panel."""
     return coins // _values["payout_rate"]
+
+
+def card_kopecks(coins: int) -> int:
+    """What those coins cost by card, in kopecks, surcharge included.
+
+    Rounded up: a fraction of a kopeck is never the shop's to eat, and never
+    the payer's to be charged twice for.
+    """
+    base = coins * _values["card_price"] * (100 + _values["card_fee"])
+    return -(-base // 100)  # ceiling division
+
+
+def card_rubles(coins: int) -> str:
+    """The same as the number ParityPay is asked to charge: «144.30»."""
+    total = card_kopecks(coins)
+    return f"{total // 100}.{total % 100:02d}"
 
 
 def usd_of_stars(stars: int) -> float:

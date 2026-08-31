@@ -28,6 +28,14 @@ PREMIUM_EMOJI: bool = os.getenv("PREMIUM_EMOJI", "1") not in ("0", "false", "Fal
 # method from the checkout, so the bot runs fine without either of them.
 CRYPTOBOT_TOKEN: str = os.getenv("CRYPTOBOT_TOKEN", "")
 CRYPTOBOT_API: str = os.getenv("CRYPTOBOT_API", "https://pay.crypt.bot/api")
+# --- card payments through ParityPay -------------------------------------
+# Two values from the shop's settings in the ParityPay dashboard: the shop UUID
+# and secret key №1. Key №2 signs their webhooks and is not needed here — the
+# bot polls its own invoices, same as it does with crypto.
+PARITYPAY_SHOP_ID: str = os.getenv("PARITYPAY_SHOP_ID", "")
+PARITYPAY_SECRET: str = os.getenv("PARITYPAY_SECRET", "")
+PARITYPAY_API: str = os.getenv("PARITYPAY_API", "https://api.paritypay.net")
+
 XROCKET_KEY: str = os.getenv("XROCKET_KEY", "")
 XROCKET_API: str = os.getenv("XROCKET_API", "https://pay.xrocket.exchange")
 # Pay API v2: a separate service with its own credentials, and the one the bot
@@ -129,6 +137,12 @@ STARS_PER_USD = 67
 # dollar buys about 33. It used to say 200 — six coins for the price of one.
 USDT_RATE = 33  # coins for 1 USDT
 CRYPTO_ASSET = "USDT"  # what invoices are issued in, both providers
+# Card price of one coin, in kopecks. Defaults to what a coin costs in stars
+# (STAR_COST × STAR_PRICE), so the three checkouts start out at the same price.
+CARD_PRICE = STAR_COST * STAR_PRICE
+# Added on top of that price at checkout. The payer sees the total on the
+# payment form before they pay anything.
+CARD_FEE = 11  # percent
 
 # --- legal ---
 # Both documents have to be one tap from every screen where money changes
