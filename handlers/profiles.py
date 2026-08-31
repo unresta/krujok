@@ -708,7 +708,9 @@ async def next_profile(call: CallbackQuery, state: FSMContext) -> None:
     await _show_next(call.bot, call.from_user.id, call.message)
 
 
-async def author_card(viewer_id: int, profile, intro: str = "") -> tuple[str, object]:
+async def author_card(
+    viewer_id: int, profile, intro: str = "", from_bought: bool = False
+) -> tuple[str, object]:
     """The whole card — caption and buttons — for whoever is looking at it.
 
     Three screens show an author: the feed, the «Анкета автора» button under a
@@ -722,7 +724,7 @@ async def author_card(viewer_id: int, profile, intro: str = "") -> tuple[str, ob
     if bought is not None:
         caption += texts.topup_line(have, total, profile["price_content"])
     return (intro + "\n\n" + caption if intro else caption), await _card_markup(
-        viewer_id, profile
+        viewer_id, profile, from_bought
     )
 
 
@@ -838,6 +840,10 @@ async def own_circles(call: CallbackQuery) -> None:
 async def mp_bought(call: CallbackQuery) -> None:
     """Show purchased content."""
     await call.answer()
+    # Coming back from a card that replaced this list: it goes, the list returns.
+    if call.message is not None and call.message.photo:
+        with suppress(TelegramAPIError):
+            await call.message.delete()
     purchases = await db.get_user_purchases(call.from_user.id, "content")
     if not purchases:
         await call.message.answer(texts.BOUGHT_EMPTY)
@@ -863,7 +869,7 @@ async def mp_bought(call: CallbackQuery) -> None:
         buttons.append(
             InlineKeyboardButton(
                 text=f"{index}. {on_button} · {count}",
-                callback_data=f"pf:show:{author_id}",
+                callback_data=f"mp:author:{author_id}",
                 style=PRIMARY,
             )
         )
@@ -876,6 +882,37 @@ async def mp_bought(call: CallbackQuery) -> None:
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
 
     await call.message.answer(text, reply_markup=b.as_markup())
+
+
+@router.callback_query(F.data.startswith("mp:author:"))
+async def bought_author(call: CallbackQuery) -> None:
+    """Open one author out of «Купленные кружочки», in place of the list.
+
+    The list is a text message and the card is a photo, and Telegram will not
+    turn one into the other — so the list goes and the card takes its place.
+    That is what «отредактировалось в анкету» looks like from the outside.
+    """
+    author_id = int(call.data.split(":")[2])
+    if await db.get_purchase(call.from_user.id, author_id, "content") is None:
+        await call.answer(texts.BUY_FIRST, show_alert=True)
+        return
+    profile = await db.get_profile(author_id)
+    if profile is None:
+        await call.answer(texts.AUTHOR_NO_PROFILE, show_alert=True)
+        return
+
+    await call.answer()
+    caption, markup = await author_card(
+        call.from_user.id, profile, from_bought=True
+    )
+    await call.bot.send_photo(
+        chat_id=call.from_user.id,
+        photo=profile["photo_id"],
+        caption=caption,
+        reply_markup=markup,
+    )
+    with suppress(TelegramAPIError):  # older than 48h, or already gone
+        await call.message.delete()
 
 
 @router.callback_query(F.data.startswith("pf:card:"))
@@ -1132,7 +1169,7 @@ async def topup_state(viewer_id: int, profile) -> tuple[int, int, int]:
     return have, total, cost if settings.topup_worth_it(cost) else 0
 
 
-async def _card_markup(viewer_id: int, profile):
+async def _card_markup(viewer_id: int, profile, from_bought: bool = False):
     """The card's own buttons, rebuilt after the reasons menu covered them."""
     author_id = profile["user_id"]
     bought = await db.get_purchase(viewer_id, author_id, "content") is not None
@@ -1142,6 +1179,7 @@ async def _card_markup(viewer_id: int, profile):
         bought,
         await db.get_purchase(viewer_id, author_id, "contact") is not None,
         topup=cost,
+        from_bought=from_bought,
     )
 
 

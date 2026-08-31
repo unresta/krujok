@@ -328,11 +328,15 @@ def profile_card(
     bought_content: bool,
     bought_contact: bool,
     topup: int = 0,
+    from_bought: bool = False,
 ) -> InlineKeyboardMarkup:
     """The buy buttons disappear once the thing is already owned.
 
     `topup` is what the circles added since the purchase cost, when there are
     enough of them to be worth selling — otherwise nothing is offered.
+
+    `from_bought` means the card replaced «Купленные кружочки», so it carries
+    the way back to the list it stands in place of.
     """
     author = profile["user_id"]
     b = InlineKeyboardBuilder()
@@ -363,11 +367,20 @@ def profile_card(
                 PRIMARY,
             )
         )
-    b.row(
-        InlineKeyboardButton(
-            text="➡️ Следующая анкета", callback_data="pf:next", style=PRIMARY
+    # Opened from «Купленные», the card stands where the list was, so the way
+    # back is to the list — not on into a feed the reader never asked for.
+    if from_bought:
+        b.row(
+            InlineKeyboardButton(
+                text="⬅️ К купленным", callback_data="mp:bought", style=PRIMARY
+            )
         )
-    )
+    else:
+        b.row(
+            InlineKeyboardButton(
+                text="➡️ Следующая анкета", callback_data="pf:next", style=PRIMARY
+            )
+        )
     b.row(
         InlineKeyboardButton(
             text="⚠️ Пожаловаться", callback_data=f"pf:rep:{author}", style=DANGER
