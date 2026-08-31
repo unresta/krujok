@@ -438,11 +438,34 @@ def my_circles(stats: dict) -> InlineKeyboardMarkup:
 
 
 def my_circle(circle_id: int) -> InlineKeyboardMarkup:
-    """A video note carries no caption, so the circle's own numbers hide here."""
+    """A video note carries no caption, so the circle's own numbers hide here.
+
+    Deleting lives here too, and nowhere else: a circle is picked out by
+    watching it, not by remembering the number it was given on upload.
+    """
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
             text="ℹ️ Об этом кружке", callback_data=f"mc:i:{circle_id}"
+        ),
+        InlineKeyboardButton(
+            text="🗑 Удалить", callback_data=f"mc:del:{circle_id}", style=DANGER
+        ),
+    )
+    return b.as_markup()
+
+
+def my_circle_confirm(circle_id: int) -> InlineKeyboardMarkup:
+    """Deleting cannot be taken back, so it is never the first tap."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Да, удалить", callback_data=f"mc:delgo:{circle_id}", style=DANGER
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Оставить", callback_data=f"mc:keep:{circle_id}", style=SUCCESS
         )
     )
     return b.as_markup()

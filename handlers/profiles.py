@@ -796,6 +796,43 @@ async def own_circle_info(call: CallbackQuery) -> None:
     await call.answer(texts.my_circle_info(circle), show_alert=True)
 
 
+@router.callback_query(F.data.startswith(("mc:del:", "mc:delgo:", "mc:keep:")))
+async def own_circle_delete(call: CallbackQuery) -> None:
+    """An author throwing away one of their own circles, in two taps."""
+    _, action, raw_id = call.data.split(":", 2)
+    circle = await db.get_circle(int(raw_id)) if raw_id.isdigit() else None
+    # Their own only: the callback is guessable, the video is not.
+    if circle is None or circle["uploader_id"] != call.from_user.id:
+        await call.answer(texts.MY_CIRCLE_GONE, show_alert=True)
+        return
+
+    if action == "keep":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.my_circle(circle["id"])
+            )
+        await call.answer()
+        return
+
+    if action == "del":
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(
+                reply_markup=kb.my_circle_confirm(circle["id"])
+            )
+        await call.answer(texts.MY_CIRCLE_ASK, show_alert=True)
+        return
+
+    await db.delete_circle(circle["id"])
+    logger.info("кружок #%s удалён автором %s", circle["id"], call.from_user.id)
+    await call.answer(texts.MY_CIRCLE_DELETED, show_alert=True)
+    # The video goes with the row; a message left behind would still play it.
+    try:
+        await call.message.delete()
+    except TelegramAPIError:  # older than 48h — then at least take the buttons off
+        with suppress(TelegramAPIError):
+            await call.message.edit_reply_markup(reply_markup=None)
+
+
 @router.callback_query(F.data.startswith("mc:"))
 async def own_circles(call: CallbackQuery) -> None:
     """The author's own uploads of one status, a batch per tap."""

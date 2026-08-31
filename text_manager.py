@@ -231,6 +231,8 @@ EDITABLE: dict[str, Item] = {
         vars={"reason": "текст причины"},
     ),
     "MY_CIRCLE_GONE": Item("Мои кружки: кружка больше нет", "Профиль", plain=True),
+    "MY_CIRCLE_ASK": Item("Мои кружки: подтверждение удаления", "Профиль", plain=True),
+    "MY_CIRCLE_DELETED": Item("Мои кружки: кружок удалён", "Профиль", plain=True),
     "BOUGHT_HEADER": Item("Купленные кружочки: заголовок", "Профиль"),
     # No {author_id} on purpose: an id identifies a person, and the buyer paid
     # for circles. Leaving it out of the registry keeps it out of an edit too.
