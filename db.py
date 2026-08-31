@@ -225,6 +225,16 @@ CREATE TABLE IF NOT EXISTS posts (
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- People who went where a promo sent them. Asked of the sponsor once and then
+-- remembered: an advert that already worked has nothing left to say to them,
+-- and re-asking on every circle would be a network call per view.
+CREATE TABLE IF NOT EXISTS post_converted (
+    post_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    ts      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (post_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS post_seen (
     user_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL,
@@ -371,6 +381,13 @@ MIGRATIONS = {
     },
     "gate_channels": {
         "kind": "TEXT NOT NULL DEFAULT 'channel'",  # everything before was a channel
+        # How a sponsor bot is checked: a BotMembers code, or the bot's own
+        # token asked directly. Channels are Telegram's own business and use
+        # neither.
+        "method": "TEXT NOT NULL DEFAULT 'botmembers'",
+        # The credential itself. Kept apart from `chat` because a token is a
+        # secret and `chat` is printed on every panel screen.
+        "secret": "TEXT NOT NULL DEFAULT ''",
         # A title typed by hand is not overwritten by the one Telegram reports.
         "titled": "INTEGER NOT NULL DEFAULT 0",
         # Same for a link: a private channel or a tracked invite is the admin's
@@ -406,6 +423,12 @@ MIGRATIONS = {
         # The title with entities intact. The plain one keeps the placeholder
         # character of a custom emoji, which reads as a different emoji.
         "title_html": "TEXT NOT NULL DEFAULT ''",
+        # Whose bot this post advertises, so it can stop being shown to people
+        # who already went there. Empty method means «show to everyone», which
+        # is what every post did before.
+        "sponsor_method": "TEXT NOT NULL DEFAULT ''",
+        "sponsor_secret": "TEXT NOT NULL DEFAULT ''",
+        "sponsor_name": "TEXT NOT NULL DEFAULT ''",  # @username, for the panel
     },
     "reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
@@ -453,6 +476,9 @@ async def _migrate() -> set[str]:
 # A new column that starts at zero for everyone is wrong for the users who were
 # already here; these run once, on the migration that adds it.
 BACKFILLS = {
+    # Sponsor bots on the list before this were all BotMembers, and their code
+    # lived in `chat`. It moves to `secret`, where every credential lives now.
+    "gate_channels.secret": "UPDATE gate_channels SET secret = chat WHERE kind = 'bot'",
     # Posts saved before the keyboard was kept have buttons nobody recorded, and
     # the original cannot be read back — the Bot API has no «get me that
     # message». Marked as unknown so the panel can say so instead of showing
@@ -2780,13 +2806,15 @@ async def add_channel(
     link: str = "",
     kind: str = "channel",
     linked: bool = False,
+    method: str = "botmembers",
+    secret: str = "",
 ) -> int | None:
     """None when that channel or bot is already on the list."""
     try:
         cur = await conn().execute(
-            "INSERT INTO gate_channels(chat, title, link, kind, linked)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (chat, title, link, kind, int(linked)),
+            "INSERT INTO gate_channels(chat, title, link, kind, linked, method,"
+            " secret) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (chat, title, link, kind, int(linked), method, secret),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -2955,6 +2983,7 @@ async def set_post_active(post_id: int, active: bool) -> None:
 async def drop_post(post_id: int) -> None:
     await conn().execute("DELETE FROM posts WHERE id = ?", (post_id,))
     await conn().execute("DELETE FROM post_seen WHERE post_id = ?", (post_id,))
+    await conn().execute("DELETE FROM post_converted WHERE post_id = ?", (post_id,))
     await conn().commit()
 
 
@@ -2972,18 +3001,51 @@ async def unseen_welcome(user_id: int) -> list[aiosqlite.Row]:
         return list(await cur.fetchall())
 
 
-async def pick_promo(user_id: int) -> aiosqlite.Row | None:
-    """A promo the user has seen least recently; ties broken at random."""
+async def promo_candidates(user_id: int, limit: int = 4) -> list[aiosqlite.Row]:
+    """Promos for this person, least recently seen first.
+
+    A post they already converted on is gone from the list for good — that is
+    the whole point of asking the sponsor. More than one comes back because the
+    caller may have to skip a few, and each skip costs a request to the sponsor.
+    """
     async with conn().execute(
         """
         SELECT p.* FROM posts p
         LEFT JOIN post_seen s ON s.post_id = p.id AND s.user_id = :uid
         WHERE p.kind = 'promo' AND p.active = 1
-        ORDER BY COALESCE(s.ts, 0), RANDOM() LIMIT 1
+          AND p.id NOT IN (SELECT post_id FROM post_converted WHERE user_id = :uid)
+        ORDER BY COALESCE(s.ts, 0), RANDOM() LIMIT :limit
         """,
-        {"uid": user_id},
+        {"uid": user_id, "limit": limit},
     ) as cur:
-        return await cur.fetchone()
+        return list(await cur.fetchall())
+
+
+async def mark_converted(post_id: int, user_id: int) -> None:
+    """This person is inside the advertised bot — stop showing them the advert."""
+    await conn().execute(
+        "INSERT OR IGNORE INTO post_converted(post_id, user_id) VALUES (?, ?)",
+        (post_id, user_id),
+    )
+    await conn().commit()
+
+
+async def conversions(post_id: int) -> int:
+    async with conn().execute(
+        "SELECT COUNT(*) FROM post_converted WHERE post_id = ?", (post_id,)
+    ) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def set_post_sponsor(
+    post_id: int, method: str, secret: str, name: str
+) -> None:
+    await conn().execute(
+        "UPDATE posts SET sponsor_method = ?, sponsor_secret = ?, sponsor_name = ?"
+        " WHERE id = ?",
+        (method, secret, name, post_id),
+    )
+    await conn().commit()
 
 
 async def mark_shown(user_id: int, post_id: int, promo: bool = False) -> None:

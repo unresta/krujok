@@ -20,10 +20,10 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-import botstat
 import db
 import keyboards as kb
 import settings
+import sponsors
 import texts
 from config import ADMIN_IDS, SUB_CACHE
 
@@ -90,11 +90,13 @@ async def missing_channels(bot: Bot, user_id: int) -> list:
 async def _is_inside(bot: Bot, channel, user_id: int) -> bool | None:
     """True/False, or None when the answer could not be obtained at all.
 
-    A channel is Telegram's own business; a sponsor bot is only visible through
-    BotMembers, which answers by the code the sponsor handed over.
+    A channel is Telegram's own business; a sponsor bot answers either through
+    BotMembers or, when the advertiser handed over its token, by itself.
     """
     if channel["kind"] == "bot":
-        return await botstat.check_member(channel["chat"], user_id)
+        return await sponsors.check(
+            channel["method"], channel["secret"] or channel["chat"], user_id
+        )
     try:
         member = await bot.get_chat_member(channel["chat"], user_id)
     except TelegramAPIError as error:

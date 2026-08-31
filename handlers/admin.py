@@ -43,6 +43,7 @@ import outbox
 import people
 import posts
 import pushes
+import sponsors
 from handlers import cheques
 import keyboards as kb
 import settings
@@ -85,6 +86,7 @@ class Admin(StatesGroup):
     gate_bot = State()
     channel_title = State()
     post = State()
+    post_sponsor = State()  # чей бот рекламирует показ — код или токен
     botman_folder = State()
     dead_file = State()  # список мёртвых от BotSafe
 
@@ -437,10 +439,19 @@ async def cb_top(call: CallbackQuery) -> None:
 # is listed separately with what it actually brought in.
 
 
-async def _channel_status(bot: Bot, chat: str, kind: str = "channel") -> str:
+async def _channel_status(
+    bot: Bot, chat: str, kind: str = "channel", channel=None
+) -> str:
     """The gate is only real if the membership can actually be checked."""
     if kind == "bot":
-        probe = await botstat.check_member(chat, (await bot.me()).id)
+        method = channel["method"] if channel is not None else sponsors.BOTMEMBERS
+        secret = (channel["secret"] or chat) if channel is not None else chat
+        if method == sponsors.TOKEN:
+            try:
+                return f"🟢 спрашиваем сам {await sponsors.whoami(secret)}"
+            except sponsors.SponsorError as error:
+                return f"🔴 токен не отвечает: {str(error)[:60]}"
+        probe = await botstat.check_member(secret, (await bot.me()).id)
         return (
             "🔴 BotStat молчит — код не работает"
             if probe is None
@@ -563,13 +574,18 @@ async def cb_channel_add_bot(call: CallbackQuery, state: FSMContext) -> None:
     await _edit(
         call,
         "🤖 <b>Бот в подписку</b>\n\n"
-        "Пришли <b>код BotMembers</b> и <b>ссылку на бота</b> в одной строке:\n"
-        "<code>abc123 https://t.me/somebot</code>\n\n"
-        "Код выдаёт владелец спонсорского бота в @BotMembersRobot — по нему "
-        "проверяется, запустил человек этого бота или нет. Ссылка нужна "
-        "для кнопки, по которой пользователь туда пойдёт.\n\n"
-        "Можно добавить название третьим куском: "
-        "<code>abc123 https://t.me/somebot Спонсор</code>",
+        "Пришли <b>код или токен</b> и <b>ссылку на бота</b> в одной строке:\n"
+        "<code>abc123 https://t.me/somebot</code>\n"
+        "<code>8012345678:AAH… https://t.me/somebot</code>\n\n"
+        "Первым куском — одно из двух:\n"
+        "• <b>код BotMembers</b> от @BotMembersRobot;\n"
+        "• <b>токен самого бота</b> — тогда бот спрашивают напрямую, "
+        "посредник не нужен.\n\n"
+        "Что именно прислали, бот поймёт сам. Ссылка нужна для кнопки, "
+        "по которой пользователь туда пойдёт; название можно добавить "
+        "третьим куском.\n\n"
+        "⚠️ Токен — это полный доступ к чужому боту. Бери его только у того, "
+        "кто сам его отдал, и помни, что он ляжет в базу.",
         back_kb([InlineKeyboardButton(text="⬅️ К каналам", callback_data="a:chan")]),
     )
     await call.answer()
@@ -582,10 +598,15 @@ async def got_gate_bot(message: Message, state: FSMContext) -> None:
         await message.answer("Нужен код и ссылка через пробел.")
         return
 
-    code, link = parts[0].strip(), parts[1].strip()
+    secret, link = parts[0].strip(), parts[1].strip()
     title = parts[2].strip() if len(parts) > 2 else ""
-    if not code.replace("_", "").replace("-", "").isalnum():
-        await message.answer("Код — латиница и цифры.")
+    method = sponsors.guess_method(secret)
+    if not method:
+        await message.answer(
+            "Не похоже ни на код BotMembers, ни на токен бота. "
+            "Код — латиница, цифры, <code>_</code> и <code>-</code>; "
+            "токен — <code>123456789:AA…</code>."
+        )
         return
     link = _tme_link(link)
     if not link:
@@ -594,20 +615,20 @@ async def got_gate_bot(message: Message, state: FSMContext) -> None:
     if not title:
         title = "@" + link.rstrip("/").rsplit("/", 1)[-1]
 
-    # A code nobody answers for would let everyone through unnoticed, so it is
-    # tried once, on the admin, before it goes into the gate.
-    probe = await botstat.check_member(code, message.from_user.id)
-    channel_id = await db.add_channel(code, title, link, kind="bot", linked=True)
+    # A credential nobody answers for would let everyone through unnoticed, so
+    # it is tried once, on the admin, before it goes into the gate.
+    verdict = await sponsors.probe(method, secret, message.from_user.id)
+    # The token is a secret and must not sit in `chat`, which every screen
+    # prints. `chat` keeps the identity, `secret` keeps the credential.
+    ident = secret if method == sponsors.BOTMEMBERS else title
+    channel_id = await db.add_channel(
+        ident, title, link, kind="bot", linked=True, method=method, secret=secret
+    )
     if channel_id is None:
-        await message.answer("Такой код уже в списке.")
+        await message.answer("Такой бот уже в списке.")
         return
 
     await state.clear()
-    verdict = (
-        "🔴 BotStat не ответил — проверь код, иначе бот никого не задержит."
-        if probe is None
-        else f"🟢 Код рабочий (тебя он видит как {'запустившего' if probe else 'не запустившего'})."
-    )
     channel = await db.get_channel(channel_id)
     await message.answer(
         await _channel_card(message.bot, channel) + f"\n\n{verdict}",
@@ -652,14 +673,25 @@ async def got_channel(message: Message, state: FSMContext) -> None:
 
 
 async def _channel_card(bot: Bot, channel) -> str:
-    status = await _channel_status(bot, channel["chat"], channel["kind"])
+    status = await _channel_status(bot, channel["chat"], channel["kind"], channel)
     title = channel["title"] or channel["chat"]
     icon = "🤖" if channel["kind"] == "bot" else "📢"
-    what = "код BotMembers" if channel["kind"] == "bot" else "канал"
+    what = (
+        sponsors.METHODS.get(channel["method"], channel["method"])
+        if channel["kind"] == "bot"
+        else "канал"
+    )
     already = channel["joined"] - channel["brought"]
+    # A token is a credential, not an identifier: `chat` never holds one, and
+    # the card never prints one either.
+    ident = html.escape(channel["chat"]) if channel["kind"] != "bot" else (
+        html.escape(channel["chat"])
+        if channel["method"] == sponsors.BOTMEMBERS
+        else "токен скрыт"
+    )
     return (
         f"{icon} <b>{html.escape(title)}</b> · {what}\n"
-        f"<code>{html.escape(channel['chat'])}</code> · "
+        f"<code>{ident}</code> · "
         f"{'🟢 в подписке' if channel['active'] else '⚪ выключен'}\n"
         f"Проверка: {status}\n\n"
         # Two different numbers that used to be one, and the smaller of them is
@@ -3452,6 +3484,17 @@ async def got_post(message: Message, state: FSMContext) -> None:
         title_html=rich if len(rich) <= POST_CARD_MAX else "",
     )
     post = await db.get_post(post_id)
+    if kind == posts.PROMO:
+        # Asked right here rather than left to a menu: a promo without it keeps
+        # being shown to people who already went where it sends them.
+        await state.set_state(Admin.post_sponsor)
+        await state.update_data(post_id=post_id)
+        await message.answer(
+            "✅ Сохранено и уже работает.\n\n" + _post_card(post) + "\n\n"
+            + SPONSOR_ASK,
+            reply_markup=_sponsor_ask_kb(post_id),
+        )
+        return
     await message.answer(
         # Neutral on purpose: «Показ сохранена» is what agreeing with one of
         # the two kind names gets you.
@@ -3460,7 +3503,94 @@ async def got_post(message: Message, state: FSMContext) -> None:
     )
 
 
-def _post_card(post) -> str:
+SPONSOR_ASK = (
+    "🤖 <b>Чей это бот?</b>\n\n"
+    "Пришли <b>код BotMembers</b> или <b>токен рекламируемого бота</b> — "
+    "одним сообщением. По нему бот поймёт, что человек уже дошёл до рекламы, "
+    "и перестанет показывать ему этот пост.\n\n"
+    "Без этого пост будет крутиться всем подряд, включая тех, кто уже "
+    "перешёл.\n\n"
+    "⚠️ Токен — это полный доступ к чужому боту. Бери его только у того, кто "
+    "сам его отдал."
+)
+
+
+def _sponsor_ask_kb(post_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="Пропустить — показывать всем",
+            callback_data=f"a:post:one:{post_id}",
+        )
+    )
+    return b.as_markup()
+
+
+@router.callback_query(F.data.startswith("a:post:spon:"))
+async def cb_post_sponsor(call: CallbackQuery, state: FSMContext) -> None:
+    """Attach or replace the advertised bot on a post that already exists."""
+    post_id = int(call.data.split(":")[3])
+    await state.set_state(Admin.post_sponsor)
+    await state.update_data(post_id=post_id)
+    await _edit(call, SPONSOR_ASK, _sponsor_ask_kb(post_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:post:unspon:"))
+async def cb_post_unsponsor(call: CallbackQuery, state: FSMContext) -> None:
+    post_id = int(call.data.split(":")[3])
+    await state.clear()
+    await db.set_post_sponsor(post_id, "", "", "")
+    await call.answer("Отвязан")
+    await _show_post(call, post_id)
+
+
+@router.message(Admin.post_sponsor, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_post_sponsor(message: Message, state: FSMContext) -> None:
+    secret = (message.text or "").strip()
+    method = sponsors.guess_method(secret)
+    if not method:
+        await message.answer(
+            "Не похоже ни на код BotMembers, ни на токен бота. "
+            "Код — латиница, цифры, <code>_</code> и <code>-</code>; "
+            "токен — <code>123456789:AA…</code>."
+        )
+        return
+
+    post_id = (await state.get_data())["post_id"]
+    verdict = await sponsors.probe(method, secret, message.from_user.id)
+    name = ""
+    if method == sponsors.TOKEN:
+        with suppress(sponsors.SponsorError):
+            name = await sponsors.whoami(secret)
+    await state.clear()
+    await db.set_post_sponsor(post_id, method, secret, name)
+    post = await db.get_post(post_id)
+    await message.answer(
+        _post_card(post) + f"\n\n{verdict}", reply_markup=_post_kb(post)
+    )
+
+
+def _sponsor_line(post, converted: int) -> str:
+    """Whose bot the promo sends people to, and how many already went.
+
+    A welcome post has nowhere to send anyone, so it says nothing at all.
+    """
+    if post["kind"] != posts.PROMO:
+        return ""
+    if not post["sponsor_method"]:
+        return "\n⚠️ Бот не привязан — показывается всем, включая перешедших"
+    who = post["sponsor_name"] or sponsors.METHODS.get(
+        post["sponsor_method"], post["sponsor_method"]
+    )
+    return (
+        f"\n🤖 Реклама: {html.escape(who)} · "
+        f"{sponsors.METHODS.get(post['sponsor_method'], '')}\n"
+        f"Уже перешли и больше не увидят: <b>{converted}</b>"
+    )
+
+
+def _post_card(post, converted: int = 0) -> str:
     # The formatted title when it was saved whole, the escaped plain one when it
     # had to be cut — a truncated html_text would arrive with a tag sliced open.
     body = post["title_html"] or html.escape(post["title"])
@@ -3479,6 +3609,7 @@ def _post_card(post) -> str:
         f"{'🟢 работает' if post['active'] else '⚪ выключен'}\n\n"
         f"{body}{buttons}\n\n"
         f"Показан: <b>{post['shown']}</b> раз"
+        + _sponsor_line(post, converted)
     )
 
 
@@ -3505,6 +3636,23 @@ def _post_kb(post) -> InlineKeyboardMarkup:
                 style=kb.SUCCESS,
             )
         )
+    if post["kind"] == posts.PROMO:
+        b.row(
+            InlineKeyboardButton(
+                text=(
+                    "🤖 Сменить бота" if post["sponsor_method"] else "🤖 Привязать бота"
+                ),
+                callback_data=f"a:post:spon:{post['id']}",
+                style=None if post["sponsor_method"] else kb.PRIMARY,
+            )
+        )
+        if post["sponsor_method"]:
+            b.row(
+                InlineKeyboardButton(
+                    text="🔓 Отвязать бота",
+                    callback_data=f"a:post:unspon:{post['id']}",
+                )
+            )
     b.row(
         InlineKeyboardButton(text="🗑 Удалить", callback_data=f"a:post:del:{post['id']}"),
         InlineKeyboardButton(
@@ -3519,7 +3667,9 @@ async def _show_post(call: CallbackQuery, post_id: int) -> None:
     if post is None:
         await call.answer("Поста уже нет.", show_alert=True)
         return
-    await _edit(call, _post_card(post), _post_kb(post))
+    await _edit(
+        call, _post_card(post, await db.conversions(post_id)), _post_kb(post)
+    )
 
 
 @router.callback_query(F.data.startswith("a:post:one:"))

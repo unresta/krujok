@@ -26,6 +26,7 @@ from aiogram.types import InlineKeyboardMarkup
 
 import db
 import settings
+import sponsors
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,39 @@ async def show_welcome(bot: Bot, user_id: int) -> int:
     return shown
 
 
+SPONSOR_CHECKS = 3  # sponsors asked about one person before we give up and send
+
+
+async def pick(user_id: int):
+    """The promo to show this person, skipping the ones that already worked.
+
+    An advert is bought to bring people somewhere. Once somebody is there, the
+    post is spent on them: it takes a slot from an advertiser who still has
+    something to say to them, and reads as a bot that does not notice anything.
+    So the sponsor is asked, the answer is remembered, and the post is dropped
+    for that person for good.
+
+    Only a handful of sponsors are asked per circle — the rest wait for the next
+    one. An advert nobody could vouch for is shown: silence is not a conversion.
+    """
+    candidates = await db.promo_candidates(user_id)
+    for post in candidates[:SPONSOR_CHECKS]:
+        if not post["sponsor_method"]:
+            return post
+        inside = await sponsors.check(
+            post["sponsor_method"], post["sponsor_secret"], user_id
+        )
+        if not inside:
+            return post
+        await db.mark_converted(post["id"], user_id)
+        logger.info(
+            "промо #%s больше не показывается %s — он уже в %s",
+            post["id"], user_id, post["sponsor_name"] or "боте спонсора",
+        )
+    # Everything asked about came back «уже там»; whatever is left goes as is.
+    return candidates[SPONSOR_CHECKS] if len(candidates) > SPONSOR_CHECKS else None
+
+
 async def after_circle(bot: Bot, user_id: int) -> bool:
     """One circle went out; every so many of them, a promo follows it.
 
@@ -117,7 +151,7 @@ async def after_circle(bot: Bot, user_id: int) -> bool:
     if not await db.promo_due(user_id, every):
         return False
 
-    post = await db.pick_promo(user_id)
+    post = await pick(user_id)
     if post is None:
         return False
     with suppress(TelegramAPIError):
