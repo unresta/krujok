@@ -3396,14 +3396,17 @@ async def _render_post_list(call: CallbackQuery, kind: str) -> None:
     )
     await _edit(
         call,
-        f"<b>{posts.KINDS[kind]}и</b>\n\n{what}\n\n"
+        f"<b>{posts.PLURALS[kind]}</b>\n\n{what}\n\n"
         + (
-            "🟢 — работает, ⚪ — выключен. Цифра — сколько раз показан."
+            "🟢 — работает, ⚪ — выключено. Цифра — сколько раз показано."
             if rows
             else "Пока пусто."
         ),
         _post_list_kb(kind, rows),
     )
+
+
+POST_CARD_MAX = 600  # formatted post text the card will show in full
 
 
 @router.callback_query(F.data.startswith("a:post:add:"))
@@ -3413,12 +3416,13 @@ async def cb_post_add(call: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(kind=kind)
     await _edit(
         call,
-        f"➕ <b>Новая {posts.KINDS[kind].lower()}</b>\n\n"
+        f"➕ <b>Новый пост · {posts.KINDS[kind].lower()}</b>\n\n"
         "Пришли сюда сам пост — текстом, фото, видео, кружком, чем угодно. "
         "Можно переслать готовый из канала.\n\n"
-        "Бот покажет его пользователям точной копией, вместе с кнопками, "
-        "если они в нём есть. Сообщение должно остаться в этом чате — бот "
-        "копирует его отсюда каждый раз.",
+        "Бот покажет его пользователям точной копией. Кнопки-ссылки "
+        "переносятся вместе с постом; кнопки, которые что-то делают внутри "
+        "чужого бота, Telegram при пересылке отбрасывает сам. Сообщение "
+        "должно остаться в этом чате — бот копирует его отсюда каждый раз.",
         back_kb(
             [InlineKeyboardButton(text="⬅️ Отмена", callback_data=f"a:post:k:{kind}")]
         ),
@@ -3431,22 +3435,49 @@ async def got_post(message: Message, state: FSMContext) -> None:
     kind = (await state.get_data()).get("kind", posts.PROMO)
     await state.clear()
     title = (message.text or message.caption or "").strip().replace("\n", " ")
+    # The formatted title keeps custom emoji looking like themselves; the plain
+    # one is what goes on a button, where no markup is rendered anyway.
+    rich = ""
+    if message.text or message.caption:
+        rich = message.html_text.strip().replace("\n", " ")
     post_id = await db.add_post(
-        kind, message.chat.id, message.message_id, title[:60] or "без текста"
+        kind,
+        message.chat.id,
+        message.message_id,
+        title[:60] or "без текста",
+        markup=posts.keep_markup(message.reply_markup),
+        # Kept whole or not at all: cutting formatted text mid-tag would send
+        # the card back as «can't parse entities». A post longer than this
+        # falls back to the plain title, which is only ever the first line.
+        title_html=rich if len(rich) <= POST_CARD_MAX else "",
     )
     post = await db.get_post(post_id)
     await message.answer(
-        f"✅ {posts.KINDS[kind]} сохранена и уже работает.\n\n" + _post_card(post),
+        # Neutral on purpose: «Показ сохранена» is what agreeing with one of
+        # the two kind names gets you.
+        "✅ Сохранено и уже работает.\n\n" + _post_card(post),
         reply_markup=_post_kb(post),
     )
 
 
 def _post_card(post) -> str:
+    # The formatted title when it was saved whole, the escaped plain one when it
+    # had to be cut — a truncated html_text would arrive with a tag sliced open.
+    body = post["title_html"] or html.escape(post["title"])
+    labels = posts.buttons_of(post)
+    if labels:
+        buttons = "\n🔘 Кнопки: " + " · ".join(html.escape(t) for t in labels)
+    elif post["markup"] == posts.UNRECORDED:
+        # Saved back when copies went out button-less. Nothing to restore from,
+        # so the only honest thing is to say it and let the admin decide.
+        buttons = "\n⚠️ Кнопки этого поста не сохранены — если они были, добавь пост заново"
+    else:
+        buttons = ""
     return (
         f"{'👋' if post['kind'] == posts.WELCOME else '🔁'} "
         f"<b>{posts.KINDS[post['kind']]} #{post['id']}</b> · "
         f"{'🟢 работает' if post['active'] else '⚪ выключен'}\n\n"
-        f"{html.escape(post['title'])}\n\n"
+        f"{body}{buttons}\n\n"
         f"Показан: <b>{post['shown']}</b> раз"
     )
 
@@ -3510,6 +3541,7 @@ async def cb_post_preview(call: CallbackQuery) -> None:
             chat_id=call.from_user.id,
             from_chat_id=post["from_chat"],
             message_id=post["msg_id"],
+            reply_markup=posts.markup_of(post),
         )
     except TelegramAPIError as error:
         await call.answer(f"Не копируется: {error}", show_alert=True)

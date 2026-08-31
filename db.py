@@ -399,6 +399,14 @@ MIGRATIONS = {
         # back in rotation carries no reason from the time it was out.
         "reject_reason": "TEXT NOT NULL DEFAULT ''",
     },
+    "posts": {
+        # copyMessage sends a fresh message and carries no buttons of its own,
+        # so the original's keyboard is kept here and passed back on every copy.
+        "markup": "TEXT NOT NULL DEFAULT ''",
+        # The title with entities intact. The plain one keeps the placeholder
+        # character of a custom emoji, which reads as a different emoji.
+        "title_html": "TEXT NOT NULL DEFAULT ''",
+    },
     "reports": {
         "reason": "TEXT NOT NULL DEFAULT ''",  # complaints filed before stay blank
     },
@@ -445,6 +453,11 @@ async def _migrate() -> set[str]:
 # A new column that starts at zero for everyone is wrong for the users who were
 # already here; these run once, on the migration that adds it.
 BACKFILLS = {
+    # Posts saved before the keyboard was kept have buttons nobody recorded, and
+    # the original cannot be read back — the Bot API has no «get me that
+    # message». Marked as unknown so the panel can say so instead of showing
+    # them as button-less.
+    "posts.markup": "UPDATE posts SET markup = '?'",
     # What is left of a lifetime of earnings: never more than the balance in
     # hand, and never counting what already went out through a payout.
     "users.earned_left": """
@@ -2884,10 +2897,18 @@ async def mark_asked(channel_id: int, user_id: int) -> None:
 # --- welcome and promo posts ---------------------------------------------
 
 
-async def add_post(kind: str, from_chat: int, msg_id: int, title: str) -> int:
+async def add_post(
+    kind: str,
+    from_chat: int,
+    msg_id: int,
+    title: str,
+    markup: str = "",
+    title_html: str = "",
+) -> int:
     cur = await conn().execute(
-        "INSERT INTO posts(kind, from_chat, msg_id, title) VALUES (?, ?, ?, ?)",
-        (kind, from_chat, msg_id, title),
+        "INSERT INTO posts(kind, from_chat, msg_id, title, markup, title_html)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (kind, from_chat, msg_id, title, markup, title_html),
     )
     await conn().commit()
     return cur.lastrowid
