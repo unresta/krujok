@@ -698,6 +698,10 @@ async def _channel_card(bot: Bot, channel) -> str:
         # the honest one to show an advertiser.
         f"Привели: <b>{channel['brought']}</b> · за сутки "
         f"{channel['brought_today']}\n"
+        # «Привели» never goes down; what the sponsor keeps does.
+        f"Из них сейчас внутри: <b>{channel['still_in']}</b>"
+        + (f" · вышли: {channel['gone']}" if channel["gone"] else "")
+        + "\n"
         f"Были там до нас: {already}\n"
         f"Видели внутри всего: {channel['joined']}\n\n"
         f"Ссылка: {channel['link'] or '—'}"

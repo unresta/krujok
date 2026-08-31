@@ -394,6 +394,13 @@ MIGRATIONS = {
         # to set, and Telegram's own link must not win over it.
         "linked": "INTEGER NOT NULL DEFAULT 0",
     },
+    "channel_joins": {
+        # Whether they were still inside the last time the gate looked. The row
+        # itself never goes: «привели» is a thing that happened, and it stays
+        # true even after the person leaves.
+        "inside": "INTEGER NOT NULL DEFAULT 1",
+        "left_at": "INTEGER NOT NULL DEFAULT 0",  # when we last caught them out
+    },
     "campaigns": {
         "spend": "INTEGER NOT NULL DEFAULT 0",  # ad spend in minor units
         "token": "TEXT",  # lets the buyer of the ad watch their own link
@@ -2838,7 +2845,20 @@ _CHANNEL_COUNTS = """
           AND j.ts > strftime('%s','now') - 86400
           AND EXISTS (SELECT 1 FROM channel_asked a
                        WHERE a.channel_id = j.channel_id
-                         AND a.user_id = j.user_id)) AS brought_today
+                         AND a.user_id = j.user_id)) AS brought_today,
+       -- «Привели» is a thing that happened and never goes down. What an
+       -- advertiser is actually buying is how many of them are still there,
+       -- and that is a different number the moment anybody leaves.
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+          AND j.inside = 1
+          AND EXISTS (SELECT 1 FROM channel_asked a
+                       WHERE a.channel_id = j.channel_id
+                         AND a.user_id = j.user_id)) AS still_in,
+       (SELECT COUNT(*) FROM channel_joins j WHERE j.channel_id = c.id
+          AND j.inside = 0
+          AND EXISTS (SELECT 1 FROM channel_asked a
+                       WHERE a.channel_id = j.channel_id
+                         AND a.user_id = j.user_id)) AS gone
 """
 
 
@@ -2909,23 +2929,52 @@ async def drop_channel(channel_id: int) -> None:
 
 
 async def mark_join(channel_id: int, user_id: int) -> bool:
-    """True the first time this person is seen inside this channel."""
-    try:
-        await conn().execute(
-            "INSERT INTO channel_joins(channel_id, user_id) VALUES (?, ?)",
-            (channel_id, user_id),
-        )
-    except aiosqlite.IntegrityError:
-        return False
+    """True the first time this person is seen inside this channel.
+
+    A second time is not a second arrival — it is somebody who left and came
+    back, and all it does is put them back among those still inside.
+    """
+    cur = await conn().execute(
+        "INSERT INTO channel_joins(channel_id, user_id) VALUES (?, ?)"
+        " ON CONFLICT(channel_id, user_id) DO UPDATE SET inside = 1",
+        (channel_id, user_id),
+    )
     await conn().commit()
-    return True
+    # A plain insert touches one row; an upsert that only updates reports one
+    # too, so the flag itself is what tells a first arrival from a return.
+    return cur.rowcount > 0 and await _joined_once(channel_id, user_id)
+
+
+async def _joined_once(channel_id: int, user_id: int) -> bool:
+    async with conn().execute(
+        "SELECT left_at = 0 AND inside = 1 FROM channel_joins"
+        " WHERE channel_id = ? AND user_id = ?",
+        (channel_id, user_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return bool(row and row[0])
+
+
+async def mark_left(channel_id: int, user_id: int) -> None:
+    """The gate caught somebody we brought outside again.
+
+    This is the only moment churn is ever visible: a person who leaves and
+    never comes back is nobody's to notice. So «ушли» is a floor, not a total —
+    and it is still the honest half of «привели».
+    """
+    await conn().execute(
+        "UPDATE channel_joins SET inside = 0, left_at = strftime('%s','now')"
+        " WHERE channel_id = ? AND user_id = ? AND inside = 1",
+        (channel_id, user_id),
+    )
+    await conn().commit()
 
 
 async def mark_asked(channel_id: int, user_id: int) -> None:
     """Remember that the gate sent this person to that sponsor.
 
-    Only for someone who is not inside yet: without that guard, a person who
-    leaves the channel later would be re-counted as an arrival we delivered.
+    Only for someone who has never been inside: without that guard, a person
+    who leaves the channel later would be re-counted as an arrival we delivered.
     """
     await conn().execute(
         """

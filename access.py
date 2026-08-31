@@ -82,6 +82,9 @@ async def missing_channels(bot: Bot, user_id: int) -> list:
             # what tells the two apart.
             await db.mark_join(channel["id"], user_id)
         else:
+            # The gate looking at somebody is the only chance the bot ever gets
+            # to notice that a person it brought has since left.
+            await db.mark_left(channel["id"], user_id)
             await db.mark_asked(channel["id"], user_id)
             missing.append(channel)
     return missing
