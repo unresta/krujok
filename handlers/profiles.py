@@ -708,6 +708,24 @@ async def next_profile(call: CallbackQuery, state: FSMContext) -> None:
     await _show_next(call.bot, call.from_user.id, call.message)
 
 
+async def author_card(viewer_id: int, profile, intro: str = "") -> tuple[str, object]:
+    """The whole card — caption and buttons — for whoever is looking at it.
+
+    Three screens show an author: the feed, the «Анкета автора» button under a
+    circle, and the author's own link. They used to build the card each in their
+    own way, so «Докупить новые» appeared on two of them and the third quietly
+    went on showing 112 circles to somebody who could open 38.
+    """
+    have, total, cost = await topup_state(viewer_id, profile)
+    bought = await db.get_purchase(viewer_id, profile["user_id"], "content")
+    caption = texts.profile_card(profile, total)
+    if bought is not None:
+        caption += texts.topup_line(have, total, profile["price_content"])
+    return (intro + "\n\n" + caption if intro else caption), await _card_markup(
+        viewer_id, profile
+    )
+
+
 async def _show_next(bot, viewer_id: int, origin: Message) -> None:
     profile = await db.pick_profile(viewer_id, settings.get("boost_weight"))
     if profile is None:  # everything seen once — start a new lap
@@ -724,16 +742,12 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
             await origin.answer(texts.PROFILE_EMPTY_WAIT, reply_markup=kb.back())
         return
 
-    author = profile["user_id"]
-    bought_content = await db.get_purchase(viewer_id, author, "content") is not None
-    bought_contact = await db.get_purchase(viewer_id, author, "contact") is not None
+    caption, markup = await author_card(viewer_id, profile)
     await bot.send_photo(
-        chat_id=viewer_id,
-        photo=profile["photo_id"],
-        caption=texts.profile_card(profile, profile["circles"]),
-        reply_markup=kb.profile_card(profile, bought_content, bought_contact),
+        chat_id=viewer_id, photo=profile["photo_id"], caption=caption,
+        reply_markup=markup,
     )
-    await db.mark_profile_seen(viewer_id, author)
+    await db.mark_profile_seen(viewer_id, profile["user_id"])
 
 
 @router.callback_query(F.data == "mp:upload")
@@ -877,16 +891,12 @@ async def open_card(call: CallbackQuery) -> None:
         return
 
     await call.answer()
-    have, circles, _ = await topup_state(call.from_user.id, profile)
-    bought = await db.get_purchase(call.from_user.id, author_id, "content")
-    caption = texts.profile_card(profile, circles)
-    if bought is not None:
-        caption += texts.topup_line(have, circles, profile["price_content"])
+    caption, markup = await author_card(call.from_user.id, profile)
     await call.bot.send_photo(
         chat_id=call.from_user.id,
         photo=profile["photo_id"],
         caption=caption,
-        reply_markup=await _card_markup(call.from_user.id, profile),
+        reply_markup=markup,
     )
 
 
@@ -906,16 +916,12 @@ async def open_by_link(bot, viewer_id: int, author_id: int, origin: Message) -> 
         return False
 
     await db.count_link_hit(author_id)
-    have, circles, _ = await topup_state(viewer_id, profile)
-    bought = await db.get_purchase(viewer_id, author_id, "content")
-    caption = texts.PROFILE_LINK_INTRO + "\n\n" + texts.profile_card(profile, circles)
-    if bought is not None:
-        caption += texts.topup_line(have, circles, profile["price_content"])
+    caption, markup = await author_card(viewer_id, profile, texts.PROFILE_LINK_INTRO)
     await bot.send_photo(
         chat_id=viewer_id,
         photo=profile["photo_id"],
         caption=caption,
-        reply_markup=await _card_markup(viewer_id, profile),
+        reply_markup=markup,
     )
     return True
 
