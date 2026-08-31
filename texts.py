@@ -409,7 +409,10 @@ CIRCLE_REASON_TAIL = "\n\nПричина: <b>{reason}</b>"
 
 # What a moderator turns a circle down for. The keys go into callback data, so
 # they stay short and ascii; the labels are what the author reads.
+# The child one leads: it is the verdict that has to be one tap away, and the
+# same key «minor» the complaint list already uses for it.
 CIRCLE_REJECT_REASONS = {
+    "minor": "на кружочке ребёнок",
     "quality": "плохое качество: темно, размыто или ничего не видно",
     "short": "почти пустой кружок: ничего не происходит",
     "face": "лица нет или снято не то, что нужно",
