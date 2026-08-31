@@ -52,6 +52,13 @@ class UserMiddleware(BaseMiddleware):
             await self._refuse(event, texts.MAINTENANCE)
             return None
 
+        # They wrote to us, so they have not blocked the bot after all — and a
+        # failed reminder had concluded otherwise. Cleared here rather than
+        # further down: somebody who is still at the rules never gets past the
+        # welcome, and they are exactly who the reminders are for.
+        if user["blocked"]:
+            await db.unmark_blocked(tg_user.id)
+
         # A referral is recorded before the gate and paid after it; an ad code
         # is counted here too, or a user who never subscribes stays invisible.
         if isinstance(event, Message) and (event.text or "").startswith("/start "):

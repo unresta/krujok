@@ -1272,11 +1272,21 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         "🔔 <b>Напоминания</b>\n\n"
         f"Статус: {'🟢 включены' if on else '🔴 выключены'}\n"
         f"Последний проход: {last}\n\n"
-        f"<b>Ждут напоминания: {pool['ready']}</b>\n"
-        f"Не в очереди из {pool['total']} человек:\n"
+        f"<b>Ждут напоминания: {pool['ready']}</b>"
+        + (
+            f" · не приняли правила: {pool['ready_new']}"
+            if settings.get("push_unaccepted")
+            else ""
+        )
+        + f"\nНе в очереди из {pool['total']} человек:\n"
         f"• были в боте недавно — {pool['still_active']}\n"
         f"• уже получали, ждут паузы — {pool['cooling']}\n"
-        f"• не приняли правила — {pool['not_accepted']}\n"
+        + (
+            ""
+            if settings.get("push_unaccepted")
+            else f"• не приняли правила — {pool['not_accepted']}\n"
+        )
+        + f"• заблокировали бота — {pool['blocked']}\n"
         f"• забанены — {pool['banned']}\n\n"
         f"Молчал дольше: {settings.get('push_idle_hours')} ч · "
         f"не чаще раза в {settings.get('push_cooldown_hours')} ч\n"

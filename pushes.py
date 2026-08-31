@@ -47,45 +47,78 @@ async def sweep(bot: Bot) -> tuple[int, int]:
         last_sweep["sent"] = last_sweep["failed"] = 0
         return 0, 0
 
-    user_ids = await db.idle_users(
-        idle=settings.get("push_idle_hours") * 3600,
-        cooldown=settings.get("push_cooldown_hours") * 3600,
-        limit=settings.get("push_batch"),
-    )
-    if not user_ids:
+    idle = settings.get("push_idle_hours") * 3600
+    cooldown = settings.get("push_cooldown_hours") * 3600
+    batch = settings.get("push_batch")
+
+    user_ids = await db.idle_users(idle, cooldown, batch)
+    # Whatever is left of the batch goes to people who pressed /start, met the
+    # rules and never came back. They are half the base and were never written
+    # to at all — but they come second, because somebody who took the rules is
+    # worth more than somebody who has not yet.
+    newcomers = []
+    if settings.get("push_unaccepted") and len(user_ids) < batch:
+        newcomers = await db.idle_users(
+            idle, cooldown, batch - len(user_ids), accepted=0
+        )
+    if not user_ids and not newcomers:
         last_sweep["skipped"] = "некому: все были в боте недавно"
         last_sweep["sent"] = last_sweep["failed"] = 0
         return 0, 0
 
     free = settings.get("push_free_views")
     sent = failed = 0
-    for user_id in user_ids:
+    for user_id, accepted in [(u, True) for u in user_ids] + [
+        (u, False) for u in newcomers
+    ]:
         # The stamp goes down before the send: a failure must not queue the
         # same person up again on the next tick.
         await db.mark_pushed(user_id, free)
-        text = random.choice(texts.PUSH_TEXTS)(free)
-        try:
-            await bot.send_message(user_id, text, reply_markup=kb.push(free))
+        text = (
+            random.choice(texts.PUSH_TEXTS)(free)
+            if accepted
+            else texts.push_unaccepted(free)
+        )
+        markup = kb.push(free) if accepted else kb.push_unaccepted()
+        if await _deliver(bot, user_id, text, markup):
             sent += 1
-        except TelegramRetryAfter as error:
-            # The gift is already on their account; giving up here would waste
-            # it on a limit that passes on its own.
-            await asyncio.sleep(error.retry_after + 1)
-            try:
-                await bot.send_message(user_id, text, reply_markup=kb.push(free))
-                sent += 1
-            except TelegramAPIError:
-                failed += 1
-        except TelegramForbiddenError:  # blocked the bot
-            failed += 1
-        except TelegramAPIError as error:
-            logger.warning("push to %s failed: %s", user_id, error)
+        else:
             failed += 1
         await asyncio.sleep(SEND_PAUSE)
 
     last_sweep["sent"], last_sweep["failed"] = sent, failed
-    logger.info("push sweep: %s delivered, %s failed", sent, failed)
+    logger.info(
+        "push sweep: %s delivered, %s failed (%s из них — не принявшие правила)",
+        sent, failed, len(newcomers),
+    )
     return sent, failed
+
+
+async def _deliver(bot: Bot, user_id: int, text: str, markup) -> bool:
+    """One reminder. False when it did not land, for whatever reason."""
+    try:
+        await bot.send_message(user_id, text, reply_markup=markup)
+        return True
+    except TelegramRetryAfter as error:
+        # The gift is already on their account; giving up here would waste it
+        # on a limit that passes on its own.
+        await asyncio.sleep(error.retry_after + 1)
+        try:
+            await bot.send_message(user_id, text, reply_markup=markup)
+            return True
+        except TelegramForbiddenError:
+            await db.mark_blocked(user_id)
+        except TelegramAPIError:
+            pass
+        return False
+    except TelegramForbiddenError:
+        # Blocked the bot, or deleted the account. Written down so the next
+        # batch is not spent on them again — a third of every one was.
+        await db.mark_blocked(user_id)
+        return False
+    except TelegramAPIError as error:
+        logger.warning("push to %s failed: %s", user_id, error)
+        return False
 
 
 async def run(bot: Bot) -> None:

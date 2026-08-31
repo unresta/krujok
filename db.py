@@ -384,6 +384,10 @@ MIGRATIONS = {
         "subscribed": "INTEGER NOT NULL DEFAULT 0",  # passed the channel gate
         "last_seen": "INTEGER NOT NULL DEFAULT 0",
         "last_push": "INTEGER NOT NULL DEFAULT 0",
+        # Set when Telegram says the bot may not write to this person — they
+        # blocked it or deleted the account. Cleared the moment they come back,
+        # because that is the only way we ever find out they did.
+        "blocked": "INTEGER NOT NULL DEFAULT 0",
         "free_views": "INTEGER NOT NULL DEFAULT 0",  # circles owed, not coins
         "last_promo": "INTEGER NOT NULL DEFAULT 0",  # when a promo post last came
         # Circles watched since the last promo — an ad break is counted out in
@@ -793,19 +797,42 @@ async def touch_seen(user_id: int, stale: int = 300) -> None:
 _LAST_SEEN = "COALESCE(NULLIF(last_seen, 0), created_at)"
 
 
-async def idle_users(idle: int, cooldown: int, limit: int) -> list[int]:
-    """Who went quiet long enough, and was not nudged recently."""
+async def idle_users(
+    idle: int, cooldown: int, limit: int, accepted: int = 1
+) -> list[int]:
+    """Who went quiet long enough, and was not nudged recently.
+
+    `accepted` picks the audience: people who took the rules and then drifted
+    off, or people who pressed /start, hit the rules and never came back. The
+    two get different texts, so they are fetched apart.
+
+    Anyone who blocked the bot is left out for good. Sending to them cost a
+    third of every batch and could never arrive.
+    """
     async with conn().execute(
         f"""
         SELECT id FROM users
-        WHERE banned = 0 AND accepted = 1
+        WHERE banned = 0 AND blocked = 0 AND accepted = :accepted
           AND {_LAST_SEEN} < strftime('%s','now') - :idle
           AND last_push < strftime('%s','now') - :cooldown
         ORDER BY RANDOM() LIMIT :limit
         """,
-        {"idle": idle, "cooldown": cooldown, "limit": limit},
+        {"idle": idle, "cooldown": cooldown, "limit": limit, "accepted": accepted},
     ) as cur:
         return [row[0] for row in await cur.fetchall()]
+
+
+async def mark_blocked(user_id: int) -> None:
+    await conn().execute("UPDATE users SET blocked = 1 WHERE id = ?", (user_id,))
+    await conn().commit()
+
+
+async def unmark_blocked(user_id: int) -> None:
+    """They wrote to the bot again, so whatever we thought is out of date."""
+    await conn().execute(
+        "UPDATE users SET blocked = 0 WHERE id = ? AND blocked = 1", (user_id,)
+    )
+    await conn().commit()
 
 
 async def push_pool(idle: int, cooldown: int) -> dict:
@@ -815,15 +842,20 @@ async def push_pool(idle: int, cooldown: int) -> dict:
         SELECT
           COUNT(*)                                                  AS total,
           COALESCE(SUM(banned = 1), 0)                              AS banned,
-          COALESCE(SUM(banned = 0 AND accepted = 0), 0)             AS not_accepted,
-          COALESCE(SUM(banned = 0 AND accepted = 1
+          COALESCE(SUM(banned = 0 AND blocked = 1), 0)              AS blocked,
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND accepted = 0
+                       AND {_LAST_SEEN} < strftime('%s','now') - :idle
+                       AND last_push < strftime('%s','now') - :cooldown), 0)
+                                                                    AS ready_new,
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND accepted = 0), 0) AS not_accepted,
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND accepted = 1
                        AND {_LAST_SEEN} >= strftime('%s','now') - :idle), 0)
                                                                     AS still_active,
-          COALESCE(SUM(banned = 0 AND accepted = 1
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND accepted = 1
                        AND {_LAST_SEEN} < strftime('%s','now') - :idle
                        AND last_push >= strftime('%s','now') - :cooldown), 0)
                                                                     AS cooling,
-          COALESCE(SUM(banned = 0 AND accepted = 1
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND accepted = 1
                        AND {_LAST_SEEN} < strftime('%s','now') - :idle
                        AND last_push < strftime('%s','now') - :cooldown), 0)
                                                                     AS ready,

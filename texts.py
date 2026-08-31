@@ -266,6 +266,21 @@ def _push_waiting(free: int) -> str:
 
 PUSH_TEXTS = (_push_new, _push_missed, _push_waiting)
 
+# For the half of the base that pressed /start, met the rules and stopped
+# there. They have never seen a single circle, so the pitch is «начни», not
+# «вернись», and the button leads back to the rules the middleware puts up.
+PUSH_UNACCEPTED = (
+    "<b>Ты так и не начал 🙈</b>\n\n"
+    "Осталось подтвердить возраст — и сразу {free} {circles} бесплатно, "
+    "плюс монетки в подарок на первые просмотры."
+)
+
+
+def push_unaccepted(free: int) -> str:
+    return _fmt(
+        "PUSH_UNACCEPTED", PUSH_UNACCEPTED, free=free, circles=circles_word(free)
+    )
+
 FREE_VIEW_LEFT = (
     "🎁 Этот кружок — за счёт заведения. Бесплатных осталось: <b>{left}</b>."
 )
