@@ -143,6 +143,11 @@ CARD_PRICE = STAR_COST * STAR_PRICE
 # Added on top of that price at checkout. The payer sees the total on the
 # payment form before they pay anything.
 CARD_FEE = 11  # percent
+# Recurring charges are checked far more rarely than one-off invoices: a
+# subscription renews once a day at the very most, and the processor allows
+# 60 requests a minute for everything put together.
+SUBS_POLL = 300.0  # seconds between subscription checks
+SUBS_BATCH = 20    # subscriptions asked about in one pass
 
 # --- legal ---
 # Both documents have to be one tap from every screen where money changes

@@ -1535,6 +1535,126 @@ def tier_bought(code: str, days: int, price: int, until: int) -> str:
     )
 
 
+# --- paying for a tier ----------------------------------------------------
+
+TIER_PAY = (
+    "<b>{tier}</b> на {days}\n\n"
+    "{coin} Монетками: <b>{price}</b> — разово, продлевать вручную.\n"
+    "{recurring}"
+)
+TIER_PAY_RECURRING = (
+    "🔁 С автопродлением: <b>{rubles} ₽</b> {every} через СБП — "
+    "доступ не кончится сам, отключить можно в любой момент."
+)
+TIER_PAY_COINS_ONLY = "Оплата — монетками с баланса."
+
+
+def tier_pay(code: str, days: int) -> str:
+    import paritypay
+    import tiers
+
+    price = tiers.price_of(code, days)
+    interval = paritypay.interval_of(days)
+    tail = TIER_PAY_COINS_ONLY
+    if paritypay.recurring_on() and interval:
+        tail = _fmt(
+            "TIER_PAY_RECURRING",
+            TIER_PAY_RECURRING,
+            rubles=settings.card_rubles(price),
+            every=paritypay.INTERVAL_WORDS.get(interval, ""),
+        )
+    return _fmt(
+        "TIER_PAY",
+        TIER_PAY,
+        tier=tiers.title(code),
+        days=day_word(days),
+        coin=coin(),
+        price=price,
+        recurring=tail,
+    )
+
+
+TIER_SUB_INVOICE = (
+    "🧾 <b>Счёт на {amount} ₽</b>\n\n"
+    "<b>{tier}</b>, списание {every}.\n"
+    "Оплата через СБП. После первой оплаты доступ включится сам, "
+    "дальше он будет продлеваться без твоего участия.\n\n"
+    "Отключить можно в любой момент в «Подписке».\n"
+    "Счёт действует {minutes} минут."
+)
+
+
+def tier_sub_invoice(code: str, amount: str, days: int) -> str:
+    import paritypay
+    import tiers
+    from config import INVOICE_TTL
+
+    return _fmt(
+        "TIER_SUB_INVOICE",
+        TIER_SUB_INVOICE,
+        amount=amount,
+        tier=tiers.title(code),
+        every=paritypay.INTERVAL_WORDS.get(paritypay.interval_of(days), ""),
+        minutes=INVOICE_TTL // 60,
+    )
+
+
+TIER_SUB_CHARGED = "🟢 <b>{tier}</b> оплачен: {amount} ₽.\nРаботает до <b>{until}</b>."
+TIER_SUB_RENEWED = "🔁 <b>{tier}</b> продлён: списано {amount} ₽.\nДо <b>{until}</b>."
+
+
+def tier_sub_charged(code: str, amount: str, until: int, first: bool) -> str:
+    import tiers
+
+    key = "TIER_SUB_CHARGED" if first else "TIER_SUB_RENEWED"
+    return _fmt(
+        key,
+        TIER_SUB_CHARGED if first else TIER_SUB_RENEWED,
+        tier=tiers.title(code),
+        amount=amount,
+        until=when(until),
+    )
+
+
+TIER_SUB_OVER = (
+    "🔁 Автопродление отключено — новых списаний не будет. "
+    "Уже оплаченный срок доработает до конца."
+)
+TIER_SUB_FAILED = (
+    "🔁 Автопродление остановлено: списание не прошло. "
+    "Оплаченный срок доработает, а продлить можно заново в «Подписке»."
+)
+
+
+def tier_sub_over(status: str) -> str:
+    return TIER_SUB_FAILED if status == "failed" else TIER_SUB_OVER
+
+
+TIER_SUB_ACTIVE = (
+    "🔁 <b>Автопродление включено</b>\n\n"
+    "{tier} · {amount} ₽ {every}\n"
+    "Следующее списание: <b>{next}</b>"
+)
+TIER_SUB_WAITING = "🕒 Счёт выставлен, но ещё не оплачен."
+TIER_SUB_NONE = "Автопродления нет."
+TIER_SUB_DROPPED = "Автопродление отключено."
+TIER_SUB_ALREADY = "У тебя уже есть автопродление — сначала отключи его."
+
+
+def tier_sub_active(code: str, amount: str, days: int, next_at: str) -> str:
+    import paritypay
+    import tiers
+
+    return _fmt(
+        "TIER_SUB_ACTIVE",
+        TIER_SUB_ACTIVE,
+        tier=tiers.title(code),
+        amount=amount,
+        every=paritypay.INTERVAL_WORDS.get(paritypay.interval_of(days), ""),
+        next=next_at or "—",
+    )
+
+
 TIER_POOR = "Не хватает монеток: нужно {price}, на балансе {coins}."
 
 

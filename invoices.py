@@ -20,7 +20,7 @@ import db
 import keyboards as kb
 import paritypay
 import texts
-from config import INVOICE_POLL, INVOICE_TTL
+from config import INVOICE_POLL, INVOICE_TTL, SUBS_BATCH, SUBS_POLL
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,85 @@ async def run(bot: Bot) -> None:
         except Exception as error:  # noqa: BLE001 — the loop outlives anything
             last_poll["error"] = str(error)
             logger.exception("invoice sweep failed: %s", error)
+
+
+# --- recurring tier subscriptions ----------------------------------------
+
+last_subs: dict = {"at": 0.0, "checked": 0, "charged": 0, "error": ""}
+
+
+async def check_subscription(bot: Bot, row) -> str:
+    """Ask about one subscription and grant whatever it has paid for since.
+
+    The processor never tells us about a renewal — it just charges the card and
+    moves `last_debited_at`. A value we have not seen before is therefore a
+    period the user paid for, and the tier is extended by exactly one.
+    """
+    try:
+        data = await paritypay.subscription(row["order_id"])
+    except paritypay.ParityError as error:
+        logger.warning("подписка %s: %s", row["order_id"], error)
+        await db.touch_tier_sub(row["order_id"], row["status"], next_at=row["next_at"])
+        return row["status"]
+
+    status = data.get("status", row["status"])
+    await db.touch_tier_sub(
+        row["order_id"],
+        status,
+        data.get("id") or "",
+        data.get("next_debited_at") or "",
+    )
+
+    debited = data.get("last_debited_at") or ""
+    if debited and await db.take_tier_charge(row["order_id"], debited):
+        until = await db.grant_tier(row["user_id"], row["tier"], row["days"])
+        first = row["charges"] == 0
+        logger.info(
+            "подписка %s: %s период для %s, до %s",
+            row["order_id"], "первый" if first else "продлён", row["user_id"], until,
+        )
+        with suppress(TelegramAPIError):
+            await bot.send_message(
+                row["user_id"],
+                texts.tier_sub_charged(row["tier"], row["amount"], until, first),
+            )
+        if first and row["msg_id"]:  # the pay button is spent
+            with suppress(TelegramAPIError):
+                await bot.edit_message_reply_markup(
+                    chat_id=row["user_id"], message_id=row["msg_id"], reply_markup=None
+                )
+        last_subs["charged"] += 1
+
+    if status not in paritypay.SUB_LIVE and status != row["status"]:
+        with suppress(TelegramAPIError):
+            await bot.send_message(row["user_id"], texts.tier_sub_over(status))
+    return status
+
+
+async def sweep_subs(bot: Bot) -> int:
+    last_subs["at"] = time.time()
+    last_subs["error"] = ""
+    last_subs["charged"] = 0
+    rows = await db.due_tier_subs(SUBS_BATCH)
+    for row in rows:
+        await check_subscription(bot, row)
+    last_subs["checked"] = len(rows)
+    return len(rows)
+
+
+async def run_subs(bot: Bot) -> None:
+    """Slow loop: a subscription renews once a day at most."""
+    while True:
+        await asyncio.sleep(SUBS_POLL)
+        if not paritypay.enabled():
+            continue
+        try:
+            await sweep_subs(bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 — the loop outlives anything
+            last_subs["error"] = str(error)
+            logger.exception("проверка подписок сорвалась: %s", error)
 
 
 async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> None:

@@ -320,6 +320,28 @@ CREATE TABLE IF NOT EXISTS invoices (
     PRIMARY KEY (provider, invoice_id)
 );
 CREATE INDEX IF NOT EXISTS idx_invoices_open ON invoices(status, created_at);
+
+-- Recurring tier payments at the processor. A one-off invoice buys coins and is
+-- done; this one keeps charging, so the row outlives the payment and is what
+-- the renewal poll walks. `order_id` is ours and doubles as the processor's
+-- shop_subscription_id, which is the only handle we need to ask about it.
+CREATE TABLE IF NOT EXISTS tier_subs (
+    order_id     TEXT    PRIMARY KEY,
+    user_id      INTEGER NOT NULL,
+    tier         TEXT    NOT NULL,
+    days         INTEGER NOT NULL,          -- one period, in days
+    amount       TEXT    NOT NULL,          -- roubles per charge
+    sub_id       TEXT    NOT NULL DEFAULT '',  -- id at the processor
+    status       TEXT    NOT NULL DEFAULT 'initialization',
+    charges      INTEGER NOT NULL DEFAULT 0,   -- periods we have already granted
+    last_debited TEXT    NOT NULL DEFAULT '',  -- as the processor reports it
+    next_at      TEXT    NOT NULL DEFAULT '',  -- when it charges next
+    link         TEXT    NOT NULL DEFAULT '',
+    msg_id       INTEGER,
+    checked_at   INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tier_subs_live ON tier_subs(status, checked_at);
 """
 
 REFERRAL_WINDOW = 600  # seconds after signup during which a link still counts
@@ -839,7 +861,16 @@ async def buy_tier(user_id: int, tier: str, days: int, price: int) -> int | None
     """
     if not await try_spend(user_id, price):
         return None
+    return await grant_tier(user_id, tier, days, price)
 
+
+async def grant_tier(user_id: int, tier: str, days: int, price: int = 0) -> int:
+    """Put the tier in force for that many days, without touching the balance.
+
+    Split out of buy_tier because a recurring card charge pays for exactly the
+    same thing and must extend it exactly the same way — see invoices.run_subs.
+    """
+    await ensure_user(user_id)
     user = await get_user(user_id)
     now = int(time.time())
     same = active_tier(user) == tier
@@ -856,6 +887,98 @@ async def buy_tier(user_id: int, tier: str, days: int, price: int) -> int | None
     )
     await conn().commit()
     return until
+
+
+# --- recurring tier subscriptions ----------------------------------------
+
+# Anything else is settled and never charges again.
+LIVE_SUBS = ("initialization", "active")
+
+
+async def add_tier_sub(
+    order_id: str, user_id: int, tier: str, days: int, amount: str, link: str
+) -> None:
+    await conn().execute(
+        "INSERT INTO tier_subs(order_id, user_id, tier, days, amount, link)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (order_id, user_id, tier, days, amount, link),
+    )
+    await conn().commit()
+
+
+async def set_tier_sub_msg(order_id: str, msg_id: int) -> None:
+    await conn().execute(
+        "UPDATE tier_subs SET msg_id = ? WHERE order_id = ?", (msg_id, order_id)
+    )
+    await conn().commit()
+
+
+async def live_tier_sub(user_id: int) -> aiosqlite.Row | None:
+    """The one still charging this person, if any. Two would bill them twice."""
+    async with conn().execute(
+        f"SELECT * FROM tier_subs WHERE user_id = ?"
+        f" AND status IN ({','.join('?' * len(LIVE_SUBS))})"
+        " ORDER BY created_at DESC LIMIT 1",
+        (user_id, *LIVE_SUBS),
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def get_tier_sub(order_id: str) -> aiosqlite.Row | None:
+    async with conn().execute(
+        "SELECT * FROM tier_subs WHERE order_id = ?", (order_id,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def due_tier_subs(limit: int) -> list[aiosqlite.Row]:
+    """The least recently asked-about subscriptions, oldest first."""
+    async with conn().execute(
+        f"SELECT * FROM tier_subs WHERE status IN"
+        f" ({','.join('?' * len(LIVE_SUBS))}) ORDER BY checked_at LIMIT ?",
+        (*LIVE_SUBS, limit),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def touch_tier_sub(
+    order_id: str, status: str, sub_id: str = "", next_at: str = ""
+) -> None:
+    await conn().execute(
+        "UPDATE tier_subs SET status = ?, checked_at = strftime('%s','now'),"
+        " sub_id = CASE WHEN ? != '' THEN ? ELSE sub_id END,"
+        " next_at = ? WHERE order_id = ?",
+        (status, sub_id, sub_id, next_at, order_id),
+    )
+    await conn().commit()
+
+
+async def take_tier_charge(order_id: str, debited: str) -> bool:
+    """Claim one charge for crediting. False when this one is already counted.
+
+    The processor reports when it last took money; a value we have not seen
+    before is a period the user has paid for and not yet been given. Written
+    conditionally, so a poll racing the payer's own «Проверить» pays once.
+    """
+    cur = await conn().execute(
+        "UPDATE tier_subs SET last_debited = ?, charges = charges + 1"
+        " WHERE order_id = ? AND last_debited != ?",
+        (debited, order_id, debited),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def tier_subs_totals() -> dict:
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM tier_subs WHERE status = 'active')         AS active,
+          (SELECT COUNT(*) FROM tier_subs WHERE status = 'initialization') AS waiting,
+          (SELECT COUNT(*) FROM tier_subs WHERE status = 'cancelled')      AS cancelled
+        """
+    ) as cur:
+        return dict(await cur.fetchone())
 
 
 async def use_tier_view(user_id: int, limit: int) -> bool:

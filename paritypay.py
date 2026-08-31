@@ -136,6 +136,75 @@ async def status(provider: str, invoice_id: str) -> str:
     return STATUSES.get(body.get("status", ""), UNKNOWN)
 
 
+# --- recurring subscriptions ---------------------------------------------
+
+# Their side supports 1d/1w/1m/1y; the bot sells 1, 7 and 30 days.
+INTERVALS = {1: "1d", 7: "1w", 30: "1m"}
+INTERVAL_WORDS = {"1d": "каждый день", "1w": "каждую неделю", "1m": "каждый месяц"}
+
+SUB_LIVE = ("initialization", "active")
+
+
+def interval_of(days: int) -> str:
+    """'' when the bot sells a length the processor cannot repeat."""
+    return INTERVALS.get(days, "")
+
+
+def recurring_on() -> bool:
+    """Subscriptions need the processor's own approval, so they are a switch.
+
+    Off until an admin turns it on — sending a `subscription` block before that
+    approval simply fails, and it would fail in front of a paying user.
+    """
+    return enabled() and bool(settings.get("subs_recurring"))
+
+
+async def create_subscription(
+    order_id: str, amount: str, days: int, title: str, comment: str
+) -> str:
+    """First invoice of a subscription. Returns the payment link.
+
+    Recurring charges only run over SBP at this processor — `service` is not a
+    choice here, and a card-only payer has to use the coins route instead.
+    """
+    interval = interval_of(days)
+    if not interval:
+        raise ParityError(f"{days} дней нельзя повторять — нет такого интервала")
+    body = await _call(
+        "POST",
+        "/v2/invoice/create",
+        {
+            "order_id": order_id,
+            "amount": float(amount),
+            "service": "sbp",
+            "comment": comment,
+            "expire": max(1, INVOICE_TTL // 60),
+            "subscription": {
+                "interval": interval,
+                "description": title,
+            },
+        },
+    )
+    link = body.get("link") or ""
+    if not link:
+        raise ParityError("процессинг не вернул ссылку на оплату")
+    logger.info("paritypay subscription %s: %s ₽ / %s", order_id, amount, interval)
+    return link
+
+
+async def subscription(order_id: str) -> dict:
+    """What the processor knows about it: status, and when it last took money."""
+    return await _call(
+        "GET", "/v2/subscription/status", {"shop_subscription_id": order_id}
+    )
+
+
+async def cancel_subscription(order_id: str) -> None:
+    """Stop the charges. Only an active subscription can be cancelled."""
+    await _call("POST", "/v2/subscription/cancel", {"shop_subscription_id": order_id})
+    logger.info("paritypay subscription %s cancelled", order_id)
+
+
 async def check_key() -> str:
     """A line for the panel: are the shop id and key actually good for anything."""
     if not enabled():

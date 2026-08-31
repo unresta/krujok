@@ -113,6 +113,8 @@ async def main() -> None:
     reports = asyncio.create_task(boosts.run(bot))
     # Crypto invoices are confirmed by asking, not by being told — see crypto.py.
     watcher = asyncio.create_task(invoices.run(bot))
+    # Recurring tier charges are the same story on a slower clock.
+    renewals = asyncio.create_task(invoices.run_subs(bot))
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
@@ -120,6 +122,7 @@ async def main() -> None:
         reminders.cancel()
         reports.cancel()
         watcher.cancel()
+        renewals.cancel()
         await outbox.close()  # the moderation chats' senders
         await db.close()
         await bot.session.close()

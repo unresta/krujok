@@ -891,11 +891,23 @@ def buy_cancel() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def tiers_menu() -> InlineKeyboardMarkup:
-    """One button per tier, each carrying its own price a day."""
+def tiers_menu(sub_order: str = "") -> InlineKeyboardMarkup:
+    """One button per tier, each carrying its own price a day.
+
+    A running auto-renewal gets its off switch on this same screen: the offer
+    documents promise cancelling is no harder than starting.
+    """
     import tiers
 
     kb = InlineKeyboardBuilder()
+    if sub_order:
+        kb.row(
+            InlineKeyboardButton(
+                text="🚫 Отключить автопродление",
+                callback_data=f"tsub:drop:{sub_order}",
+                style=DANGER,
+            )
+        )
     for code in tiers.ORDER:
         mark = "⭐ " if code == tiers.PRO else ""
         kb.row(
@@ -929,6 +941,70 @@ def tier_buy(code: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
     )
     return kb.as_markup()
+
+
+def tier_pay(code: str, days: int) -> InlineKeyboardMarkup:
+    """How to pay for a chosen tier and length. Auto-renewal leads when it can."""
+    import paritypay
+    import settings
+    import tiers
+
+    kb = InlineKeyboardBuilder()
+    if paritypay.recurring_on() and paritypay.interval_of(days):
+        kb.row(
+            InlineKeyboardButton(
+                text=f"🔁 С автопродлением · "
+                f"{settings.card_rubles(tiers.price_of(code, days))} ₽",
+                callback_data=f"tier:sub:{code}:{days}",
+                style=SUCCESS,
+            )
+        )
+    kb.row(
+        InlineKeyboardButton(
+            text=f"{emoji.plain(emoji.COIN)} Монетками · "
+            f"{tiers.price_of(code, days)}",
+            callback_data=f"tier:coins:{code}:{days}",
+            style=PRIMARY,
+        )
+    )
+    kb.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"tier:{code}"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
+    )
+    _legal_row(kb)
+    return kb.as_markup()
+
+
+def tier_sub_invoice(order_id: str, link: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="💳 Оплатить", url=link, style=SUCCESS))
+    b.row(
+        InlineKeyboardButton(
+            text="🔄 Проверить оплату",
+            callback_data=f"tsub:check:{order_id}",
+            style=PRIMARY,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="❌ Отменить", callback_data=f"tsub:drop:{order_id}", style=DANGER
+        )
+    )
+    return b.as_markup()
+
+
+def tier_sub_manage(order_id: str) -> InlineKeyboardMarkup:
+    """Cancelling has to be as easy as starting — see the offer documents."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🚫 Отключить автопродление",
+            callback_data=f"tsub:drop:{order_id}",
+            style=DANGER,
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К подпискам", callback_data="tier:list"))
+    return b.as_markup()
 
 
 def moderation(circle_id: int) -> InlineKeyboardMarkup:

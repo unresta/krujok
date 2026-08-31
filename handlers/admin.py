@@ -2764,11 +2764,25 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
             callback_data="a:econ:k:card_fee",
         )
     )
+    on = bool(settings.get("subs_recurring"))
+    b.row(
+        InlineKeyboardButton(
+            text=f"🔁 Автопродление подписок: {'🟢 вкл' if on else '⚪ выкл'}",
+            callback_data="a:card:subs",
+            style=kb.SUCCESS if on else None,
+        )
+    )
     b.row(InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"))
+    subs = await db.tier_subs_totals()
     await _edit(
         call,
         "💳 <b>Оплата картой</b>\n\n"
         f"ParityPay: {await paritypay.check_key()}\n\n"
+        f"🔁 Автопродление: <b>{'включено' if on else 'выключено'}</b> · "
+        f"активных {subs['active']}, ждут оплаты {subs['waiting']}\n"
+        "Списания идут через СБП — процессинг умеет повторять только их. "
+        "Включать только после согласования подписок с менеджером ParityPay: "
+        "до этого счёт с подпиской просто не создастся.\n\n"
         f"Цена: {settings.get('card_price')} коп. за монетку "
         f"+ {settings.get('card_fee')}%\n"
         f"{coins} монеток: {base // 100}.{base % 100:02d} ₽ → "
@@ -2782,6 +2796,19 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
         "способ не показывается покупателю.",
         b.as_markup(),
     )
+
+
+@router.callback_query(F.data == "a:card:subs")
+async def cb_card_subs(call: CallbackQuery, state: FSMContext) -> None:
+    """The switch that waits on ParityPay's own approval."""
+    on = not settings.get("subs_recurring")
+    await settings.set("subs_recurring", int(on))
+    logger.warning(
+        "автопродление подписок %s (%s)",
+        "включено" if on else "выключено",
+        call.from_user.id,
+    )
+    await cb_card(call, state)  # redraws the screen, and answers the tap
 
 
 @router.callback_query(F.data == "a:crypto")
