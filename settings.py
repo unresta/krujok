@@ -64,6 +64,8 @@ TEXT_DEFAULTS: dict[str, str] = {
     "circles_chat": config.CIRCLES_CHAT,
     "currency": config.CURRENCY,
     "crypto_asset": config.CRYPTO_ASSET,
+    # Empty means the ParityPay form offers whatever the shop has.
+    "card_service": "",
 }
 
 TITLES: dict[str, str] = {

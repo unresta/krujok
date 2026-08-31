@@ -2757,6 +2757,12 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
             callback_data="a:econ:k:card_price",
         )
     )
+    b.row(
+        InlineKeyboardButton(
+            text=f"🎛 Способ на форме: {paritypay.SERVICES[paritypay.service()]}",
+            callback_data="a:card:service",
+        )
+    )
     on = bool(settings.get("subs_recurring"))
     b.row(
         InlineKeyboardButton(
@@ -2782,11 +2788,24 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
         f"{int(config.INVOICE_POLL)} сек\n\n"
         "Комиссию бот сверху не добавляет: кто её платит — касса или "
         "плательщик — выбирается в личном кабинете ParityPay.\n\n"
+        "«Способ на форме» — что предложить плательщику. <b>Любой</b> отдаёт "
+        "выбор форме, и она покажет всё, что включено у кассы. Жёстко назвать "
+        "карту или СБП можно, но если этого способа у кассы нет, форма "
+        "откроется пустой — без единой кнопки.\n\n"
         "Ключи задаются в <code>.env</code>: <code>PARITYPAY_SHOP_ID</code> "
         "(UUID кассы) и <code>PARITYPAY_SECRET</code> (ключ №1). Без них "
         "способ не показывается покупателю.",
         b.as_markup(),
     )
+
+
+@router.callback_query(F.data == "a:card:service")
+async def cb_card_service(call: CallbackQuery, state: FSMContext) -> None:
+    """Cycles любой → карта → СБП → любой."""
+    order = list(paritypay.SERVICES)
+    nxt = order[(order.index(paritypay.service()) + 1) % len(order)]
+    await settings.set_text("card_service", nxt)
+    await cb_card(call, state)  # redraws the screen, and answers the tap
 
 
 @router.callback_query(F.data == "a:card:subs")

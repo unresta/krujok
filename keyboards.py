@@ -814,7 +814,7 @@ def buy_payment_method() -> InlineKeyboardMarkup:
     if paritypay.enabled():
         kb.row(
             InlineKeyboardButton(
-                text=f"{paritypay.ICON} Картой",
+                text=f"{paritypay.ICON} {paritypay.method_label()}",
                 callback_data=f"pay_method:{paritypay.PROVIDER}",
                 style=SUCCESS,
             )

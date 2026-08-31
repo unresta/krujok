@@ -70,6 +70,23 @@ def _headers() -> dict:
     }
 
 
+# What to pin the payment form to. Empty is the processor's own default and the
+# right one to ship: it offers whatever the shop actually has switched on.
+# Naming a service the shop does not have leaves the form with no methods at
+# all — the invoice is created, the page loads, and there is nothing to press.
+SERVICES = {"": "любой", "card": "только карта", "sbp": "только СБП"}
+
+
+def service() -> str:
+    raw = settings.get_text("card_service").strip().lower()
+    return raw if raw in SERVICES else ""
+
+
+def method_label() -> str:
+    """The button in the bot has to promise what the form will actually show."""
+    return {"card": "Картой", "sbp": "СБП"}.get(service(), "Картой или СБП")
+
+
 def price(coins: int) -> str:
     """Roubles the payer is charged for that many coins."""
     return settings.card_rubles(coins)
@@ -103,18 +120,16 @@ async def create(provider: str, coins: int, user_id: int) -> Invoice:
     signature matches crypto.create so invoices.py needs no special case."""
     order_id = uuid.uuid4().hex
     amount = price(coins)
-    body = await _call(
-        "POST",
-        "/v2/invoice/create",
-        {
-            "order_id": order_id,
-            "amount": float(amount),
-            "comment": f"{coins} монеток",
-            # Minutes here, seconds everywhere else in the bot.
-            "expire": max(1, INVOICE_TTL // 60),
-            "service": "card",
-        },
-    )
+    payload = {
+        "order_id": order_id,
+        "amount": float(amount),
+        "comment": f"{coins} монеток",
+        # Minutes here, seconds everywhere else in the bot.
+        "expire": max(1, INVOICE_TTL // 60),
+    }
+    if service():  # left out entirely means «пусть выбирает плательщик»
+        payload["service"] = service()
+    body = await _call("POST", "/v2/invoice/create", payload)
     link = body.get("link") or ""
     if not link:
         raise ParityError("процессинг не вернул ссылку на оплату")
