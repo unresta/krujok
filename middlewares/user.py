@@ -78,6 +78,16 @@ class UserMiddleware(BaseMiddleware):
             await self._gate(event, data["bot"], tg_user.id)
             return None
 
+        # Past the gate is what a referral is paid for, and the gate is passed
+        # here — not in a handler. Hanging the payment off /start, «Согласен»
+        # and «Я подписался» left everyone who joined the channel and then
+        # tapped anything else uncredited, with no way to notice. The row is
+        # already in hand, so this costs nothing until there is someone to pay.
+        # Exempt events skipped the check above, so they may not be through yet;
+        # their two handlers confirm it themselves.
+        if not self._exempt(event) and user["ref_by"] and not user["ref_credited"]:
+            await access.credit_referral(data["bot"], tg_user.id)
+
         # Age and the rules are confirmed once, before anything else is shown.
         if not user["accepted"] and not self._exempt(event):
             await self._welcome(event)

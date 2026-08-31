@@ -21,9 +21,9 @@ router = Router()
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
-    # Getting here means the gate let the user through, so the inviter is due.
-    await access.credit_referral(message.bot, message.from_user.id)
-    # …and a cheque they opened is now theirs to take: either straight from the
+    # The inviter was paid on the way in — the middleware does it the moment the
+    # gate opens, for every update rather than for this one handler.
+    # A cheque they opened is now theirs to take: either straight from the
     # link, or the one that waited on their row while they were at the gate.
     payload = message.text.split(maxsplit=1)[1] if " " in (message.text or "") else ""
     kind, value = access.parse_start(payload)

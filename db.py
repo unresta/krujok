@@ -912,14 +912,18 @@ async def use_free_view(user_id: int) -> bool:
 # --- referrals -----------------------------------------------------------
 
 
-async def set_referrer(user_id: int, referrer_id: int) -> bool:
+async def set_referrer(user_id: int, referrer_id: int) -> str:
     """Attach an inviter — only to a user who has none and never earned yet.
 
     Whoever came first keeps the invite: the WHERE clause makes a second /start
     with somebody else's link a no-op.
+
+    Returns why it went the way it did — «ok», or which rule turned it down.
+    A refusal is the answer to «я пригласил, а денег нет», and it used to be a
+    silent False that left nobody anything to look at.
     """
     if user_id == referrer_id:
-        return False
+        return "self"
     await ensure_user(user_id)
     await ensure_user(referrer_id)
     cur = await conn().execute(
@@ -931,7 +935,20 @@ async def set_referrer(user_id: int, referrer_id: int) -> bool:
         (referrer_id, user_id, REFERRAL_WINDOW),
     )
     await conn().commit()
-    return cur.rowcount > 0
+    if cur.rowcount:
+        return "ok"
+
+    async with conn().execute(
+        "SELECT ref_by, created_at < strftime('%s','now') - ? AS old"
+        " FROM users WHERE id = ?",
+        (REFERRAL_WINDOW, user_id),
+    ) as inner:
+        row = await inner.fetchone()
+    if row is None:
+        return "gone"
+    if row["ref_by"] is not None:
+        return "already" if row["ref_by"] != referrer_id else "same"
+    return "old" if row["old"] else "no"
 
 
 async def take_referral(user_id: int) -> int | None:

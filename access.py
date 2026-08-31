@@ -275,12 +275,30 @@ def campaign_link(code: str) -> str:
     return f"https://t.me/{bot_username}?start={code}"
 
 
+# Why a link did not attach, in words an admin can answer a complaint with.
+REFERRAL_REFUSED = {
+    "self": "ссылка своя же",
+    "already": "у него уже был другой пригласивший",
+    "same": "этот пригласивший уже записан",
+    "old": f"аккаунт старше {db.REFERRAL_WINDOW // 60} мин — он уже был в боте",
+    "gone": "строки пользователя нет",
+    "no": "не прошёл по условиям",
+}
+
+
 async def remember_referrer(user_id: int, payload: str) -> None:
     referrer = parse_payload(payload)
     if referrer is None or referrer == user_id:
         return
-    if await db.set_referrer(user_id, referrer):
+    result = await db.set_referrer(user_id, referrer)
+    if result == "ok":
         logger.info("referral: %s invited by %s", user_id, referrer)
+        return
+    # The commonest support question there is, and it had no trace in the log.
+    logger.info(
+        "referral: ссылка %s не засчитана для %s — %s",
+        referrer, user_id, REFERRAL_REFUSED.get(result, result),
+    )
 
 
 async def credit_referral(bot: Bot, user_id: int) -> None:
