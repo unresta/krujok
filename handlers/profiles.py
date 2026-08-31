@@ -840,10 +840,15 @@ async def mp_bought(call: CallbackQuery) -> None:
         # here, and their id stays where it belongs — in the callback.
         profile = await db.get_profile(author_id)
         who = kb.PERSON_TITLE(profile["gender"]) if profile else texts.AUTHOR_NO_PROFILE
+        # The line goes into message text and the button label into a button:
+        # the same name, but only one of the two renders HTML.
+        on_button = (
+            kb.PERSON_BUTTON(profile["gender"]) if profile else texts.AUTHOR_NO_PROFILE
+        )
         text_lines.append(texts.bought_row(index, who, count))
         buttons.append(
             InlineKeyboardButton(
-                text=f"{index}. {who} · {count}",
+                text=f"{index}. {on_button} · {count}",
                 callback_data=f"pf:show:{author_id}",
                 style=PRIMARY,
             )

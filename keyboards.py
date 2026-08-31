@@ -38,7 +38,17 @@ PERSON_LABEL = {"f": "Девушка", "m": "Парень"}
 
 
 def PERSON_TITLE(gender: str) -> str:
+    """For message text, where HTML is parsed and a custom emoji renders."""
     return f"{emoji.text(GENDER_EMOJI[gender])} {PERSON_LABEL[gender]}"
+
+
+def PERSON_BUTTON(gender: str) -> str:
+    """The same for a button label, where it is not.
+
+    A button carries plain text: put the HTML form on one and the reader gets
+    the tag itself, angle brackets and all.
+    """
+    return f"{emoji.plain(GENDER_EMOJI[gender])} {PERSON_LABEL[gender]}"
 
 
 def PREF_TITLE(pref: str) -> str:
