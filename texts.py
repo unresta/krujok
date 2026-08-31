@@ -419,7 +419,18 @@ CIRCLE_REJECT_REASONS = {
     "ads": "реклама, ссылки или контакты в кадре",
     "stolen": "чужой кружок, не свой",
     "rules": "нарушает правила сервиса",
+    "unfit": "не подходит",
 }
+
+# Reasons that take the circle out of the base rather than off the shelf. A
+# rejected circle is only hidden — the file stays, and a changed mind brings it
+# back. There is nothing here worth keeping or changing one's mind about.
+CIRCLE_REJECT_DELETES = {"minor"}
+CIRCLE_DELETED = "🔴 Твой кружок удалён.{reason}"
+
+
+def circle_deleted(reason: str = "") -> str:
+    return _fmt("CIRCLE_DELETED", CIRCLE_DELETED, reason=circle_reason_tail(reason))
 
 # Circles also leave rotation without a moderation card — by complaints, or from
 # the panel. Those verdicts get a reason too, or «Мои кружки» would show a circle

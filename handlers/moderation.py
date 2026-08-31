@@ -1,4 +1,5 @@
 import html
+import logging
 from contextlib import suppress
 
 from aiogram import F, Router
@@ -14,6 +15,8 @@ import settings
 from config import ADMIN_CHAT_ID, ADMIN_IDS
 
 router = Router()
+
+logger = logging.getLogger(__name__)
 
 REASON_MIN, REASON_MAX = 3, 200
 
@@ -80,10 +83,12 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer()
         return
 
-    reason = texts.CIRCLE_REJECT_REASONS.get(parts[2], "") if verdict == "r" else ""
+    key = parts[2] if verdict == "r" else ""
+    reason = texts.CIRCLE_REJECT_REASONS.get(key, "")
     status = "approved" if verdict == "ok" else "rejected"
+    purge = key in texts.CIRCLE_REJECT_DELETES
 
-    mark = await _decide(call.bot, circle, status, call.from_user.id, reason)
+    mark = await _decide(call.bot, circle, status, call.from_user.id, reason, purge)
     if mark is None:
         await call.answer("Уже с таким решением.", show_alert=True)
         with suppress(TelegramAPIError):
@@ -96,7 +101,8 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.edit_text(
             f"{_card_body(call.message.html_text)}\n\n"
             f"{_verdict_line(mark, reason, call.from_user)}",
-            reply_markup=kb.circle_decided(circle_id),
+            # A deleted circle has nothing left to change one's mind about.
+            reply_markup=None if purge else kb.circle_decided(circle_id),
         )
     await call.answer(mark)
 
@@ -135,12 +141,31 @@ async def got_reason(message: Message, state: FSMContext) -> None:
     await message.answer(f"{mark} · {reason}")
 
 
-async def _decide(bot, circle, status: str, admin_id: int, reason: str) -> str | None:
+async def _decide(
+    bot, circle, status: str, admin_id: int, reason: str, purge: bool = False
+) -> str | None:
     """Apply the verdict and tell the author. None when nothing moved.
 
     The reason travels with the verdict: the author reads it in the message and
-    finds it again later under the circle in «Мои кружки».
+    finds it again later under the circle in «Мои кружки» — unless the verdict
+    was one that removes the circle, and there is no «Мои кружки» left for it.
     """
+    if purge:
+        # Rejection only hides a circle; this takes it out of the base, along
+        # with its views, reactions and complaints.
+        if not await db.delete_circle(circle["id"]):
+            return None
+        logger.warning(
+            "кружок #%s удалён при проверке модератором %s: %s",
+            circle["id"], admin_id, reason,
+        )
+        if circle["uploader_id"]:
+            with suppress(TelegramAPIError):
+                await bot.send_message(
+                    circle["uploader_id"], texts.circle_deleted(reason)
+                )
+        return "🔴 удалён"
+
     changed, pay = await db.decide_circle(circle["id"], status, admin_id, reason)
     if not changed:
         return None

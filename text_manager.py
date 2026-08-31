@@ -434,6 +434,11 @@ EDITABLE: dict[str, Item] = {
     "CIRCLE_REASON_TAIL": Item(
         "…строка с причиной отказа", "Загрузка", vars={"reason": "текст причины"}
     ),
+    "CIRCLE_DELETED": Item(
+        "Кружок удалён при проверке",
+        "Загрузка",
+        vars={"reason": "причина, если её указали"},
+    ),
     "EARNED_TOAST": Item(
         "Кружок посмотрели", "Просмотр", vars={"amount": "сколько начислили"}
     ),
@@ -950,6 +955,7 @@ _COMPOSED = {
     ("PROFILE_REVERTED", "reason"): "PROFILE_REASON_TAIL",
     ("PROFILE_REJECTED", "reason"): "PROFILE_REASON_TAIL",
     ("REJECTED", "reason"): "CIRCLE_REASON_TAIL",
+    ("CIRCLE_DELETED", "reason"): "CIRCLE_REASON_TAIL",
     ("PROFILE_STATUS", "status"): "STATUS_APPROVED",
     ("PROFILE_STATUS", "contact"): "CONTACT_NOT_SOLD",
     ("PROFILE_CARD", "contact"): "CONTACT_NOT_SOLD",
