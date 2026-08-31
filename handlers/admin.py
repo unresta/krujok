@@ -2771,12 +2771,30 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
             style=kb.SUCCESS if on else None,
         )
     )
-    b.row(InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"))
+    b.row(
+        InlineKeyboardButton(text="🔄 Обновить", callback_data="a:card"),
+        InlineKeyboardButton(text="⬅️ К платежам", callback_data="a:pay"),
+    )
     subs = await db.tier_subs_totals()
+    verdict, money = await paritypay.shop_state()
+    # The number the owner actually opens this screen for goes above everything
+    # the screen explains.
+    purse = ""
+    if money is not None:
+        currency = money.get("currency", "")
+        held = money.get("balance_hold") or 0
+        purse = (
+            f"💰 <b>Баланс кассы: {paritypay.money(money.get('balance', 0))} "
+            f"{currency}</b>\n"
+        )
+        if held:
+            purse += f"🧊 В заморозке: {paritypay.money(held)} {currency}\n"
+        purse += "\n"
     await _edit(
         call,
         "💳 <b>Оплата картой</b>\n\n"
-        f"ParityPay: {await paritypay.check_key()}\n\n"
+        + purse
+        + f"ParityPay: {verdict}\n\n"
         f"🔁 Автопродление: <b>{'включено' if on else 'выключено'}</b> · "
         f"активных {subs['active']}, ждут оплаты {subs['waiting']}\n"
         "Списания идут через СБП — процессинг умеет повторять только их. "

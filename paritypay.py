@@ -220,24 +220,47 @@ async def cancel_subscription(order_id: str) -> None:
     logger.info("paritypay subscription %s cancelled", order_id)
 
 
-async def check_key() -> str:
-    """A line for the panel: are the shop id and key actually good for anything."""
-    if not enabled():
-        return "⚪ ключей нет"
+async def balance() -> dict:
+    """Available and held funds. The one call that proves the keys work too."""
+    return await _call("GET", "/v2/shop/balance")
+
+
+KEY_PROBLEM = (
+    "🔴 касса не принимает ключи.\n"
+    "X-ShopId — это UUID кассы, X-SecretKey — ключ №1 из настроек кассы в "
+    "личном кабинете (не ключ №2, он только для вебхуков). И проверь, что "
+    "контейнер перезапущен после правки .env."
+)
+
+
+def money(value) -> str:
+    """«154300.25» -> «154 300.25». Long numbers are read, not counted."""
     try:
-        body = await _call("GET", "/v2/shop/balance")
+        whole, _, cents = f"{float(value):.2f}".partition(".")
+    except (TypeError, ValueError):
+        return str(value)
+    groups = []
+    while len(whole) > 3:
+        whole, tail = whole[:-3], whole[-3:]
+        groups.insert(0, tail)
+    groups.insert(0, whole)
+    return f"{' '.join(groups)}.{cents}"
+
+
+async def shop_state() -> tuple[str, dict | None]:
+    """(verdict for the panel, balance) — one request answers both questions."""
+    if not enabled():
+        return "⚪ ключей нет", None
+    try:
+        body = await balance()
     except ParityError as error:
         text = str(error)
         if text.startswith(("400", "401", "403")):
-            return (
-                "🔴 касса не принимает ключи.\n"
-                "X-ShopId — это UUID кассы, X-SecretKey — ключ №1 из настроек "
-                "кассы в личном кабинете (не ключ №2, он только для вебхуков). "
-                "И проверь, что контейнер перезапущен после правки .env."
-            )
-        return f"🟡 процессинг не отвечает: {text[:120]}"
-    return (
-        f"🟢 подключено · баланс {body.get('balance', '?')} "
-        f"{body.get('currency', '')}"
-        + (f" · в заморозке {body['balance_hold']}" if body.get("balance_hold") else "")
-    )
+            return KEY_PROBLEM, None
+        return f"🟡 процессинг не отвечает: {text[:120]}", None
+    return "🟢 подключено", body
+
+
+async def check_key() -> str:
+    """Just the verdict, for callers that do not show the money."""
+    return (await shop_state())[0]
