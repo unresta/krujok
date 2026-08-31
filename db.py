@@ -1,4 +1,18 @@
-"""SQLite layer. Every coin move goes through here so balances stay atomic."""
+"""SQLite layer. Every coin move goes through here so balances stay atomic.
+
+One connection is shared by every coroutine, and that is what decides how
+transactions are handled here. Left to itself, sqlite3 opens a transaction on
+the first write and holds it until commit(); meanwhile another coroutine opens
+a SELECT cursor, and between its fetch and its close there is an await. A
+commit landing in that window dies with «cannot commit transaction — SQL
+statements in progress», and it takes an unrelated handler down with it.
+
+So the connection runs in autocommit (`isolation_level=None`): every statement
+lands on its own, no transaction is ever left open, and commit() has nothing to
+trip over. Nothing is lost by it — the code already committed once per function
+and never held a transaction across them, and every operation money depends on
+is a single conditional UPDATE, which is atomic on its own either way.
+"""
 
 from __future__ import annotations
 
@@ -481,7 +495,9 @@ MIGRATIONS = {
 
 async def connect() -> None:
     global _db
-    _db = await aiosqlite.connect(DB_PATH)
+    # Autocommit — see the module docstring. Without it a commit can land while
+    # another coroutine's cursor is still open, and it fails for both of them.
+    _db = await aiosqlite.connect(DB_PATH, isolation_level=None)
     _db.row_factory = aiosqlite.Row
     # SQLite's own lower() only folds ASCII, so «Аня» would never match «аня».
     await _db.create_function(
