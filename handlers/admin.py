@@ -3669,6 +3669,12 @@ async def cb_cp_new(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
+def _custom_emoji(message: Message) -> int:
+    """How many premium emoji the composed post carries."""
+    entities = (message.entities or []) + (message.caption_entities or [])
+    return sum(1 for e in entities if e.type == "custom_emoji")
+
+
 @router.message(Admin.chanpost_body, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_cp_body(message: Message, state: FSMContext) -> None:
     await state.set_state(Admin.chanpost_button)
@@ -3677,6 +3683,7 @@ async def got_cp_body(message: Message, state: FSMContext) -> None:
         msg_id=message.message_id,
         # A forwarded post keeps its link buttons; those carry over as they are.
         markup=posts.keep_markup(message.reply_markup),
+        emoji=_custom_emoji(message),
     )
     await _cp_preview(message, await state.get_data())
 
@@ -3688,11 +3695,23 @@ async def _cp_preview(message: Message, data: dict) -> None:
     if data.get("markup"):
         markup = InlineKeyboardMarkup.model_validate_json(data["markup"])
         labels = [b.text for row in markup.inline_keyboard for b in row]
+    # Premium emoji travel with the copy, but whether a channel renders them is
+    # Telegram's call, not ours — so the count is shown and the condition said
+    # out loud rather than discovered on a published post.
+    count = data.get("emoji") or 0
+    emoji_line = ""
+    if count:
+        emoji_line = (
+            f"\nПремиум-эмодзи: {count} — в канал уходят вместе с постом, "
+            "но покажутся, только если у бота куплен юзернейм на Fragment. "
+            "Иначе читатель увидит обычные эмодзи вместо них."
+        )
     await message.answer(
         "📤 <b>Готов к публикации</b>\n\n"
         f"Куда: <code>{html.escape(where)}</code>\n"
-        f"Кнопки: {' · '.join(html.escape(t) for t in labels) or 'нет'}\n\n"
-        "Пост — сообщение выше. Проверь и жми «Опубликовать».",
+        f"Кнопки: {' · '.join(html.escape(t) for t in labels) or 'нет'}"
+        + emoji_line
+        + "\n\nПост — сообщение выше. Проверь и жми «Опубликовать».",
         reply_markup=_cp_kb(data),
     )
 
@@ -3765,8 +3784,14 @@ async def cb_cp_go(call: CallbackQuery, state: FSMContext) -> None:
         await _edit(
             call,
             f"🔴 <b>Пост не ушёл</b>\n\n<code>{html.escape(str(error))[:300]}</code>\n\n"
-            "Чаще всего это значит, что бот не админ канала или не может "
-            "там публиковать.",
+            + (
+                "Похоже на премиум-эмодзи: в канал их может слать только бот "
+                "с купленным на Fragment юзернеймом. Убери их из поста и "
+                "попробуй снова."
+                if "emoji" in str(error).lower() or "entit" in str(error).lower()
+                else "Чаще всего это значит, что бот не админ канала или не "
+                "может там публиковать."
+            ),
             back_kb([InlineKeyboardButton(text="⬅️ Назад", callback_data="a:cp")]),
         )
         return
