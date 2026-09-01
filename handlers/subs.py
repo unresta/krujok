@@ -166,8 +166,10 @@ async def buy(call: CallbackQuery, state: FSMContext) -> None:
         return
 
     await call.answer(texts.BOUGHT_TOAST)
-    await call.message.answer(texts.tier_bought(code, days, price, until))
-    await ui.render_menu(call.message, call.from_user.id)
+    await call.bot.send_message(
+        call.from_user.id, texts.tier_bought(code, days, price, until)
+    )
+    await ui.render_menu(call, call.from_user.id)
 
 
 @router.callback_query(F.data.startswith("tier:"))

@@ -11,7 +11,7 @@ import logging
 from contextlib import suppress
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -35,6 +35,49 @@ router = Router()
 
 CIRCLES_PER_BATCH = 10  # sent per tap, so a big catalogue does not hit the limit
 SEND_PAUSE = 0.3
+
+
+async def _send_circles(bot, user_id: int, circles, markup=None) -> int:
+    """A batch of circles into one private chat. Returns how many landed.
+
+    Every send used to sit inside `suppress(TelegramAPIError)`, so a batch that
+    Telegram refused looked exactly like a batch it delivered: the toast said
+    «Отправляю 7», nothing arrived, and no line went anywhere. Two things come
+    out of that — a flood limit is waited out instead of thrown away, and
+    whatever is still lost is counted, logged and told to the user.
+    """
+    landed = 0
+    for circle in circles:
+        try:
+            await bot.send_video_note(
+                user_id,
+                circle["file_id"],
+                protect_content=True,
+                reply_markup=markup(circle) if markup else None,
+            )
+            landed += 1
+        except TelegramRetryAfter as error:
+            # Ten circles in a row is enough to trip the per-chat limit on its
+            # own. Waiting it out is the difference between all of them and none.
+            await asyncio.sleep(error.retry_after + 1)
+            try:
+                await bot.send_video_note(
+                    user_id,
+                    circle["file_id"],
+                    protect_content=True,
+                    reply_markup=markup(circle) if markup else None,
+                )
+                landed += 1
+            except TelegramAPIError as second:
+                logger.warning(
+                    "кружок #%s не дошёл до %s: %s", circle["id"], user_id, second
+                )
+        except TelegramAPIError as error:
+            logger.warning(
+                "кружок #%s не дошёл до %s: %s", circle["id"], user_id, error
+            )
+        await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
+    return landed
 
 
 class Review(StatesGroup):
@@ -851,21 +894,23 @@ async def own_circles(call: CallbackQuery) -> None:
         await call.answer(texts.MY_CIRCLES_STATUS_EMPTY, show_alert=True)
         return
 
-    await call.answer(texts.sending_circles(min(len(circles), CIRCLES_PER_BATCH)))
+    batch = circles[:CIRCLES_PER_BATCH]
+    await call.answer(texts.sending_circles(len(batch)))
     if not offset:  # the header belongs to the list, not to every batch of it
-        await call.message.answer(texts.MY_CIRCLES_STATUS[status])
-    for circle in circles[:CIRCLES_PER_BATCH]:
-        with suppress(TelegramAPIError):
-            await call.bot.send_video_note(
-                call.from_user.id,
-                circle["file_id"],
-                protect_content=True,
-                reply_markup=kb.my_circle(circle["id"]),
-            )
-        await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
+        await call.bot.send_message(
+            call.from_user.id, texts.MY_CIRCLES_STATUS[status]
+        )
+    sent = await _send_circles(
+        call.bot, call.from_user.id, batch, lambda c: kb.my_circle(c["id"])
+    )
+    if sent < len(batch):
+        await call.bot.send_message(
+            call.from_user.id, texts.circles_lost(sent, len(batch))
+        )
 
     rest = circles[CIRCLES_PER_BATCH:]
-    await call.message.answer(
+    await call.bot.send_message(
+        call.from_user.id,
         texts.my_circles_more(len(rest)) if rest else texts.MY_CIRCLES_DONE,
         reply_markup=kb.my_circles_nav(
             status, offset + CIRCLES_PER_BATCH if rest else None
@@ -974,7 +1019,7 @@ async def open_card(call: CallbackQuery) -> None:
     )
 
 
-async def open_by_link(bot, viewer_id: int, author_id: int, origin: Message) -> bool:
+async def open_by_link(bot, viewer_id: int, author_id: int) -> bool:
     """The card somebody came for, straight from the author's own link.
 
     Not marked as seen: the visitor was brought here by the author, not by the
@@ -983,10 +1028,10 @@ async def open_by_link(bot, viewer_id: int, author_id: int, origin: Message) -> 
     """
     profile = await db.get_profile(author_id)
     if profile is None or profile["status"] != "approved":
-        await origin.answer(texts.PROFILE_LINK_GONE)
+        await bot.send_message(viewer_id, texts.PROFILE_LINK_GONE)
         return False
     if author_id == viewer_id:
-        await origin.answer(texts.PROFILE_LINK_OWN)
+        await bot.send_message(viewer_id, texts.PROFILE_LINK_OWN)
         return False
 
     await db.count_link_hit(author_id)
@@ -1173,17 +1218,18 @@ async def show_circles(call: CallbackQuery) -> None:
         await call.answer(texts.AUTHOR_EMPTY, show_alert=True)
         return
 
-    await call.answer(texts.sending_circles(min(len(circles), CIRCLES_PER_BATCH)))
-    for circle in circles[:CIRCLES_PER_BATCH]:
-        with suppress(TelegramAPIError):
-            await call.bot.send_video_note(
-                call.from_user.id, circle["file_id"], protect_content=True
-            )
-        await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
+    batch = circles[:CIRCLES_PER_BATCH]
+    await call.answer(texts.sending_circles(len(batch)))
+    sent = await _send_circles(call.bot, call.from_user.id, batch)
+    if sent < len(batch):
+        await call.bot.send_message(
+            call.from_user.id, texts.circles_lost(sent, len(batch))
+        )
 
     rest = circles[CIRCLES_PER_BATCH:]
     if rest:
-        await call.message.answer(
+        await call.bot.send_message(
+            call.from_user.id,
             texts.more_circles(len(rest)),
             reply_markup=kb.more_circles(author_id, offset + CIRCLES_PER_BATCH),
         )

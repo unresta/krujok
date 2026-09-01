@@ -24,7 +24,6 @@ from aiogram.types import (
     InlineQueryResultArticle,
     InlineQueryResultsButton,
     InputTextMessageContent,
-    Message,
 )
 
 import db
@@ -118,35 +117,41 @@ async def posted(chosen: ChosenInlineResult) -> None:
         await db.drop_stale_cheques()
 
 
-async def redeem(bot: Bot, user_id: int, code: str, message: Message) -> bool:
-    """Hand over the coins, or say why not. True when they were handed over."""
+async def redeem(bot: Bot, user_id: int, code: str) -> bool:
+    """Hand over the coins, or say why not. True when they were handed over.
+
+    Written straight into the user's chat rather than as a reply: a cheque is
+    often taken from a button on a two-day-old gate message, and Telegram hands
+    those to us as an `InaccessibleMessage` that cannot be answered.
+    """
     cheque = await db.get_cheque(code)
     if cheque is None:
-        await message.answer(texts.CHEQUE_GONE)
+        await bot.send_message(user_id, texts.CHEQUE_GONE)
         return False
     if await db.has_claimed(code, user_id):
-        await message.answer(texts.CHEQUE_TAKEN)
+        await bot.send_message(user_id, texts.CHEQUE_TAKEN)
         return False
     if not cheque["active"] or cheque["used"] >= cheque["total"]:
-        await message.answer(texts.CHEQUE_EMPTY)
+        await bot.send_message(user_id, texts.CHEQUE_EMPTY)
         return False
 
     if cheque["kind"] == REFS:
         done, _ = await db.referral_counts(user_id)
         if done < cheque["min_refs"]:
-            await message.answer(
+            await bot.send_message(
+                user_id,
                 texts.cheque_needs_refs(cheque["min_refs"], done),
                 reply_markup=kb.referrals(_link(user_id)),
             )
             return False
 
     if not await db.claim_cheque(code, user_id):  # someone took the last one
-        await message.answer(texts.CHEQUE_EMPTY)
+        await bot.send_message(user_id, texts.CHEQUE_EMPTY)
         return False
 
     await db.add_coins(user_id, cheque["coins"])
     balance = (await db.get_user(user_id))["coins"]
-    await message.answer(texts.cheque_claimed(cheque["coins"], balance))
+    await bot.send_message(user_id, texts.cheque_claimed(cheque["coins"], balance))
     logger.info("cheque %s claimed by %s (+%s)", code, user_id, cheque["coins"])
     return True
 

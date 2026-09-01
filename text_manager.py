@@ -558,6 +558,11 @@ EDITABLE: dict[str, Item] = {
     "SENDING_CIRCLES": Item(
         "Отправляю кружочки", "Покупки", plain=True, vars={"count": "сколько"}
     ),
+    "CIRCLES_LOST": Item(
+        "Часть кружочков не дошла",
+        "Покупки",
+        vars={"sent": "сколько дошло", "total": "сколько отправляли"},
+    ),
     "CONTACT_NOT_FOR_SALE": Item("Личка не продаётся", "Покупки", plain=True),
     "NOTHING_TO_SELL": Item("У автора нет кружочков", "Покупки", plain=True),
     "ALREADY_BOUGHT": Item("Уже куплено", "Покупки", plain=True),

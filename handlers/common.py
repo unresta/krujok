@@ -31,22 +31,22 @@ async def start(message: Message, state: FSMContext) -> None:
         message.from_user.id
     )
     if code:
-        await cheques.redeem(message.bot, message.from_user.id, code, message)
+        await cheques.redeem(message.bot, message.from_user.id, code)
     # A welcome post is shown before the menu and only ever once per person.
     await posts.show_welcome(message.bot, message.from_user.id)
     await ui.render_menu(message, message.from_user.id)
     # Somebody who came for one author's card gets it last, so it stays on
     # screen with its buy buttons instead of the menu.
-    await open_pending_profile(message.bot, message.from_user.id, message)
+    await open_pending_profile(message.bot, message.from_user.id)
 
 
-async def open_pending_profile(bot, user_id: int, origin: Message) -> None:
+async def open_pending_profile(bot, user_id: int) -> None:
     """The profile they arrived for, once the gate and the rules are behind."""
     from handlers import profiles
 
     author_id = await db.take_pending_profile(user_id)
     if author_id:
-        await profiles.open_by_link(bot, user_id, author_id, origin)
+        await profiles.open_by_link(bot, user_id, author_id)
 
 
 @router.callback_query(F.data == "accept")
@@ -55,24 +55,28 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
     first_time = await db.accept_rules(call.from_user.id)
     await access.credit_referral(call.bot, call.from_user.id)
     await call.answer(texts.ACCEPTED)
-    with suppress(TelegramAPIError):
-        await call.message.edit_reply_markup(reply_markup=None)
+    # The rules can sit unanswered for days, and by then Telegram no longer
+    # lets us touch that message — see ui.live.
+    message = ui.live(call)
+    if message is not None:
+        with suppress(TelegramAPIError):
+            await message.edit_reply_markup(reply_markup=None)
 
     bonus = settings.get("welcome_bonus")
     if first_time and bonus:  # granted once, on the flip from 0 to 1
         await db.add_coins(call.from_user.id, bonus)
-        await call.message.answer(texts.welcome_bonus(bonus))
+        await call.bot.send_message(call.from_user.id, texts.welcome_bonus(bonus))
 
-    await ui.render_menu(call.message, call.from_user.id)
+    await ui.render_menu(call, call.from_user.id)
 
     # The first circle comes on its own, and on the house — this is the first
     # moment the bot is allowed to show one, since the age was just confirmed.
     # It goes after the menu so the circle, with its own buttons, stays last.
     if first_time and settings.get("welcome_circle"):
         await db.grant_free_views(call.from_user.id, 1)
-        await watch.serve(call.bot, call.from_user.id, call.message, notice=False)
+        await watch.serve(call.bot, call.from_user.id, notice=False)
 
-    await open_pending_profile(call.bot, call.from_user.id, call.message)
+    await open_pending_profile(call.bot, call.from_user.id)
 
 
 @router.message(Command("menu", "cancel"))
@@ -90,11 +94,14 @@ async def close_screen(call: CallbackQuery, state: FSMContext) -> None:
     """
     await state.clear()
     await call.answer()
+    message = ui.live(call)
+    if message is None:  # older than two days: not ours to close any more
+        return
     try:
-        await call.message.delete()
-    except TelegramAPIError:  # older than 48h, or already gone
+        await message.delete()
+    except TelegramAPIError:  # already gone
         with suppress(TelegramAPIError):
-            await call.message.edit_reply_markup(reply_markup=None)
+            await message.edit_reply_markup(reply_markup=None)
 
 
 @router.message(F.text.startswith("/stat_"))

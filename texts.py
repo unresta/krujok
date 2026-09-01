@@ -1502,6 +1502,19 @@ def sending_circles(count: int) -> str:
     return _fmt("SENDING_CIRCLES", SENDING_CIRCLES, count=count)
 
 
+# «Отправляю 7» and then nothing is the worst thing this screen can do: the
+# promise was made in a toast that disappears, so the shortfall has to be said
+# out loud, with the button to try again.
+CIRCLES_LOST = (
+    "⚠️ Дошло {sent} из {total}.\n\n"
+    "Остальные Telegram не пропустил — жми кнопку ещё раз через минуту."
+)
+
+
+def circles_lost(sent: int, total: int) -> str:
+    return _fmt("CIRCLES_LOST", CIRCLES_LOST, sent=sent, total=total)
+
+
 # The author's telegram id has no business here: the buyer paid for circles, and
 # an id is enough to look a person up. Only a bought contact opens the username.
 AUTHOR_NO_PROFILE = "Автор без анкеты"

@@ -29,7 +29,7 @@ _last_tap: dict[int, float] = {}
 @router.message(F.text == kb.BTN_WATCH)
 async def watch_button(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await serve(message.bot, message.from_user.id, message)
+    await serve(message.bot, message.from_user.id)
 
 
 @router.callback_query(F.data == "watch")
@@ -45,15 +45,21 @@ async def watch_callback(call: CallbackQuery, state: FSMContext) -> None:
     # The buttons under a watched circle stay, but only the newest one works.
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(reply_markup=None)
-    await serve(call.bot, call.from_user.id, call.message)
+    await serve(call.bot, call.from_user.id)
 
 
-async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None:
+async def serve(bot, user_id: int, notice: bool = True) -> None:
     """Charge, send one circle, pay its author.
 
     `notice` is what tells a user the circle was on the house — true for the
     reminder's gift, false for the welcome one, where «последний бесплатный»
     would only confuse someone who still has their starting coins.
+
+    Everything here goes to the user's own chat by id rather than as a reply to
+    whatever they tapped. A callback older than two days arrives with an
+    `InaccessibleMessage` in place of the message — it has no `answer`, and
+    replying through it took the whole feed down for anyone who came back to an
+    old circle.
     """
     user = await db.get_user(user_id)
     cost = settings.get("watch_cost")
@@ -65,7 +71,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
     if circle is None:
         # Nothing left of this type is not a money problem: offer the switch the
         # text itself points at.
-        await origin.answer(texts.EMPTY, reply_markup=kb.empty_feed(user["pref"]))
+        await bot.send_message(
+            user_id, texts.EMPTY, reply_markup=kb.empty_feed(user["pref"])
+        )
         return
 
     # Buying an author's profile makes their circles free for that viewer, then
@@ -80,7 +88,7 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         # A+ ran out its allowance for today. The feed still works, it just
         # costs again — and saying why is better than silently charging.
         with suppress(TelegramAPIError):
-            await origin.answer(texts.tier_limit_hit(limit))
+            await bot.send_message(user_id, texts.tier_limit_hit(limit))
 
     on_the_house = (
         not free and not on_subscription and await db.use_free_view(user_id)
@@ -90,7 +98,9 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
     # fails has to return earnings as earnings.
     from_earned = 0 if free else db.earned_share(user, cost)
     if not free and not await db.try_spend(user_id, cost):  # raced with another tap
-        await origin.answer(texts.not_enough(user["coins"]), reply_markup=kb.no_coins())
+        await bot.send_message(
+            user_id, texts.not_enough(user["coins"]), reply_markup=kb.no_coins()
+        )
         return
 
     author = circle["uploader_id"]
@@ -120,7 +130,7 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
             await db.grant_free_views(user_id, 1)
         elif not free:  # nothing delivered, nothing charged
             await db.give_back(user_id, cost, from_earned)
-        await origin.answer(texts.SEND_FAILED)
+        await bot.send_message(user_id, texts.SEND_FAILED)
         return
 
     await db.mark_viewed(user_id, circle["id"])
@@ -129,14 +139,14 @@ async def serve(bot, user_id: int, origin: Message, notice: bool = True) -> None
         # reminder's promise of free views is invisible.
         left = (await db.get_user(user_id))["free_views"]
         with suppress(TelegramAPIError):
-            await origin.answer(texts.free_view_left(left))
+            await bot.send_message(user_id, texts.free_view_left(left))
     elif on_subscription and limit and notice:
         # A daily allowance is worth mentioning only as it runs out — a counter
         # under every one of a hundred circles is noise.
         left = db.tier_views_left(await db.get_user(user_id), limit)
         if left <= LOW_ALLOWANCE:
             with suppress(TelegramAPIError):
-                await origin.answer(texts.tier_views_left(left))
+                await bot.send_message(user_id, texts.tier_views_left(left))
     if not free:  # a free view was already paid for when the profile was bought
         await _pay_author(bot, circle, settings.get("view_payout"), texts.earned_toast)
     # The ad break comes after the circle it was earned by, never instead of it.
