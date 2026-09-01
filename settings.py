@@ -43,6 +43,7 @@ DEFAULTS: dict[str, int] = {
     "stars_per_usd": config.STARS_PER_USD,
     "usdt_rate": config.USDT_RATE,
     "card_price": config.CARD_PRICE,
+    "card_bonus": config.CARD_BONUS,
     "subs_recurring": 0,
     "topup_min": config.TOPUP_MIN,
     "promo_enabled": config.PROMO_ENABLED,
@@ -102,6 +103,7 @@ TITLES: dict[str, str] = {
     "stars_per_usd": "Звёзд за 1 $ (курс TG)",
     "usdt_rate": "Монеток за 1 USDT",
     "card_price": "Копеек за 1 монетку (карта)",
+    "card_bonus": "Бонус за оплату картой, %",
     "subs_recurring": "Автопродление подписок, 0/1",
     "topup_min": "Минимум докупки, монеток",
     "promo_every_circles": "Показ раз в N кружков",
@@ -135,6 +137,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "stars_per_usd",
         "usdt_rate",
         "card_price",
+        "card_bonus",
     ),
     "💎 Автопродление": ("subs_recurring",),
     "💸 Вывод": ("payout_min", "payout_rate"),
@@ -190,6 +193,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "stars_per_usd": (1, 100_000),
     "usdt_rate": (1, 1_000_000),
     "card_price": (1, 1_000_000),
+    "card_bonus": (0, 100),
     "subs_recurring": (0, 1),
     "topup_min": (1, 10_000),
     "promo_enabled": (0, 1),
@@ -313,6 +317,20 @@ def card_kopecks(coins: int) -> int:
     percentage on this side would charge for it twice.
     """
     return coins * _values["card_price"]
+
+
+def card_bonus(coins: int) -> int:
+    """Coins thrown in on top for paying by card — nothing extra is charged.
+
+    Rounded down, so a bonus below a whole coin is simply none: a percentage of
+    a small purchase is not worth a line in the invoice.
+    """
+    return coins * _values["card_bonus"] // 100
+
+
+def card_total(coins: int) -> int:
+    """What a card payer ends up with: what they paid for, plus the bonus."""
+    return coins + card_bonus(coins)
 
 
 def card_rubles(coins: int) -> str:

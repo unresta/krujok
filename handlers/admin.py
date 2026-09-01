@@ -2821,6 +2821,12 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
     )
     b.row(
         InlineKeyboardButton(
+            text=f"🎁 Бонус за оплату картой: {settings.get('card_bonus')}%",
+            callback_data="a:econ:k:card_bonus",
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
             text=f"🎛 Способ на форме: {paritypay.SERVICES[paritypay.service()]}",
             callback_data="a:card:service",
         )
@@ -2863,11 +2869,20 @@ async def cb_card(call: CallbackQuery, state: FSMContext) -> None:
         "Включать только после согласования подписок с менеджером ParityPay: "
         "до этого счёт с подпиской просто не создастся.\n\n"
         f"Цена: {settings.get('card_price')} коп. за монетку\n"
-        f"{coins} монеток: <b>{settings.card_rubles(coins)} ₽</b>\n"
-        f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
+        f"{coins} монеток: <b>{settings.card_rubles(coins)} ₽</b>"
+        + (
+            f" → на баланс <b>{settings.card_total(coins)}</b> "
+            f"(+{settings.card_bonus(coins)} бонусом)\n"
+            if settings.card_bonus(coins)
+            else "\n"
+        )
+        + f"Счёт живёт {config.INVOICE_TTL // 60} мин, проверка каждые "
         f"{int(config.INVOICE_POLL)} сек\n\n"
         "Комиссию бот сверху не добавляет: кто её платит — касса или "
         "плательщик — выбирается в личном кабинете ParityPay.\n\n"
+        "«Бонус» — сколько монеток дарится сверху за оплату картой. Деньги "
+        "с карты не висят в заморозке так долго, как звёздные, поэтому картой "
+        "выгоднее — бонус за то и платится. 0 его выключает.\n\n"
         "«Способ на форме» — что предложить плательщику. <b>Любой</b> отдаёт "
         "выбор форме, и она покажет всё, что включено у кассы. Жёстко назвать "
         "карту или СБП можно, но если этого способа у кассы нет, форма "

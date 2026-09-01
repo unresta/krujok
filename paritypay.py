@@ -119,11 +119,11 @@ async def create(provider: str, coins: int, user_id: int) -> Invoice:
     """`provider` is ignored — there is only one card processor — but the
     signature matches crypto.create so invoices.py needs no special case."""
     order_id = uuid.uuid4().hex
-    amount = price(coins)
+    amount = price(coins)  # the bonus is a gift, so it is not priced
     payload = {
         "order_id": order_id,
         "amount": float(amount),
-        "comment": f"{coins} монеток",
+        "comment": f"{settings.card_total(coins)} монеток",
         # Minutes here, seconds everywhere else in the bot.
         "expire": max(1, INVOICE_TTL // 60),
     }

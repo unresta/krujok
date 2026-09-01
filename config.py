@@ -145,6 +145,10 @@ CRYPTO_ASSET = "USDT"  # what invoices are issued in, both providers
 # Nothing is added on top: who pays the processor's commission is a setting in
 # the ParityPay dashboard, not a number this bot invents.
 CARD_PRICE = STAR_COST * STAR_PRICE
+# Extra coins, in percent, for paying by card. Money from the card processor is
+# held far more briefly than money from Stars, so the card door is the one worth
+# steering people to — and a bonus is the cheapest way to steer. 0 turns it off.
+CARD_BONUS = 10
 # Recurring charges are checked far more rarely than one-off invoices: a
 # subscription renews once a day at the very most, and the processor allows
 # 60 requests a minute for everything put together.

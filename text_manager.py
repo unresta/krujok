@@ -488,7 +488,12 @@ EDITABLE: dict[str, Item] = {
     "BUY_CHOOSE_METHOD": Item(
         "Выбор способа оплаты",
         "Покупки",
-        vars={"stars": "сколько ⭐", "coins": "сколько монеток", "coin": "значок монетки"},
+        vars={
+            "stars": "сколько ⭐",
+            "coins": "сколько монеток",
+            "coin": "значок монетки",
+            "bonus": "строка про бонус за оплату картой (пусто, если выключен)",
+        },
     ),
     "BUY_PICK_METHOD": Item("Подсказка: жми кнопку оплаты", "Покупки"),
     "CRYPTO_INVOICE": Item(
@@ -501,6 +506,7 @@ EDITABLE: dict[str, Item] = {
             "coin": "значок монетки",
             "provider": "CryptoBot или xRocket",
             "minutes": "сколько минут живёт счёт",
+            "bonus": "строка про бонус за оплату картой (пусто, если его нет)",
         },
     ),
     "CRYPTO_PAID": Item(

@@ -899,9 +899,12 @@ def buy_payment_method() -> InlineKeyboardMarkup:
 
     kb = InlineKeyboardBuilder()
     if paritypay.enabled():
+        # The bonus is the reason to press this one, so it goes on the button.
+        extra = settings.get("card_bonus")
         kb.row(
             InlineKeyboardButton(
-                text=f"{paritypay.ICON} {paritypay.method_label()}",
+                text=f"{paritypay.ICON} {paritypay.method_label()}"
+                + (f" · +{extra}% 🎁" if extra else ""),
                 callback_data=f"pay_method:{paritypay.PROVIDER}",
                 style=SUCCESS,
             )

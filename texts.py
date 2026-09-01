@@ -531,14 +531,34 @@ def buy_custom() -> str:
 
 BUY_CHOOSE_METHOD = (
     "💰 <b>Покупка {coins} монет</b>\n\n"
-    "Сумма: <b>{stars} ⭐</b> → <b>{coins}</b> {coin}\n\n"
+    "Сумма: <b>{stars} ⭐</b> → <b>{coins}</b> {coin}{bonus}\n\n"
     "Выбери способ оплаты:"
 )
+
+BUY_CARD_BONUS = "\n💳 Картой: <b>{total}</b> {coin} — на {percent}% больше"
+
+
+def buy_card_bonus(coins: int) -> str:
+    """The card line on the method screen; empty when there is nothing to add."""
+    import paritypay
+
+    if not paritypay.enabled() or not settings.card_bonus(coins):
+        return ""
+    return BUY_CARD_BONUS.format(
+        total=settings.card_total(coins),
+        coin=coin(),
+        percent=settings.get("card_bonus"),
+    )
 
 
 def buy_choose_method(stars: int, coins: int) -> str:
     return _fmt(
-        "BUY_CHOOSE_METHOD", BUY_CHOOSE_METHOD, stars=stars, coins=coins, coin=coin()
+        "BUY_CHOOSE_METHOD",
+        BUY_CHOOSE_METHOD,
+        stars=stars,
+        coins=coins,
+        coin=coin(),
+        bonus=buy_card_bonus(coins),
     )
 
 
@@ -553,15 +573,19 @@ def buy_bad_input() -> str:
 
 CRYPTO_INVOICE = (
     "🧾 <b>Счёт на {amount} {asset}</b>\n\n"
-    "Получишь: <b>{coins}</b> {coin}\n"
+    "Получишь: <b>{coins}</b> {coin}{bonus}\n"
     "Оплата через {provider}.\n\n"
     "Жми «Оплатить», а после оплаты — «Проверить». "
     "Монетки придут сами в течение минуты.\n"
     "Счёт действует {minutes} минут."
 )
 
+INVOICE_BONUS = "\n🎁 Из них <b>+{bonus}</b> {coin} бонусом за оплату картой"
 
-def crypto_invoice(provider: str, amount: str, asset: str, coins: int) -> str:
+
+def crypto_invoice(
+    provider: str, amount: str, asset: str, coins: int, bonus: int = 0
+) -> str:
     import crypto
     import paritypay
     from config import INVOICE_TTL
@@ -576,6 +600,7 @@ def crypto_invoice(provider: str, amount: str, asset: str, coins: int) -> str:
         coin=coin(),
         provider=titles.get(provider, provider),
         minutes=INVOICE_TTL // 60,
+        bonus=INVOICE_BONUS.format(bonus=bonus, coin=coin()) if bonus else "",
     )
 
 

@@ -19,6 +19,7 @@ import crypto
 import db
 import keyboards as kb
 import paritypay
+import settings
 import texts
 from config import INVOICE_POLL, INVOICE_TTL, SUBS_BATCH, SUBS_POLL
 
@@ -206,7 +207,13 @@ async def run_subs(bot: Bot) -> None:
 
 
 async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> None:
-    """Create an invoice and put its card in front of the payer."""
+    """Create an invoice and put its card in front of the payer.
+
+    `coins` is what is being charged for; a card payer is credited more than
+    that. The bonus rides in the invoice row, so whichever path pays it out —
+    the poller or the button — hands over the same number.
+    """
+    bonus = settings.card_bonus(coins) if provider == paritypay.PROVIDER else 0
     try:
         invoice = await gateway(provider).create(provider, coins, user_id)
     except FAILED as error:
@@ -226,13 +233,15 @@ async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> N
         invoice.provider,
         invoice.invoice_id,
         user_id,
-        coins,
+        coins + bonus,
         invoice.amount,
         invoice.asset,
         invoice.link,
     )
     card = await message.answer(
-        texts.crypto_invoice(provider, invoice.amount, invoice.asset, coins),
+        texts.crypto_invoice(
+            provider, invoice.amount, invoice.asset, coins + bonus, bonus
+        ),
         reply_markup=kb.crypto_invoice(
             invoice.provider, invoice.invoice_id, invoice.link
         ),
