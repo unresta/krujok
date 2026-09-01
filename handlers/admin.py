@@ -7,6 +7,7 @@ chat, so a leaked button id is not enough to use it.
 
 import asyncio
 import html
+import json
 import logging
 import re
 import time
@@ -88,6 +89,9 @@ class Admin(StatesGroup):
     channel_title = State()
     post = State()
     post_sponsor = State()  # чей бот рекламирует показ — код или токен
+    chanpost_where = State()  # канал, куда публиковать
+    chanpost_body = State()   # сам пост
+    chanpost_button = State() # подпись и ссылка кнопки
     botman_folder = State()
     dead_file = State()  # список мёртвых от BotSafe
 
@@ -273,6 +277,11 @@ async def cb_sec_traffic(call: CallbackQuery, state: FSMContext) -> None:
                 [
                     InlineKeyboardButton(text="📰 Посты", callback_data="a:posts"),
                     InlineKeyboardButton(text="🎟 Чеки", callback_data="a:cheques"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📤 Пост в канал", callback_data="a:cp"
+                    ),
                 ],
                 [
                     InlineKeyboardButton(text="👥 Рефералы", callback_data="a:refs"),
@@ -3534,6 +3543,257 @@ async def _posts_home_text() -> str:
         f"Всего показано: {stats['shown']}"
         + tail
     )
+
+
+# --- publishing a ready-made post to a channel ---------------------------
+#
+# The admin writes the post in Telegram itself — formatting, photo, whatever —
+# and hands it to the bot. The bot copies it over, so what the channel gets is
+# byte for byte what was composed, with a button bolted on if one is wanted.
+
+
+def _cp_kb(state_data: dict) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="✅ Опубликовать", callback_data="a:cp:go", style=kb.SUCCESS
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="🔘 Кнопка" + (" · заменить" if state_data.get("markup") else ""),
+            callback_data="a:cp:btn",
+        ),
+        InlineKeyboardButton(text="📝 Другой пост", callback_data="a:cp:new"),
+    )
+    b.row(InlineKeyboardButton(text="⬅️ Отмена", callback_data="a:cp"))
+    return b.as_markup()
+
+
+async def _cp_home(call: CallbackQuery) -> None:
+    where = settings.get_text("post_channel").strip()
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="📝 Новый пост", callback_data="a:cp:new", style=kb.SUCCESS
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"📢 Канал: {where or 'не задан'}", callback_data="a:cp:where"
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К трафику", callback_data="a:sec:traffic"))
+    status = "—"
+    if where:
+        status = await _channel_status(call.bot, where)
+    await _edit(
+        call,
+        "📤 <b>Пост в канал</b>\n\n"
+        f"Канал: <code>{html.escape(where) or 'не задан'}</code>\n"
+        f"Проверка: {status}\n\n"
+        "Пришли готовый пост одним сообщением — текст с форматированием, фото "
+        "или видео с подписью, что угодно. Бот скопирует его в канал как есть, "
+        "и перед отправкой покажет, что именно уйдёт.\n\n"
+        "Кнопку можно добавить отдельно или переслать пост, у которого она уже "
+        "есть — ссылочные кнопки переносятся сами.",
+        b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:cp")
+async def cb_cp(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await call.answer()
+    await _cp_home(call)
+
+
+@router.callback_query(F.data == "a:cp:where")
+async def cb_cp_where(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.chanpost_where)
+    await _edit(
+        call,
+        "📢 <b>Канал для постов</b>\n\n"
+        "Пришли <code>@username</code>, ссылку <code>t.me/…</code> или id вида "
+        "<code>-100…</code>.\n\n"
+        "Бот должен быть админом канала с правом публиковать сообщения — "
+        "иначе пост просто не уйдёт.",
+        back_kb([InlineKeyboardButton(text="⬅️ Назад", callback_data="a:cp")]),
+    )
+    await call.answer()
+
+
+@router.message(Admin.chanpost_where, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_cp_where(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw.startswith("https://t.me/"):
+        raw = "@" + raw.removeprefix("https://t.me/").strip("/")
+    elif raw.startswith("t.me/"):
+        raw = "@" + raw.removeprefix("t.me/").strip("/")
+    if not (raw.startswith("@") or raw.lstrip("-").isdigit()):
+        await message.answer("Нужен @username, ссылка t.me/… или числовой id.")
+        return
+
+    # Tried before it is saved: a channel the bot cannot post to is worth
+    # finding out about now, not at «Опубликовать».
+    status = await _channel_status(message.bot, raw)
+    await state.clear()
+    await settings.set_text("post_channel", raw)
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="📝 Новый пост", callback_data="a:cp:new", style=kb.SUCCESS
+        )
+    )
+    b.row(InlineKeyboardButton(text="⬅️ К постам в канал", callback_data="a:cp"))
+    await message.answer(
+        f"📢 Канал: <code>{html.escape(raw)}</code>\nПроверка: {status}",
+        reply_markup=b.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "a:cp:new")
+async def cb_cp_new(call: CallbackQuery, state: FSMContext) -> None:
+    if not settings.get_text("post_channel").strip():
+        await call.answer("Сначала задай канал.", show_alert=True)
+        return
+    await state.set_state(Admin.chanpost_body)
+    await _edit(
+        call,
+        "📝 <b>Пришли пост</b>\n\n"
+        "Одним сообщением: текст с форматированием, фото или видео с подписью, "
+        "кружок — что угодно. Уйдёт точной копией.\n\n"
+        "Кнопку добавишь на следующем шаге.",
+        back_kb([InlineKeyboardButton(text="⬅️ Отмена", callback_data="a:cp")]),
+    )
+    await call.answer()
+
+
+@router.message(Admin.chanpost_body, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_cp_body(message: Message, state: FSMContext) -> None:
+    await state.set_state(Admin.chanpost_button)
+    await state.update_data(
+        chat=message.chat.id,
+        msg_id=message.message_id,
+        # A forwarded post keeps its link buttons; those carry over as they are.
+        markup=posts.keep_markup(message.reply_markup),
+    )
+    await _cp_preview(message, await state.get_data())
+
+
+async def _cp_preview(message: Message, data: dict) -> None:
+    """What is about to go out, and where."""
+    where = settings.get_text("post_channel").strip()
+    labels = []
+    if data.get("markup"):
+        markup = InlineKeyboardMarkup.model_validate_json(data["markup"])
+        labels = [b.text for row in markup.inline_keyboard for b in row]
+    await message.answer(
+        "📤 <b>Готов к публикации</b>\n\n"
+        f"Куда: <code>{html.escape(where)}</code>\n"
+        f"Кнопки: {' · '.join(html.escape(t) for t in labels) or 'нет'}\n\n"
+        "Пост — сообщение выше. Проверь и жми «Опубликовать».",
+        reply_markup=_cp_kb(data),
+    )
+
+
+@router.callback_query(F.data == "a:cp:btn")
+async def cb_cp_button(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.chanpost_button)
+    await _edit(
+        call,
+        "🔘 <b>Кнопка под постом</b>\n\n"
+        "Пришли подпись и ссылку одной строкой:\n"
+        "<code>Смотреть кружочки | https://t.me/bot</code>\n\n"
+        "Несколько кнопок — с новой строки каждая. Только ссылки: кнопка, "
+        "которая что-то делает внутри бота, в чужом канале работать не будет.",
+        back_kb([InlineKeyboardButton(text="⬅️ Отмена", callback_data="a:cp")]),
+    )
+    await call.answer()
+
+
+@router.message(Admin.chanpost_button, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_cp_button(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    if not data.get("msg_id"):  # the button arrived before the post
+        await message.answer("Сначала пришли сам пост.")
+        return
+
+    rows = []
+    for line in (message.text or "").splitlines():
+        if not line.strip():
+            continue
+        label, _, url = line.partition("|")
+        label, url = label.strip(), url.strip()
+        if not label or not url.startswith(("https://", "http://", "tg://")):
+            await message.answer(
+                "Каждая строка — <code>подпись | ссылка</code>, "
+                "ссылка с <code>https://</code>."
+            )
+            return
+        rows.append([{"text": label, "url": url}])
+
+    await state.update_data(
+        markup=json.dumps({"inline_keyboard": rows}, ensure_ascii=False)
+        if rows
+        else ""
+    )
+    await _cp_preview(message, await state.get_data())
+
+
+@router.callback_query(F.data == "a:cp:go")
+async def cb_cp_go(call: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    where = settings.get_text("post_channel").strip()
+    if not data.get("msg_id") or not where:
+        await call.answer("Пост потерялся — собери заново.", show_alert=True)
+        return
+
+    markup = None
+    if data.get("markup"):
+        markup = InlineKeyboardMarkup.model_validate_json(data["markup"])
+    try:
+        sent = await call.bot.copy_message(
+            chat_id=where,
+            from_chat_id=data["chat"],
+            message_id=data["msg_id"],
+            reply_markup=markup,
+        )
+    except TelegramAPIError as error:
+        logger.error("пост в канал %s не ушёл: %s", where, error)
+        await call.answer("Не отправилось", show_alert=True)
+        await _edit(
+            call,
+            f"🔴 <b>Пост не ушёл</b>\n\n<code>{html.escape(str(error))[:300]}</code>\n\n"
+            "Чаще всего это значит, что бот не админ канала или не может "
+            "там публиковать.",
+            back_kb([InlineKeyboardButton(text="⬅️ Назад", callback_data="a:cp")]),
+        )
+        return
+
+    await state.clear()
+    logger.info("пост %s опубликован в %s (%s)", sent.message_id, where, call.from_user.id)
+    await call.answer("Опубликовано")
+    link = _post_link(where, sent.message_id)
+    b = InlineKeyboardBuilder()
+    if link:
+        b.row(InlineKeyboardButton(text="🔗 Открыть пост", url=link))
+    b.row(InlineKeyboardButton(text="📝 Ещё один", callback_data="a:cp:new"))
+    b.row(InlineKeyboardButton(text="⬅️ К трафику", callback_data="a:sec:traffic"))
+    await _edit(
+        call,
+        f"🟢 <b>Опубликовано</b>\n\nКанал: <code>{html.escape(where)}</code>",
+        b.as_markup(),
+    )
+
+
+def _post_link(chat: str, message_id: int) -> str:
+    """A link to the published post, when the channel has a public name."""
+    if chat.startswith("@"):
+        return f"https://t.me/{chat[1:]}/{message_id}"
+    if chat.startswith("-100"):
+        return f"https://t.me/c/{chat[4:]}/{message_id}"
+    return ""
 
 
 @router.callback_query(F.data == "a:posts")

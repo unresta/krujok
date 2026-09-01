@@ -68,6 +68,8 @@ TEXT_DEFAULTS: dict[str, str] = {
     "crypto_asset": config.CRYPTO_ASSET,
     # Empty means the ParityPay form offers whatever the shop has.
     "card_service": "",
+    # Where «Пост в канал» publishes; remembered so it is typed once.
+    "post_channel": "",
 }
 
 TITLES: dict[str, str] = {
