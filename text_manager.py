@@ -107,13 +107,6 @@ EDITABLE: dict[str, Item] = {
         "Меню и лента",
         vars={"free": "сколько бесплатных", "circles": "«кружочка/кружочков»"},
     ),
-    "TRIAL_LEFT": Item(
-        "Бесплатный кружок новичка",
-        "Меню и лента",
-        vars={"left": "сколько осталось", "circles": "«кружочка/кружочков»"},
-    ),
-    # No inserts of its own, but the bot formats it — so {coin} works here.
-    "TRIAL_LAST": Item("Последний бесплатный новичка", "Меню и лента", vars=_COIN),
     "TRIAL_PUSH": Item(
         "Напоминание новичку про бесплатные",
         "Меню и лента",
@@ -138,26 +131,6 @@ EDITABLE: dict[str, Item] = {
             "payout_min": "минимум вывода",
             "payout_rate": "монеток за 1 ⭐",
             "max_pending": "кружков на проверке",
-        },
-    ),
-    "WELCOME": Item(
-        "Приветствие новичку",
-        "Правила и FAQ",
-        vars={"rules": "текст правил", "gift": "строка про бесплатные (ниже)"},
-    ),
-    "WELCOME_GIFT": Item(
-        "…строка про бесплатные кружочки",
-        "Правила и FAQ",
-        vars={"free": "сколько бесплатных", "circles": "«кружочка/кружочков»"},
-    ),
-    "WELCOME_BONUS": Item(
-        "Начислили бонус новичку",
-        "Правила и FAQ",
-        vars={
-            "amount": "сколько монеток",
-            "coin": "значок монетки",
-            "views": "на сколько просмотров",
-            "circles": "«кружочка/кружочков»",
         },
     ),
     "ACCEPTED": Item("Согласие принято", "Правила и FAQ", plain=True),
@@ -983,8 +956,6 @@ _WORDS = {
 # {gift}, {tail}, {earn}… hold another editable text, and the same name means
 # different things in different messages.
 _COMPOSED = {
-    ("WELCOME", "rules"): "RULES",
-    ("WELCOME", "gift"): "WELCOME_GIFT",
     ("SUBSCRIBE", "gift"): "SUBSCRIBE_GIFT",
     ("NOT_ENOUGH", "earn"): "NOT_ENOUGH_SELL",
     ("UPLOAD_SENT", "tail"): "UPLOAD_SENT_PAID",

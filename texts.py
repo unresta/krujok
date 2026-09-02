@@ -309,24 +309,10 @@ def free_view_left(left: int) -> str:
     )
 
 
-# The newcomer's trial. What comes after the last one is not spelled out here:
-# for most it is the subscription gate, and for a bot without one it is the
-# usual price — the next tap says which, and saying it twice would be wrong
-# half the time.
-TRIAL_LEFT = "🎁 Бесплатно. Ещё <b>{left}</b> {circles} в запасе."
-TRIAL_LAST = (
-    "🎁 Это был последний бесплатный кружок.\nЖми «Смотреть» — покажу, что дальше."
-)
-
-
-def trial_left(left: int) -> str:
-    if left:
-        return _fmt("TRIAL_LEFT", TRIAL_LEFT, left=left, circles=circles_word(left))
-    return _fmt("TRIAL_LAST", TRIAL_LAST)
-
-
-# Five minutes of silence after the free circle they never asked for. The only
-# thing that tells a newcomer there are more of them.
+# The trial says nothing about itself while it is being spent: a newcomer is
+# watching circles, not counting free ones. This is the only place it is ever
+# mentioned — five minutes of silence after the circle they never asked for,
+# where saying what is left is the whole reason to write at all.
 TRIAL_PUSH = (
     "🎁 <b>У тебя ещё {left} {circles} бесплатно!</b>\n\n"
     "Платить ничего не нужно — просто жми кнопку."
@@ -1418,47 +1404,14 @@ CHEQUE_TAKEN = "🎟 Этот чек ты уже активировал."
 CHEQUE_EMPTY = "🎟 Активации закончились — этот чек уже разобрали."
 
 
-# --- gate, welcome, subscription -----------------------------------------
+# --- gate, subscription ---------------------------------------------------
 
-WELCOME = (
-    "👋 <b>Добро пожаловать</b>\n\n"
-    "{rules}{gift}\n\n"
-    "Нажав «Начать», ты подтвердил, что тебе есть 18 лет, "
-    "и принял правила сервиса."
-)
-WELCOME_GIFT = (
-    "\n\n🎁 Первые <b>{free}</b> {circles} — бесплатно, смотри прямо сейчас."
-)
-
-
-def welcome() -> str:
-    free = settings.get("trial_views")
-    gift = (
-        _fmt("WELCOME_GIFT", WELCOME_GIFT, free=free, circles=circles_word(free))
-        if free
-        else ""
-    )
-    return _fmt("WELCOME", WELCOME, rules=rules(), gift=gift)
-
+# There is no welcome message any more. The age notice and the rules live in
+# the bot's description, where they are read before /start rather than scrolled
+# past after it, and the starting coins are simply on the balance the menu
+# shows. What a newcomer gets is the menu and a circle.
 
 ACCEPTED = "Готово. Приятного просмотра 🙂"
-
-WELCOME_BONUS = (
-    "🎁 Держи <b>{amount}</b> {coin} на старт — это {views} {circles} бесплатно.\n\n"
-    "Кончатся — запиши свой кружок или загляни в «Магазин»."
-)
-
-
-def welcome_bonus(amount: int) -> str:
-    views = amount // settings.get("watch_cost")
-    return _fmt(
-        "WELCOME_BONUS",
-        WELCOME_BONUS,
-        amount=amount,
-        coin=coin(),
-        views=views,
-        circles=circles_word(views),
-    )
 
 
 SUBSCRIBE = (

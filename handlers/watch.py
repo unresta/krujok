@@ -144,13 +144,10 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         return
 
     await db.mark_viewed(user_id, circle["id"])
-    if on_trial and notice:
-        # The count is the whole pitch: a newcomer keeps tapping while there is
-        # a number left, and the last one is where the gate comes in.
-        left = (await db.get_user(user_id))["trial_left"]
-        with suppress(TelegramAPIError):
-            await bot.send_message(user_id, texts.trial_left(left))
-    elif on_the_house and notice:
+    # A trial circle says nothing about itself. A newcomer did not ask for a
+    # free one and is not counting them down; a line under every circle
+    # explaining that it was free is a message in the way of the next one.
+    if on_the_house and notice:
         # A gifted circle looks exactly like a paid one; without this line the
         # reminder's promise of free views is invisible.
         left = (await db.get_user(user_id))["free_views"]

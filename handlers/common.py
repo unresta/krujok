@@ -32,15 +32,18 @@ async def start(message: Message, state: FSMContext) -> None:
     )
     if code:
         await cheques.redeem(message.bot, message.from_user.id, code)
-    # Pressing «Начать» is the confirmation itself — the age notice lives in the
-    # bot's description, and nothing is asked in the chat any more. The flag is
-    # still what the funnel and the reminders count, so it is still written.
+    # Pressing «Начать» is the confirmation itself — the age notice and the
+    # rules live in the bot's description, and nothing is asked or read out in
+    # the chat. The flag is still what the funnel and the reminders count, so it
+    # is still written.
     first_time = await db.accept_rules(message.from_user.id)
     # A welcome post is shown before the menu and only ever once per person.
     await posts.show_welcome(message.bot, message.from_user.id)
     if first_time:
-        await message.answer(texts.welcome())
-        await grant_welcome_bonus(message.bot, message.from_user.id)
+        await grant_welcome_bonus(message.from_user.id)
+    # The menu is the only thing a newcomer is sent: it carries the balance and
+    # the reply keyboard, and everything else that used to greet them — rules,
+    # «держи монетки на старт» — was three messages in the way of the circle.
     await ui.render_menu(message, message.from_user.id)
     # The first circle comes on its own and on the house: a newcomer who has to
     # find the button first often never sees one at all.
@@ -51,14 +54,11 @@ async def start(message: Message, state: FSMContext) -> None:
     await open_pending_profile(message.bot, message.from_user.id)
 
 
-async def grant_welcome_bonus(bot, user_id: int) -> None:
-    """Starting coins, once — the trial circles are counted apart from these."""
+async def grant_welcome_bonus(user_id: int) -> None:
+    """Starting coins, once and quietly — the menu right after says the balance."""
     bonus = settings.get("welcome_bonus")
-    if not bonus:
-        return
-    await db.add_coins(user_id, bonus)
-    with suppress(TelegramAPIError):
-        await bot.send_message(user_id, texts.welcome_bonus(bonus))
+    if bonus:
+        await db.add_coins(user_id, bonus)
 
 
 async def open_pending_profile(bot, user_id: int) -> None:
@@ -89,7 +89,7 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
             await message.edit_reply_markup(reply_markup=None)
 
     if first_time:  # granted once, on the flip from 0 to 1
-        await grant_welcome_bonus(call.bot, call.from_user.id)
+        await grant_welcome_bonus(call.from_user.id)
 
     await ui.render_menu(call, call.from_user.id)
 
