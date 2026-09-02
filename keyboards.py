@@ -213,21 +213,6 @@ def push(free: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def push_unaccepted() -> InlineKeyboardMarkup:
-    """For somebody still standing at the rules.
-
-    Any callback at all gets them there — the middleware puts the rules up
-    before a handler ever runs — so the button just has to say «дальше».
-    """
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="✅ Продолжить", callback_data="watch", style=SUCCESS
-        )
-    )
-    return b.as_markup()
-
-
 def feed(pref: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
@@ -300,18 +285,6 @@ def referrals(link: str) -> InlineKeyboardMarkup:
     b.row(
         InlineKeyboardButton(
             text="📋 Скопировать ссылку", copy_text=CopyTextButton(text=link)
-        )
-    )
-    return b.as_markup()
-
-
-def accept() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(
-            text="✅ Мне есть 18, принимаю условия",
-            callback_data="accept",
-            style=SUCCESS,
         )
     )
     return b.as_markup()

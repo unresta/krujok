@@ -5,13 +5,12 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import access
 import db
-import keyboards as kb
 import settings
 import texts
 from config import ADMIN_IDS
 
 # The gate itself has to stay reachable, or the button that opens it is dead.
-GATE_EXEMPT_CALLBACKS = {"sub:check", "accept"}
+GATE_EXEMPT_CALLBACKS = {"sub:check"}
 
 
 class UserMiddleware(BaseMiddleware):
@@ -79,26 +78,32 @@ class UserMiddleware(BaseMiddleware):
             elif kind == "campaign":
                 await db.touch_campaign(value, tg_user.id)
 
-        if not self._exempt(event) and not await access.is_subscribed(
-            data["bot"], tg_user.id
-        ):
-            await self._gate(event, data["bot"], tg_user.id)
-            return None
+        # A newcomer's free circles are opened here rather than in the /start
+        # handler: the gate below runs first, and it has to see them. A zero in
+        # `trial_at` is what makes this happen once — see db.backfill_trials for
+        # why everybody who was already in the base has one set.
+        if not user["trial_at"]:
+            await db.start_trial(tg_user.id, settings.get("trial_views"))
+            user = await db.get_user(tg_user.id)
 
-        # Past the gate is what a referral is paid for, and the gate is passed
-        # here — not in a handler. Hanging the payment off /start, «Согласен»
-        # and «Я подписался» left everyone who joined the channel and then
-        # tapped anything else uncredited, with no way to notice. The row is
-        # already in hand, so this costs nothing until there is someone to pay.
-        # Exempt events skipped the check above, so they may not be through yet;
-        # their two handlers confirm it themselves.
-        if not self._exempt(event) and user["ref_by"] and not user["ref_credited"]:
-            await access.credit_referral(data["bot"], tg_user.id)
+        # The gate waits until the trial is spent. Nobody subscribes to a
+        # channel for a bot they have not seen yet, so the bot shows itself
+        # first and asks afterwards.
+        if not self._exempt(event) and not user["trial_left"]:
+            if not await access.is_subscribed(data["bot"], tg_user.id):
+                await self._gate(event, data["bot"], tg_user.id)
+                return None
 
-        # Age and the rules are confirmed once, before anything else is shown.
-        if not user["accepted"] and not self._exempt(event):
-            await self._welcome(event)
-            return None
+            # Past the gate is what a referral is paid for, and the gate is
+            # passed here — not in a handler. Hanging the payment off /start
+            # and «Я подписался» left everyone who joined the channel and then
+            # tapped anything else uncredited, with no way to notice. Free
+            # circles are not a passed gate: paying for them would pay a link
+            # farm for /start calls, which is the whole reason the two are
+            # tied together. Exempt events skipped the check, so they may not
+            # be through yet; their handler confirms it itself.
+            if user["ref_by"] and not user["ref_credited"]:
+                await access.credit_referral(data["bot"], tg_user.id)
 
         await db.touch_seen(tg_user.id)
         data["user"] = user
@@ -128,15 +133,6 @@ class UserMiddleware(BaseMiddleware):
             await event.message.answer(text, reply_markup=markup)
         elif isinstance(event, Message):
             await event.answer(text, reply_markup=markup)
-
-    @staticmethod
-    async def _welcome(event: TelegramObject) -> None:
-        markup = kb.accept()
-        if isinstance(event, CallbackQuery):
-            await event.answer()
-            await event.message.answer(texts.welcome(), reply_markup=markup)
-        elif isinstance(event, Message):
-            await event.answer(texts.welcome(), reply_markup=markup)
 
     @staticmethod
     async def _refuse(event: TelegramObject, text: str) -> None:

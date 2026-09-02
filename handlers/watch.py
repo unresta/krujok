@@ -77,9 +77,9 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         return
 
     # Buying an author's profile makes their circles free for that viewer, then
-    # a subscription, then a reminder's gift; coins are the last resort. The
-    # gift comes after the subscription on purpose — it keeps for later instead
-    # of being spent on a circle that was free anyway.
+    # a subscription, then the newcomer's trial, then a reminder's gift; coins
+    # are the last resort. The gift comes after the subscription on purpose — it
+    # keeps for later instead of being spent on a circle that was free anyway.
     tier = db.active_tier(user)
     limit = tiers.daily_views(tier)
     free = await db.has_content_access(user_id, circle["uploader_id"], circle["id"])
@@ -90,10 +90,16 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         with suppress(TelegramAPIError):
             await bot.send_message(user_id, texts.tier_limit_hit(limit))
 
+    # The trial is spent before the reminder's gift: it is the one thing keeping
+    # the channel gate away, and it is worth nothing once they are through it.
+    on_trial = not free and not on_subscription and await db.use_trial_view(user_id)
     on_the_house = (
-        not free and not on_subscription and await db.use_free_view(user_id)
+        not free
+        and not on_subscription
+        and not on_trial
+        and await db.use_free_view(user_id)
     )
-    free = free or on_subscription or on_the_house
+    free = free or on_subscription or on_trial or on_the_house
     # Which half of the price is being spent, noted before it is: a send that
     # fails has to return earnings as earnings.
     from_earned = 0 if free else db.earned_share(user, cost)
@@ -124,6 +130,10 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
     except TelegramAPIError:
         if on_subscription:
             await db.refund_tier_view(user_id)  # a circle nobody got costs nothing
+        elif on_trial:
+            # Undelivered, so it is still owed — and the gate stays away until
+            # they have actually seen what the trial promised.
+            await db.give_back_trial_view(user_id)
         elif on_the_house:
             # Give the free circle back without re-stamping the reminder: a
             # failed send must not push the next nudge a whole cooldown away.
@@ -134,7 +144,13 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         return
 
     await db.mark_viewed(user_id, circle["id"])
-    if on_the_house and notice:
+    if on_trial and notice:
+        # The count is the whole pitch: a newcomer keeps tapping while there is
+        # a number left, and the last one is where the gate comes in.
+        left = (await db.get_user(user_id))["trial_left"]
+        with suppress(TelegramAPIError):
+            await bot.send_message(user_id, texts.trial_left(left))
+    elif on_the_house and notice:
         # A gifted circle looks exactly like a paid one; without this line the
         # reminder's promise of free views is invisible.
         left = (await db.get_user(user_id))["free_views"]

@@ -69,9 +69,19 @@ WATCH_COOLDOWN = 1.0  # seconds between "watch" taps
 
 STAR_PACKS = (20, 50, 100, 250)
 WELCOME_BONUS = 6  # coins handed to a newcomer, enough for a few circles
-# The first circle arrives on its own, right after the rules are accepted:
-# a newcomer who has to find the button first often never sees one.
+# The first circle arrives on its own, right after /start: a newcomer who has
+# to find the button first often never sees one.
 WELCOME_CIRCLE = 1
+# --- the newcomer's trial ---
+# Circles a newcomer gets before the bot asks anything of them. The channel
+# gate waits until these run out: nobody subscribes to a channel for a bot they
+# have not seen. 0 puts the gate back in front of the very first circle.
+TRIAL_VIEWS = 3
+# Quiet for this long with free circles still on the account, and the bot says
+# so — once. The first circle is delivered without asking, so this is the only
+# thing that tells them there are more.
+TRIAL_PUSH_MINUTES = 5
+TRIAL_TICK = 60.0  # seconds between sweeps for that one nudge
 SUB_BONUS = 4  # paid once, when the channel subscription is first confirmed
 REF_REWARD = 3  # coins for a referral that made it through the subscription gate
 VIEW_PAYOUT = 0  # views and likes buy reach, not coins

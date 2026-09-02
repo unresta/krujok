@@ -266,12 +266,12 @@ def _push_waiting(free: int) -> str:
 
 PUSH_TEXTS = (_push_new, _push_missed, _push_waiting)
 
-# For the half of the base that pressed /start, met the rules and stopped
-# there. They have never seen a single circle, so the pitch is «начни», not
-# «вернись», and the button leads back to the rules the middleware puts up.
+# For the half of the base that pressed /start, met the rules that used to
+# stand there and stopped. They have never seen a single circle, so the pitch is
+# «начни», not «вернись» — and there is nothing left to confirm any more.
 PUSH_UNACCEPTED = (
     "<b>Ты так и не начал 🙈</b>\n\n"
-    "Осталось подтвердить возраст — и сразу {free} {circles} бесплатно, "
+    "Ничего подтверждать не нужно: {free} {circles} бесплатно уже на счету, "
     "плюс монетки в подарок на первые просмотры."
 )
 
@@ -299,6 +299,34 @@ def free_view_left(left: int) -> str:
         watch_cost=settings.get("watch_cost"),
         coin=coin(),
     )
+
+
+# The newcomer's trial. What comes after the last one is not spelled out here:
+# for most it is the subscription gate, and for a bot without one it is the
+# usual price — the next tap says which, and saying it twice would be wrong
+# half the time.
+TRIAL_LEFT = "🎁 Бесплатно. Ещё <b>{left}</b> {circles} в запасе."
+TRIAL_LAST = (
+    "🎁 Это был последний бесплатный кружок.\nЖми «Смотреть» — покажу, что дальше."
+)
+
+
+def trial_left(left: int) -> str:
+    if left:
+        return _fmt("TRIAL_LEFT", TRIAL_LEFT, left=left, circles=circles_word(left))
+    return _fmt("TRIAL_LAST", TRIAL_LAST)
+
+
+# Five minutes of silence after the free circle they never asked for. The only
+# thing that tells a newcomer there are more of them.
+TRIAL_PUSH = (
+    "🎁 <b>У тебя ещё {left} {circles} бесплатно!</b>\n\n"
+    "Платить ничего не нужно — просто жми кнопку."
+)
+
+
+def trial_push(left: int) -> str:
+    return _fmt("TRIAL_PUSH", TRIAL_PUSH, left=left, circles=circles_word(left))
 
 
 EMPTY = (
@@ -1387,15 +1415,21 @@ CHEQUE_EMPTY = "🎟 Активации закончились — этот че
 WELCOME = (
     "👋 <b>Добро пожаловать</b>\n\n"
     "{rules}{gift}\n\n"
-    "Нажимая кнопку ниже, ты подтверждаешь, что тебе есть 18 лет, "
-    "и принимаешь правила сервиса."
+    "Нажав «Начать», ты подтвердил, что тебе есть 18 лет, "
+    "и принял правила сервиса."
 )
-WELCOME_GIFT = "\n\n🎁 За согласие дарим <b>{bonus}</b> монеток на первые просмотры."
+WELCOME_GIFT = (
+    "\n\n🎁 Первые <b>{free}</b> {circles} — бесплатно, смотри прямо сейчас."
+)
 
 
 def welcome() -> str:
-    bonus = settings.get("welcome_bonus")
-    gift = _fmt("WELCOME_GIFT", WELCOME_GIFT, bonus=bonus) if bonus else ""
+    free = settings.get("trial_views")
+    gift = (
+        _fmt("WELCOME_GIFT", WELCOME_GIFT, free=free, circles=circles_word(free))
+        if free
+        else ""
+    )
     return _fmt("WELCOME", WELCOME, rules=rules(), gift=gift)
 
 
@@ -1474,7 +1508,7 @@ TRAFFER_REPORT = (
     "🕓 <b>За всё время</b>\n"
     "Новых пользователей: <b>{users}</b>\n"
     "Прошли подписку: {subscribed} ({subscribed_pct})\n"
-    "Приняли правила: {accepted} ({accepted_pct})\n"
+    "Дошли до бота: {accepted} ({accepted_pct})\n"
     "Покупали монетки: {payers} ({payers_pct})\n\n"
     "📅 7 дней · людей {week_users}, подписок {week_subscribed}\n"
     "📅 Сутки · людей {day_users}, подписок {day_subscribed}\n\n"

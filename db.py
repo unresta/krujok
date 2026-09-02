@@ -411,6 +411,13 @@ MIGRATIONS = {
         "tier_until": "INTEGER NOT NULL DEFAULT 0",
         "tier_day": "INTEGER NOT NULL DEFAULT 0",  # which day the count is for
         "tier_views": "INTEGER NOT NULL DEFAULT 0",
+        # The newcomer's trial: circles that come before the channel gate does.
+        # `trial_at` is when the trial started and moves with every circle spent
+        # out of it — it is what the five-minute nudge counts from, and a zero
+        # in it means this person has not had a trial at all yet.
+        "trial_left": "INTEGER NOT NULL DEFAULT 0",
+        "trial_at": "INTEGER NOT NULL DEFAULT 0",
+        "trial_push": "INTEGER NOT NULL DEFAULT 0",  # that nudge is sent once
     },
     "profiles": {
         "photo_unique_id": "TEXT",  # tells a re-sent photo from a new one
@@ -859,7 +866,9 @@ async def push_pool(idle: int, cooldown: int) -> dict:
                        AND {_LAST_SEEN} < strftime('%s','now') - :idle
                        AND last_push < strftime('%s','now') - :cooldown), 0)
                                                                     AS ready,
-          COALESCE(SUM(last_push > 0), 0)                           AS ever_pushed
+          COALESCE(SUM(last_push > 0), 0)                           AS ever_pushed,
+          COALESCE(SUM(banned = 0 AND blocked = 0 AND trial_left > 0), 0)
+                                                                    AS on_trial
         FROM users
         """,
         {"idle": idle, "cooldown": cooldown},
@@ -1123,6 +1132,102 @@ async def use_free_view(user_id: int) -> bool:
     )
     await conn().commit()
     return cur.rowcount > 0
+
+
+# --- the newcomer's trial ------------------------------------------------
+#
+# Circles handed out before the channel gate is ever shown. The count lives on
+# the users row rather than in `free_views`, because the two mean different
+# things to the gate: a reminder's gift is for somebody already inside, and only
+# an unspent trial is allowed to keep the gate closed.
+
+
+async def start_trial(user_id: int, views: int) -> bool:
+    """Open the trial. True the first time only — `trial_at` is the marker.
+
+    A trial that is already over leaves `trial_at` set, so nobody gets a second
+    round of free circles by pressing /start again.
+    """
+    await ensure_user(user_id)
+    cur = await conn().execute(
+        "UPDATE users SET trial_left = ?, trial_at = strftime('%s','now')"
+        " WHERE id = ? AND trial_at = 0",
+        (views, user_id),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def use_trial_view(user_id: int) -> bool:
+    """Spend one trial circle. False when the trial is over or never was.
+
+    The stamp moves with it: the nudge is owed five minutes after the last
+    circle they watched, not five minutes after they arrived.
+    """
+    cur = await conn().execute(
+        "UPDATE users SET trial_left = trial_left - 1,"
+        " trial_at = strftime('%s','now') WHERE id = ? AND trial_left > 0",
+        (user_id,),
+    )
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def give_back_trial_view(user_id: int) -> None:
+    """A circle that never arrived was not watched — see watch.serve."""
+    await conn().execute(
+        "UPDATE users SET trial_left = trial_left + 1 WHERE id = ?", (user_id,)
+    )
+    await conn().commit()
+
+
+async def trial_due(quiet: int, limit: int) -> list[aiosqlite.Row]:
+    """Who has free circles left and has been quiet long enough to be told."""
+    async with conn().execute(
+        """
+        SELECT id, trial_left FROM users
+        WHERE banned = 0 AND blocked = 0 AND trial_push = 0
+          AND trial_left > 0 AND trial_at > 0
+          AND trial_at < strftime('%s','now') - :quiet
+        ORDER BY trial_at LIMIT :limit
+        """,
+        {"quiet": quiet, "limit": limit},
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def mark_trial_push(user_id: int) -> None:
+    """Stamped before the send, so a failure cannot queue them up again."""
+    await conn().execute(
+        "UPDATE users SET trial_push = 1 WHERE id = ?", (user_id,)
+    )
+    await conn().commit()
+
+
+async def backfill_trials() -> int:
+    """Once: everybody who was already using the bot has had their look around.
+
+    Without this the trial would open for the whole existing base on the next
+    update they send — three free circles each, and the gate off while they last.
+
+    Those who pressed /start, met the rules screen that used to stand there and
+    never came back are left out of it on purpose: they have not seen a single
+    circle, so they are newcomers by every measure except the row's age.
+    """
+    async with conn().execute(
+        "SELECT 1 FROM settings WHERE key = 'trial_backfilled'"
+    ) as cur:
+        if await cur.fetchone() is not None:
+            return 0
+    cur = await conn().execute(
+        "UPDATE users SET trial_at = strftime('%s','now'), trial_push = 1"
+        " WHERE trial_at = 0 AND accepted = 1"
+    )
+    await conn().execute(
+        "INSERT OR REPLACE INTO settings(key, value) VALUES ('trial_backfilled', 1)"
+    )
+    await conn().commit()
+    return cur.rowcount
 
 
 # --- referrals -----------------------------------------------------------

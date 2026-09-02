@@ -74,6 +74,7 @@ async def main() -> None:
     await access.adopt_legacy_channel()  # one-channel gate becomes the list
     await db.backfill_identity()  # authors' usernames until they return
     await db.backfill_campaign_funnel()  # ad reports stop leaning on users rows
+    await db.backfill_trials()  # the newcomer's free circles are for newcomers
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
     await emoji_manager.resolve(bot)  # resolve custom emoji too
     access.bot_username = (await bot.me()).username  # referral links need it
@@ -109,6 +110,8 @@ async def main() -> None:
             )
 
     reminders = asyncio.create_task(pushes.run(bot))
+    # The newcomer's «у тебя ещё два бесплатных» runs on its own, faster clock.
+    newcomers = asyncio.create_task(pushes.run_trial(bot))
     # Paid reach says nothing on its own when it runs out — see boosts.py.
     reports = asyncio.create_task(boosts.run(bot))
     # Crypto invoices are confirmed by asking, not by being told — see crypto.py.
@@ -120,6 +123,7 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         reminders.cancel()
+        newcomers.cancel()
         reports.cancel()
         watcher.cancel()
         renewals.cancel()

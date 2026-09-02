@@ -32,16 +32,37 @@ async def start(message: Message, state: FSMContext) -> None:
     )
     if code:
         await cheques.redeem(message.bot, message.from_user.id, code)
+    # Pressing «Начать» is the confirmation itself — the age notice lives in the
+    # bot's description, and nothing is asked in the chat any more. The flag is
+    # still what the funnel and the reminders count, so it is still written.
+    first_time = await db.accept_rules(message.from_user.id)
     # A welcome post is shown before the menu and only ever once per person.
     await posts.show_welcome(message.bot, message.from_user.id)
+    if first_time:
+        await message.answer(texts.welcome())
+        await grant_welcome_bonus(message.bot, message.from_user.id)
     await ui.render_menu(message, message.from_user.id)
+    # The first circle comes on its own and on the house: a newcomer who has to
+    # find the button first often never sees one at all.
+    if first_time and settings.get("welcome_circle"):
+        await watch.serve(message.bot, message.from_user.id)
     # Somebody who came for one author's card gets it last, so it stays on
     # screen with its buy buttons instead of the menu.
     await open_pending_profile(message.bot, message.from_user.id)
 
 
+async def grant_welcome_bonus(bot, user_id: int) -> None:
+    """Starting coins, once — the trial circles are counted apart from these."""
+    bonus = settings.get("welcome_bonus")
+    if not bonus:
+        return
+    await db.add_coins(user_id, bonus)
+    with suppress(TelegramAPIError):
+        await bot.send_message(user_id, texts.welcome_bonus(bonus))
+
+
 async def open_pending_profile(bot, user_id: int) -> None:
-    """The profile they arrived for, once the gate and the rules are behind."""
+    """The profile they arrived for, once the gate is behind them."""
     from handlers import profiles
 
     author_id = await db.take_pending_profile(user_id)
@@ -51,9 +72,14 @@ async def open_pending_profile(bot, user_id: int) -> None:
 
 @router.callback_query(F.data == "accept")
 async def accept(call: CallbackQuery, state: FSMContext) -> None:
+    """A button from when the rules had to be accepted by hand.
+
+    Nothing waits on it any more, but old welcome messages are still sitting in
+    people's chats, and a tap on one must not end in «кнопка устарела». It
+    finishes what /start does now, and nothing else.
+    """
     await state.clear()
     first_time = await db.accept_rules(call.from_user.id)
-    await access.credit_referral(call.bot, call.from_user.id)
     await call.answer(texts.ACCEPTED)
     # The rules can sit unanswered for days, and by then Telegram no longer
     # lets us touch that message — see ui.live.
@@ -62,19 +88,14 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
         with suppress(TelegramAPIError):
             await message.edit_reply_markup(reply_markup=None)
 
-    bonus = settings.get("welcome_bonus")
-    if first_time and bonus:  # granted once, on the flip from 0 to 1
-        await db.add_coins(call.from_user.id, bonus)
-        await call.bot.send_message(call.from_user.id, texts.welcome_bonus(bonus))
+    if first_time:  # granted once, on the flip from 0 to 1
+        await grant_welcome_bonus(call.bot, call.from_user.id)
 
     await ui.render_menu(call, call.from_user.id)
 
-    # The first circle comes on its own, and on the house — this is the first
-    # moment the bot is allowed to show one, since the age was just confirmed.
-    # It goes after the menu so the circle, with its own buttons, stays last.
+    # The circle goes after the menu so it, with its own buttons, stays last.
     if first_time and settings.get("welcome_circle"):
-        await db.grant_free_views(call.from_user.id, 1)
-        await watch.serve(call.bot, call.from_user.id, notice=False)
+        await watch.serve(call.bot, call.from_user.id)
 
     await open_pending_profile(call.bot, call.from_user.id)
 

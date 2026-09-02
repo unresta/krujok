@@ -99,7 +99,7 @@ async def _sweep(bot: Bot) -> tuple[int, int]:
             if accepted
             else texts.push_unaccepted(free)
         )
-        markup = kb.push(free) if accepted else kb.push_unaccepted()
+        markup = kb.push(free)
         if await _deliver(bot, user_id, text, markup):
             sent += 1
         else:
@@ -140,6 +140,57 @@ async def _deliver(bot: Bot, user_id: int, text: str, markup) -> bool:
     except TelegramAPIError as error:
         logger.warning("push to %s failed: %s", user_id, error)
         return False
+
+
+# --- the newcomer's nudge -------------------------------------------------
+#
+# Its own audience, its own clock: minutes rather than hours, one message per
+# person ever, and it goes to people who have never been idle a day in their
+# life. The re-engagement switch does not cover it — this is the last step of
+# the welcome, not a reminder — but `trial_views = 0` turns the trial off and
+# takes the nudge with it.
+
+TRIAL_BATCH = 200  # per pass; five minutes' worth of newcomers, not a base
+
+last_trial: dict = {"at": 0.0, "sent": 0, "failed": 0, "error": ""}
+
+
+async def sweep_trial(bot: Bot) -> tuple[int, int]:
+    """Tell whoever stopped after their free circle that there are more."""
+    last_trial["at"] = time.time()
+    last_trial["error"] = ""
+    quiet = settings.get("trial_push_minutes") * 60
+    rows = await db.trial_due(quiet, TRIAL_BATCH)
+    sent = failed = 0
+    for row in rows:
+        # The stamp goes down before the send: this nudge is sent once, and a
+        # failure must not turn it into a second attempt on the next tick.
+        await db.mark_trial_push(row["id"])
+        left = row["trial_left"]
+        if await _deliver(bot, row["id"], texts.trial_push(left), kb.push(left)):
+            sent += 1
+        else:
+            failed += 1
+        await asyncio.sleep(SEND_PAUSE)
+    last_trial["sent"], last_trial["failed"] = sent, failed
+    if sent or failed:
+        logger.info("trial nudge: %s delivered, %s failed", sent, failed)
+    return sent, failed
+
+
+async def run_trial(bot: Bot) -> None:
+    """Own loop; the reminders' one sleeps for a quarter of an hour at a time."""
+    from config import TRIAL_TICK
+
+    while True:
+        await asyncio.sleep(TRIAL_TICK)
+        try:
+            await sweep_trial(bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 — the loop outlives anything
+            last_trial["error"] = str(error)
+            logger.exception("trial nudge sweep failed: %s", error)
 
 
 async def run(bot: Bot) -> None:

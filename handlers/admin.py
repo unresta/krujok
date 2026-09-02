@@ -1242,6 +1242,25 @@ def _ago(stamp: float) -> str:
     return f"{seconds // 3600} ч назад"
 
 
+def _trial_line() -> str:
+    """The newcomer's nudge in one line: it has no screen of its own."""
+    run = pushes.last_trial
+    minutes = settings.get("trial_push_minutes")
+    views = settings.get("trial_views")
+    if not views:
+        return "⚪ выключено: бесплатных кружков новичку — 0"
+    if run["error"]:
+        state = f"🔴 {_ago(run['at'])}, сорвался: {html.escape(run['error'])[:120]}"
+    elif run["at"]:
+        state = f"🟢 {_ago(run['at'])} — отправлено {run['sent']}"
+    else:
+        state = "⚪ ещё ни разу"
+    return (
+        f"{views} {texts.circles_word(views)} бесплатно до ОП, "
+        f"напоминание через {minutes} мин тишины\nПоследний проход: {state}"
+    )
+
+
 @router.callback_query(F.data == "a:push")
 async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -1283,7 +1302,7 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         f"Последний проход: {last}\n\n"
         f"<b>Ждут напоминания: {pool['ready']}</b>"
         + (
-            f" · не приняли правила: {pool['ready_new']}"
+            f" · ещё не начали: {pool['ready_new']}"
             if settings.get("push_unaccepted")
             else ""
         )
@@ -1293,7 +1312,7 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         + (
             ""
             if settings.get("push_unaccepted")
-            else f"• не приняли правила — {pool['not_accepted']}\n"
+            else f"• ещё не начали — {pool['not_accepted']}\n"
         )
         + f"• заблокировали бота — {pool['blocked']}\n"
         f"• забанены — {pool['banned']}\n\n"
@@ -1305,6 +1324,8 @@ async def cb_push(call: CallbackQuery, state: FSMContext) -> None:
         f"{texts.circles_word(settings.get('push_free_views'))} "
         f"— не копятся, прошлый подарок сгорает\n"
         f"Всего получали напоминания: {pool['ever_pushed']}\n\n"
+        f"🎁 <b>Новичкам про бесплатные</b>\n{_trial_line()}\n"
+        f"Сейчас досматривают бесплатные: {pool['on_trial']}\n\n"
         "Цифры правятся в «Экономике».",
         b.as_markup(),
     )
@@ -1519,7 +1540,7 @@ async def _link_report(code: str) -> str | None:
         f"Новых пользователей: <b>{total['users']}</b> · в бане: {total['banned']}\n"
         f"Прошли ОП: {total['subscribed']} "
         f"({_pct(total['subscribed'], total['users'])})\n"
-        f"Приняли правила: {total['accepted']} "
+        f"Дошли до бота: {total['accepted']} "
         f"({_pct(total['accepted'], total['users'])})\n"
         f"Конверсия в платёж: {_pct(total['payers'], total['users'])} "
         f"({total['payers']} чел)\n\n"
@@ -4695,7 +4716,7 @@ async def _refs_summary(call: CallbackQuery) -> None:
         f"10+: {d['with_ten']}\n"
         f"Рекорд одного: {d['best']}\n\n"
         "🎯 <b>Качество приведённых</b>\n"
-        f"Приняли правила: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
+        f"Дошли до бота: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
         f"Заходили за неделю: {d['alive']} ({_pct_of(d['alive'], invited)})\n"
         f"Платили: {d['payers']} ({_pct_of(d['payers'], invited)})\n"
         f"В бане: {d['banned']} ({_pct_of(d['banned'], invited)})",
@@ -4816,7 +4837,7 @@ async def cb_refs_bad(call: CallbackQuery, state: FSMContext) -> None:
     lines = [
         f"• {people.label(row)}\n"
         f"    привёл {row['invited']} · живых {row['alive']} "
-        f"({_pct_of(row['alive'], row['invited'])}) · правила приняли "
+        f"({_pct_of(row['alive'], row['invited'])}) · дошли "
         f"{row['accepted']}"
         + (f" · 🔴 {row['banned']}" if row["banned"] else "")
         for row in rows
@@ -4849,7 +4870,7 @@ async def cb_refs_user(call: CallbackQuery, state: FSMContext) -> None:
         if guest["banned"]:
             mark = "🔴 бан"
         elif not guest["accepted"]:
-            mark = "не принял правила"
+            mark = "не начал"
         elif not guest["ref_credited"]:
             mark = "не прошёл ОП"
         elif guest["last_seen"] > time.time() - 604800:
@@ -4876,7 +4897,7 @@ async def cb_refs_user(call: CallbackQuery, state: FSMContext) -> None:
         f"{_bar(d['confirmed'], invited)}\n"
         f"За сутки: {d['day']} · за неделю: {d['week']}\n"
         f"Первый: {_since(d['first_at'])} · последний: {_since(d['last_at'])}\n\n"
-        f"Приняли правила: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
+        f"Дошли до бота: {d['accepted']} ({_pct_of(d['accepted'], invited)})\n"
         f"Заходили за неделю: {d['alive']} ({_pct_of(d['alive'], invited)}) · "
         f"в бане: {d['banned']}\n\n"
         + ("<b>Последние приглашённые</b>\n" + "\n".join(lines) if lines else ""),
