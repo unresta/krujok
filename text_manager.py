@@ -384,6 +384,7 @@ EDITABLE: dict[str, Item] = {
             "contact": "цена лички или «не продаётся»",
             "views": "показов",
             "sold": "покупок",
+            "boost": "строка про продвижение (ниже)",
         },
     ),
     "STATUS_PENDING": Item("Статус: на проверке", "Анкета автора", plain=True),
@@ -997,9 +998,17 @@ _COMPOSED = {
     ("REJECTED", "reason"): "CIRCLE_REASON_TAIL",
     ("CIRCLE_DELETED", "reason"): "CIRCLE_REASON_TAIL",
     ("PROFILE_STATUS", "status"): "STATUS_APPROVED",
+    ("PROFILE_STATUS", "boost"): "PROFILE_STATUS_BOOST",
     ("PROFILE_STATUS", "contact"): "CONTACT_NOT_SOLD",
     ("PROFILE_CARD", "contact"): "CONTACT_NOT_SOLD",
     ("SALE_NOTE", "what"): "SALE_KIND_CONTENT",
+}
+
+# The tables above are keyed by name alone, and a name is not always the same
+# thing twice: {left} is «сколько осталось» nearly everywhere, but a date in the
+# продвижение tail, where a bare «4» would read as four of something.
+_BY_KEY = {
+    ("PROFILE_STATUS_BOOST", "left"): "03.09.2026 12:40",
 }
 
 
@@ -1009,6 +1018,8 @@ def _sample_value(key: str, name: str, depth: int = 0) -> str:
     if (key, name) in _COMPOSED and depth < 2:
         inner = _COMPOSED[(key, name)]
         return sample(inner, get(inner), depth + 1)
+    if (key, name) in _BY_KEY:
+        return _BY_KEY[(key, name)]
     if name in _ICONS:
         return emoji.text(getattr(emoji, _ICONS[name]))
     if name in _FROM_SETTINGS:
