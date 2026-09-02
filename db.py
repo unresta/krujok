@@ -373,6 +373,9 @@ CREATE TABLE IF NOT EXISTS auctions (
     status     TEXT    NOT NULL DEFAULT 'live',   -- live | done | cancelled
     winner_id  INTEGER NOT NULL DEFAULT 0,
     winner_bid INTEGER NOT NULL DEFAULT 0,
+    -- The rule this one runs by, taken at the start: an auction is announced
+    -- with it, and it may not change under the people who have already paid.
+    refund     INTEGER NOT NULL DEFAULT 1,
     closed_at  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_auctions_live ON auctions(status, ends_at);
@@ -533,6 +536,12 @@ MIGRATIONS = {
         "provider": "TEXT NOT NULL DEFAULT 'stars'",  # everything before was stars
         "asset": "TEXT NOT NULL DEFAULT ''",
         "amount": "TEXT NOT NULL DEFAULT ''",
+    },
+    "auctions": {
+        # Whether losers get their coins back. On the row, not in the settings:
+        # the rule an auction runs by is the one it was announced with, and an
+        # admin must not be able to change the deal after people have paid.
+        "refund": "INTEGER NOT NULL DEFAULT 1",
     },
 }
 
@@ -3800,13 +3809,16 @@ async def last_auction() -> aiosqlite.Row | None:
         return await cur.fetchone()
 
 
-async def start_auction(prize: str, seconds: int) -> aiosqlite.Row | None:
+async def start_auction(
+    prize: str, seconds: int, refund: bool = True
+) -> aiosqlite.Row | None:
     """Open one. None when another is already running — two would split the bids."""
     if await live_auction() is not None:
         return None
     await conn().execute(
-        "INSERT INTO auctions(prize, ends_at) VALUES (?, strftime('%s','now') + ?)",
-        (prize, seconds),
+        "INSERT INTO auctions(prize, ends_at, refund)"
+        " VALUES (?, strftime('%s','now') + ?, ?)",
+        (prize, seconds, int(refund)),
     )
     await conn().commit()
     return await live_auction()

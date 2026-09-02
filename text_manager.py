@@ -112,11 +112,23 @@ EDITABLE: dict[str, Item] = {
         "Меню и лента",
         vars={"left": "сколько осталось", "circles": "«кружочка/кружочков»"},
     ),
+    "AUCTION_RULE_BACK": Item(
+        "…правило: проигравшим вернём", "Меню и лента"
+    ),
+    "AUCTION_RULE_KEEP": Item(
+        "…правило: монетки не возвращаются", "Меню и лента"
+    ),
+    "AUCTION_LOST": Item(
+        "Проигравшему: монетки остались в банке",
+        "Меню и лента",
+        vars={"coins": "сколько"},
+    ),
     "AUCTION": Item(
         "Экран аукциона",
         "Меню и лента",
         vars={
             "prize": "что разыгрываем",
+            "rule": "строка про возврат монеток (ниже)",
             "hours": "сколько идёт",
             "left": "сколько осталось",
             "top": "ставка лидера",
@@ -128,7 +140,11 @@ EDITABLE: dict[str, Item] = {
     "AUCTION_ANNOUNCE": Item(
         "Объявление аукциона всем",
         "Меню и лента",
-        vars={"prize": "что разыгрываем", "hours": "сколько идёт"},
+        vars={
+            "prize": "что разыгрываем",
+            "hours": "сколько идёт",
+            "rule": "строка про возврат монеток (ниже)",
+        },
     ),
     "AUCTION_OFF": Item("Аукцион закончился", "Меню и лента", plain=True),
     "AUCTION_BID_SMALL": Item("Ставка меньше монетки", "Меню и лента", plain=True),
@@ -1017,6 +1033,8 @@ _COMPOSED = {
     ("PROFILE_STATUS", "contact"): "CONTACT_NOT_SOLD",
     ("PROFILE_CARD", "contact"): "CONTACT_NOT_SOLD",
     ("SALE_NOTE", "what"): "SALE_KIND_CONTENT",
+    ("AUCTION", "rule"): "AUCTION_RULE_BACK",
+    ("AUCTION_ANNOUNCE", "rule"): "AUCTION_RULE_BACK",
 }
 
 # The tables above are keyed by name alone, and a name is not always the same

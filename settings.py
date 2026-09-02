@@ -51,6 +51,7 @@ DEFAULTS: dict[str, int] = {
     "promo_every_circles": config.PROMO_EVERY_CIRCLES,
     "cheque_min_refs": config.CHEQUE_MIN_REFS,
     "auction_hours": config.AUCTION_HOURS,
+    "auction_refund": config.AUCTION_REFUND,
     "tier_a1_price": config.TIER_A1_PRICE,
     "tier_a2_price": config.TIER_A2_PRICE,
     "tier_pro_price": config.TIER_PRO_PRICE,
@@ -115,6 +116,7 @@ TITLES: dict[str, str] = {
     "promo_every_circles": "Показ раз в N кружков",
     "cheque_min_refs": "Рефералов для чека",
     "auction_hours": "Аукцион идёт, часов",
+    "auction_refund": "Возврат проигравшим, 0/1",
     "tier_a1_price": "A+ монеток в день",
     "tier_a2_price": "A++ монеток в день",
     "tier_pro_price": "Premium монеток в день",
@@ -173,7 +175,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "📰 Посты": ("promo_every_circles",),
     "🚀 Продвижение анкеты": ("boost_price", "boost_weight"),
     "🎟 Чеки": ("cheque_min_refs",),
-    "🔨 Аукцион": ("auction_hours",),
+    "🔨 Аукцион": ("auction_hours", "auction_refund"),
 }
 
 LIMITS: dict[str, tuple[int, int]] = {
@@ -215,6 +217,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "promo_every_circles": (1, 1000),
     "cheque_min_refs": (1, 1000),
     "auction_hours": (1, 72),
+    "auction_refund": (0, 1),
     "tier_a1_price": (1, 100_000),
     "tier_a2_price": (1, 100_000),
     "tier_pro_price": (1, 100_000),

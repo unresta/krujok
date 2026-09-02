@@ -1939,8 +1939,7 @@ PROFILE_LINK_OWN = "Это ссылка на твою же анкету 🙂"
 AUCTION = (
     "🔨 <b>Аукцион: {prize}</b>\n\n"
     "Кто вложит больше всех монеток за {hours} — тот и забирает приз.\n"
-    "Монетки списываются сразу. Проигравшим они вернутся все до одной, "
-    "как только аукцион закончится.\n\n"
+    "{rule}\n\n"
     "⏳ Осталось: <b>{left}</b>\n"
     "🏆 Лидер: <b>{top}</b> {coin}\n"
     "💰 Твоя ставка: <b>{mine}</b> {coin} · твой баланс: {coins}\n"
@@ -1949,14 +1948,39 @@ AUCTION = (
 )
 
 
+# The one line that has to be true: money that does not come back must say so
+# before it is bid, not after.
+AUCTION_RULE_BACK = (
+    "Монетки списываются сразу. Проигравшим они вернутся все до одной, "
+    "как только аукцион закончится."
+)
+AUCTION_RULE_KEEP = (
+    "Монетки списываются сразу и <b>не возвращаются</b> — ни победителю, "
+    "ни остальным. Ставка сделана."
+)
+
+
+def auction_rule(refund: bool) -> str:
+    key = "AUCTION_RULE_BACK" if refund else "AUCTION_RULE_KEEP"
+    return _fmt(key, AUCTION_RULE_BACK if refund else AUCTION_RULE_KEEP)
+
+
 def auction(
-    prize: str, hours: int, left: str, top: int, mine: int, coins: int, bidders: int
+    prize: str,
+    hours: int,
+    left: str,
+    top: int,
+    mine: int,
+    coins: int,
+    bidders: int,
+    refund: bool = True,
 ) -> str:
     return _fmt(
         "AUCTION",
         AUCTION,
         prize=html.escape(prize),
         hours=hours_word(hours),
+        rule=auction_rule(refund),
         left=left,
         top=top,
         mine=mine,
@@ -2027,14 +2051,22 @@ AUCTION_REFUND = (
     "🔨 Аукцион закончился, приз ушёл к другому.\n"
     "Твои <b>{coins}</b> {coin} вернулись на баланс — до одной монетки."
 )
+AUCTION_LOST = (
+    "🔨 Аукцион закончился, приз ушёл к другому.\n"
+    "Твои <b>{coins}</b> {coin} остались в банке — так и было написано на "
+    "экране аукциона."
+)
 AUCTION_CANCELLED = (
     "🔨 Аукцион отменён. Твои <b>{coins}</b> {coin} вернулись на баланс."
 )
 
 
-def auction_refund(coins: int, cancelled: bool = False) -> str:
-    key = "AUCTION_CANCELLED" if cancelled else "AUCTION_REFUND"
-    return _fmt(key, AUCTION_CANCELLED if cancelled else AUCTION_REFUND, coins=coins)
+def auction_refund(coins: int, cancelled: bool = False, refund: bool = True) -> str:
+    """What a loser is told. A cancelled auction always pays back — it never ran."""
+    if cancelled:
+        return _fmt("AUCTION_CANCELLED", AUCTION_CANCELLED, coins=coins)
+    key = "AUCTION_REFUND" if refund else "AUCTION_LOST"
+    return _fmt(key, AUCTION_REFUND if refund else AUCTION_LOST, coins=coins)
 
 
 AUCTION_POOR = "Не хватает монеток: нужно {amount}, на балансе {coins}."
@@ -2047,15 +2079,16 @@ def auction_poor(amount: int, coins: int) -> str:
 AUCTION_ANNOUNCE = (
     "🔨 <b>АУКЦИОН: {prize}</b>\n\n"
     "У тебя {hours}, чтобы вложить больше всех монеток — приз заберёт один.\n"
-    "Проигравшим монетки вернутся полностью.\n\n"
+    "{rule}\n\n"
     "Красная кнопка «🔨 АУКЦИОН» — внизу, под клавиатурой."
 )
 
 
-def auction_announce(prize: str, hours: int) -> str:
+def auction_announce(prize: str, hours: int, refund: bool = True) -> str:
     return _fmt(
         "AUCTION_ANNOUNCE",
         AUCTION_ANNOUNCE,
         prize=html.escape(prize),
         hours=hours_word(hours),
+        rule=auction_rule(refund),
     )

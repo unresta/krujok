@@ -100,6 +100,10 @@ PUSH_TICK = 900.0  # seconds between sweeps
 AUCTION_HOURS = 2
 AUCTION_PRIZE = "Архив 100 кружочков"
 AUCTION_TICK = 30.0  # seconds between checks that the window has closed
+# Whether losers get their coins back. 1 is an auction, 0 is a raffle everyone
+# pays into — both are honest as long as the screen says which one it is, and
+# it does. Read only when an auction starts; after that the rule is its own.
+AUCTION_REFUND = 1
 AUCTION_BIDS = (10, 50, 100, 500)  # what the buttons offer to put in
 
 # --- welcome and promo posts ---

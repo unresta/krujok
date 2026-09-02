@@ -45,12 +45,20 @@ def seconds_left(auction) -> int:
 
 
 async def start(prize: str = "") -> object | None:
-    """Open the auction. None when one is already running."""
+    """Open the auction. None when one is already running.
+
+    The refund rule is copied onto the row here and read from there ever after:
+    what an auction was announced with is what it must end with.
+    """
     prize = prize or settings.get_text("auction_prize")
     hours = settings.get("auction_hours")
-    row = await db.start_auction(prize, hours * 3600)
+    refund = bool(settings.get("auction_refund"))
+    row = await db.start_auction(prize, hours * 3600, refund)
     if row is not None:
-        logger.info("auction %s started: %s, %s ч", row["id"], prize, hours)
+        logger.info(
+            "auction %s started: %s, %s ч, возврат %s",
+            row["id"], prize, hours, "да" if refund else "нет",
+        )
     return row
 
 
@@ -88,7 +96,9 @@ async def announce(bot: Bot, auction) -> tuple[int, int]:
     collects no bids. Returns (доставлено, не дошло).
     """
     text = texts.auction_announce(
-        auction["prize"], max(1, seconds_left(auction) // 3600)
+        auction["prize"],
+        max(1, seconds_left(auction) // 3600),
+        refund=bool(auction["refund"]),
     )
     menu = kb.main_menu(True)
     sent = failed = 0
@@ -130,6 +140,9 @@ async def close(bot: Bot, auction, cancelled: bool = False) -> bool:
         return False
 
     contact = settings.get_text("auction_contact").strip()
+    # A cancelled auction pays everyone back whatever its rule was: it never
+    # ran, so there is nothing anyone lost to.
+    refund = cancelled or bool(auction["refund"])
     # The red button is on the reply keyboard, and a reply keyboard only changes
     # when a message brings a new one. These are the messages: everyone who bid
     # gets the keyboard back without it, in the same breath as their coins.
@@ -143,12 +156,13 @@ async def close(bot: Bot, auction, cancelled: bool = False) -> bool:
                     reply_markup=menu,
                 )
             continue
-        # Everyone else is made whole, each half back where it came from.
-        await db.give_back(row["user_id"], row["coins"], row["earned"])
+        # Each half goes back where it came from, or nowhere at all.
+        if refund:
+            await db.give_back(row["user_id"], row["coins"], row["earned"])
         with suppress(TelegramAPIError):
             await bot.send_message(
                 row["user_id"],
-                texts.auction_refund(row["coins"], cancelled),
+                texts.auction_refund(row["coins"], cancelled, refund),
                 reply_markup=menu,
             )
         await asyncio.sleep(SEND_PAUSE)
@@ -167,6 +181,10 @@ async def _tell_admins(bot: Bot, auction, winner, cancelled: bool) -> None:
     """The card that says who to hand the prize to — nobody may miss it."""
     chat = settings.reports_chat()
     who = await people.of(winner["user_id"]) if winner else "—"
+    totals = await db.auction_totals(auction["id"])
+    kept = 0 if cancelled or auction["refund"] else totals["coins"] - (
+        winner["coins"] if winner else 0
+    )
     card = (
         f"🔨 <b>Аукцион закрыт</b> · {auction['prize']}\n\n"
         + ("<b>Отменён, монетки вернулись всем.</b>\n" if cancelled else "")
@@ -177,6 +195,7 @@ async def _tell_admins(bot: Bot, auction, winner, cancelled: bool) -> None:
             if winner
             else "Ставок не было."
         )
+        + (f"\n\n💰 Осталось в банке: <b>{kept}</b> монеток" if kept else "")
     )
     async def deliver() -> None:
         await outbox.call(chat, lambda: bot.send_message(chat, card), "итог аукциона")

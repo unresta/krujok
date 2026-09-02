@@ -5064,6 +5064,17 @@ def _auc_kb(live, prize: str, contact: str) -> InlineKeyboardMarkup:
             callback_data="a:econ:k:auction_hours",
         )
     )
+    # The rule of a running auction is fixed on its row, so this switch says
+    # what the *next* one will be — and the label says so out loud.
+    back = bool(settings.get("auction_refund"))
+    b.row(
+        InlineKeyboardButton(
+            text=("💸 Проигравшим: возвращаем" if back else "🏦 Банк остаётся у бота")
+            + (" (для следующего)" if live is not None else ""),
+            callback_data="a:auc:refund",
+            style=None if back else kb.DANGER,
+        )
+    )
     b.row(
         InlineKeyboardButton(text="🔄 Обновить", callback_data="a:auc"),
         InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"),
@@ -5090,8 +5101,14 @@ async def _auction_text() -> str:
             f"👥 Участников: {totals['bidders']} · ставок: {totals['raises']}\n"
             f"💰 В банке: <b>{totals['coins']}</b> 🪙\n\n"
             + (f"<b>Кто впереди</b>\n{lines}\n\n" if lines else "Ставок пока нет.\n\n")
-            + "Победителя бот назовёт сам и пришлёт карточку в чат жалоб/выплат. "
-            "Проигравшим монетки вернутся автоматически."
+            + "Победителя бот назовёт сам и пришлёт карточку в чат жалоб/выплат.\n"
+            + (
+                "Проигравшим монетки вернутся автоматически."
+                if live["refund"]
+                else "💰 <b>Возврата нет</b> — весь банк остаётся у бота. "
+                "На экране аукциона это написано, и менять правило на ходу "
+                "бот не даст: этот доиграет так, как объявлен."
+            )
         )
 
     last = await db.last_auction()
@@ -5112,7 +5129,15 @@ async def _auction_text() -> str:
         + "⚪ <b>Не идёт.</b>\n\n"
         "Пока идёт — в главном меню у всех сверху висит красная кнопка "
         "«🔨 АУКЦИОН». Кто вложит больше монеток, тот и заберёт приз; "
-        "монетки списываются сразу и возвращаются всем, кроме победителя."
+        "монетки списываются сразу.\n\n"
+        + (
+            "Проигравшим они вернутся — так честнее, и так написано на их "
+            "экране."
+            if settings.get("auction_refund")
+            else "💰 <b>Возврата не будет</b>: весь банк остаётся у бота. "
+            "На экране аукциона это написано прямым текстом — иначе это "
+            "не аукцион, а сюрприз."
+        )
         + tail
     )
 
@@ -5140,6 +5165,20 @@ async def cb_auction_start(call: CallbackQuery, state: FSMContext) -> None:
         return
     logger.warning("auction started by %s", call.from_user.id)
     await call.answer("Запущен")
+    await cb_auction(call, state)
+
+
+@router.callback_query(F.data == "a:auc:refund")
+async def cb_auction_refund(call: CallbackQuery, state: FSMContext) -> None:
+    """Flips what the next auction promises. The running one keeps its own word."""
+    await settings.set("auction_refund", 0 if settings.get("auction_refund") else 1)
+    back = bool(settings.get("auction_refund"))
+    live = await db.live_auction()
+    await call.answer(
+        ("Проигравшим вернём" if back else "Банк остаётся у бота")
+        + (" — со следующего аукциона" if live is not None else ""),
+        show_alert=live is not None,
+    )
     await cb_auction(call, state)
 
 
@@ -5204,7 +5243,11 @@ async def cb_auction_ask_close(call: CallbackQuery, state: FSMContext) -> None:
             else "🏁 <b>Завершить аукцион сейчас?</b>\n\n"
             f"До конца ещё {texts.time_left(auction.seconds_left(live))}.\n"
             f"Победит {leader}.\n"
-            f"Остальным вернутся их монетки."
+            + (
+                "Остальным вернутся их монетки."
+                if live["refund"]
+                else f"Остальным ничего не вернётся — в банке {totals['coins']} 🪙."
+            )
         )
         + "\n\nОтменить это будет нельзя.",
         b.as_markup(),

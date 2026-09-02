@@ -40,6 +40,8 @@ async def screen(user_id: int) -> tuple[str, object]:
         mine=await db.bid_of(live["id"], user_id),
         coins=user["coins"],
         bidders=totals["bidders"],
+        # The rule this auction actually runs by, not the one set right now.
+        refund=bool(live["refund"]),
     )
     return text, kb.auction_screen()
 
