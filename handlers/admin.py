@@ -2176,6 +2176,13 @@ async def user_card(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             text="✉️ Написать", callback_data=f"a:u:dm:{user_id}", style=kb.PRIMARY
         )
     )
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Удалить из базы",
+            callback_data=f"a:u:del:{user_id}",
+            style=kb.DANGER,
+        )
+    )
     b.row(InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"))
     return text, b.as_markup()
 
@@ -2288,6 +2295,73 @@ async def cb_user_dm_go(call: CallbackQuery, state: FSMContext) -> None:
 
     text, markup = await user_card(user_id)
     await _edit(call, f"{note}\n\n{text}", markup)
+
+
+@router.callback_query(F.data.startswith("a:u:del:"))
+async def cb_user_delete(call: CallbackQuery) -> None:
+    """Two steps on purpose — there is no undo, and the button sits on a card."""
+    user_id = int(call.data.split(":")[3])
+    d = await db.user_footprint(user_id)
+    user = await db.get_user(user_id)
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🗑 Да, удалить",
+            callback_data=f"a:u:delgo:{user_id}",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Отмена", callback_data=f"a:u:card:{user_id}", style=kb.PRIMARY
+        )
+    )
+    await _edit(
+        call,
+        f"🗑 <b>Удалить {people.label(user)} из базы?</b>\n\n"
+        "Под нож пойдут:\n"
+        f"• баланс {user['coins']} 🪙\n"
+        f"• кружков {d['circles']} · просмотров {d['views']}\n"
+        f"• покупок {d['bought']} · продаж {d['sold']}\n"
+        f"• платежей {d['payments']} · заявок на вывод {d['payouts']}\n"
+        + ("• анкета\n" if d["profile"] else "")
+        + (
+            f"\nПриглашённых им ({d['invited']}) не тронем — они просто "
+            "останутся без пригласившего.\n"
+            if d["invited"]
+            else ""
+        )
+        + "\nБот забудет человека полностью: следующий <code>/start</code> "
+        "будет для него первым — бесплатные кружки, бонус новичку, ОП заново.\n"
+        "Кружочки, которые он загрузил, тоже удалятся.\n\n"
+        "Отменить будет нельзя.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:u:delgo:"))
+async def cb_user_delete_go(call: CallbackQuery) -> None:
+    user_id = int(call.data.split(":")[3])
+    who = await people.of(user_id)
+    gone = await db.delete_user(user_id)
+    # The gate keeps a confirmed subscription in memory; a person the base has
+    # never seen must not walk through on it.
+    access.forget(user_id)
+    logger.warning(
+        "user %s deleted from the base by %s (%s circles, %s views)",
+        user_id, call.from_user.id, gone["circles"], gone["views"],
+    )
+    await call.answer("Удалён", show_alert=True)
+    await _edit(
+        call,
+        f"🗑 <b>{who} удалён из базы.</b>\n\n"
+        f"Кружков: {gone['circles']} · просмотров: {gone['views']} · "
+        f"покупок: {gone['bought']} · платежей: {gone['payments']}\n\n"
+        "Следующий <code>/start</code> с этого аккаунта будет как с нового.",
+        back_kb(),
+    )
 
 
 @router.callback_query(F.data.startswith("a:u:ban:"))

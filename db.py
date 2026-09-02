@@ -651,6 +651,89 @@ async def set_banned(user_id: int, banned: bool) -> None:
     await conn().commit()
 
 
+# Every table that holds a person, and how it names them. Kept in one place so
+# a table added later is one line here rather than a trace nobody remembers.
+_USER_TABLES = (
+    ("boost_orders", "user_id"),
+    ("tier_sales", "user_id"),
+    ("tier_subs", "user_id"),
+    ("payouts", "user_id"),
+    ("payments", "user_id"),
+    ("invoices", "user_id"),
+    ("cheque_claims", "user_id"),
+    ("channel_joins", "user_id"),
+    ("channel_asked", "user_id"),
+    ("post_seen", "user_id"),
+    ("post_converted", "user_id"),
+    ("campaign_hits", "user_id"),
+    ("profiles", "user_id"),
+    ("profile_backup", "user_id"),
+    ("views", "user_id"),
+    ("reactions", "user_id"),
+    ("reports", "user_id"),
+    ("profile_reports", "user_id"),
+    ("profile_reports", "author_id"),
+    ("purchases", "buyer_id"),
+    ("purchases", "author_id"),
+    ("profile_views", "buyer_id"),
+    ("profile_views", "author_id"),
+)
+
+
+async def user_footprint(user_id: int) -> dict:
+    """How much of the base one person is — read before deleting them."""
+    async with conn().execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM circles   WHERE uploader_id = :id) AS circles,
+          (SELECT COUNT(*) FROM views     WHERE user_id = :id)     AS views,
+          (SELECT COUNT(*) FROM purchases WHERE buyer_id = :id)    AS bought,
+          (SELECT COUNT(*) FROM purchases WHERE author_id = :id)   AS sold,
+          (SELECT COUNT(*) FROM payments  WHERE user_id = :id)     AS payments,
+          (SELECT COUNT(*) FROM payouts   WHERE user_id = :id)     AS payouts,
+          (SELECT COUNT(*) FROM profiles  WHERE user_id = :id)     AS profile,
+          (SELECT COUNT(*) FROM users     WHERE ref_by = :id)      AS invited
+        """,
+        {"id": user_id},
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def delete_user(user_id: int) -> dict:
+    """Erase a person from the base. Returns what was there before.
+
+    For testing the bot from a second account: afterwards the bot has never
+    seen them, so /start starts over — the trial, the welcome bonus, the gate,
+    the campaign funnel, everything. There is no undo.
+
+    Their own circles go with them, and the views, reactions and complaints on
+    those circles go with the circles: a view of a circle that no longer exists
+    is what makes the counters lie. What stays is other people's rows — a
+    circle they once moderated keeps the stamp of who moderated it, and a
+    cheque they created keeps working for everyone else. Rows that pointed at
+    them as an inviter are cleared, so nothing is left pointing at nobody.
+    """
+    footprint = await user_footprint(user_id)
+    mine = "(SELECT id FROM circles WHERE uploader_id = :id)"
+    for table in ("views", "reactions", "reports"):
+        await conn().execute(
+            f"DELETE FROM {table} WHERE circle_id IN {mine}", {"id": user_id}
+        )
+    await conn().execute(
+        "DELETE FROM circles WHERE uploader_id = :id", {"id": user_id}
+    )
+    for table, column in _USER_TABLES:
+        await conn().execute(
+            f"DELETE FROM {table} WHERE {column} = :id", {"id": user_id}
+        )
+    await conn().execute(
+        "UPDATE users SET ref_by = NULL WHERE ref_by = :id", {"id": user_id}
+    )
+    await conn().execute("DELETE FROM users WHERE id = :id", {"id": user_id})
+    await conn().commit()
+    return footprint
+
+
 async def try_spend(user_id: int, amount: int) -> bool:
     """Deduct only if the balance covers it. Returns False when it does not.
 
