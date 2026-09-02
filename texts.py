@@ -25,7 +25,15 @@ logger = logging.getLogger(__name__)
 
 
 def _fmt(key: str, template: str, **values) -> str:
-    """Fill a template, falling back to the shipped one if an edit broke it."""
+    """Fill a template, falling back to the shipped one if an edit broke it.
+
+    {coin} is filled in for every text, whether or not the caller passed it: the
+    coin is the one insert that makes sense in any message about money, and an
+    admin who adds it to a text in the panel should not have to wait for a
+    release for it to work. Anything a caller passes wins, so a text that fills
+    {coin} itself is untouched.
+    """
+    values.setdefault("coin", coin())
     try:
         return template.format(**values)
     except (KeyError, IndexError, ValueError):
@@ -1258,7 +1266,7 @@ PAYOUT_SCREEN = (
 )
 # Why the number here is smaller than everything they ever made. Without this
 # line the only explanation is «бот посчитал неправильно».
-PAYOUT_SCREEN_SPENT = "\n\n🪙 Ещё {spent} заработанных ты потратил внутри бота."
+PAYOUT_SCREEN_SPENT = "\n\n{coin} Ещё {spent} заработанных ты потратил внутри бота."
 PAYOUT_SCREEN_PENDING = "\n\n🕒 Заявок в работе: {pending}"
 
 

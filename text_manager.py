@@ -112,7 +112,8 @@ EDITABLE: dict[str, Item] = {
         "Меню и лента",
         vars={"left": "сколько осталось", "circles": "«кружочка/кружочков»"},
     ),
-    "TRIAL_LAST": Item("Последний бесплатный новичка", "Меню и лента"),
+    # No inserts of its own, but the bot formats it — so {coin} works here.
+    "TRIAL_LAST": Item("Последний бесплатный новичка", "Меню и лента", vars=_COIN),
     "TRIAL_PUSH": Item(
         "Напоминание новичку про бесплатные",
         "Меню и лента",
@@ -320,7 +321,7 @@ EDITABLE: dict[str, Item] = {
         "Анкета автора",
         vars={"until": "до какого числа", "left": "сколько осталось"},
     ),
-    "BOOST_IDLE": Item("Продвижение: не идёт", "Анкета автора"),
+    "BOOST_IDLE": Item("Продвижение: не идёт", "Анкета автора", vars=_COIN),
     "BOOST_BOUGHT": Item(
         "Продвижение куплено",
         "Анкета автора",
@@ -1030,21 +1031,37 @@ def _sample_value(key: str, name: str, depth: int = 0) -> str:
         return _NUMBERS[name]
     if name in _WORDS:
         return _WORDS[name]
-    return f"«{EDITABLE[key].vars.get(name, name)}»"
+    return f"«{vars_of(key).get(name, name)}»"
+
+
+# {coin} is filled in for every formatted text (see texts._fmt), so it is
+# offered in all of them instead of being declared a hundred times over. Two
+# kinds of text are left out: one with no inserts at all is sent exactly as
+# written and would show the braces, and a toast renders no HTML, so a premium
+# emoji would arrive there as a visible tag.
+COMMON_VARS = {"coin": "значок монетки"}
+
+
+def vars_of(key: str) -> dict[str, str]:
+    """Everything this text may hold, its own inserts and the common ones."""
+    item = EDITABLE[key]
+    if not item.vars or item.plain:
+        return dict(item.vars)
+    return {**item.vars, **COMMON_VARS}
 
 
 def sample(key: str, value: str, depth: int = 0) -> str:
     """The template as the user would see it, with real values in the inserts."""
     return value.format(
-        **{name: _sample_value(key, name, depth) for name in EDITABLE[key].vars}
+        **{name: _sample_value(key, name, depth) for name in vars_of(key)}
     )
 
 
 def vars_hint(key: str) -> str:
-    item = EDITABLE[key]
-    if not item.vars:
+    names = vars_of(key)
+    if not names:
         return "Вставок в этом тексте нет."
-    pairs = [f"<code>{{{name}}}</code> — {what}" for name, what in item.vars.items()]
+    pairs = [f"<code>{{{name}}}</code> — {what}" for name, what in names.items()]
     # A screen like the profile has two dozen of them; a bullet each turns the
     # card into a wall, so long lists go inline.
     if len(pairs) > 6:
@@ -1088,12 +1105,11 @@ def incoming(key: str, text: str, html_text: str) -> tuple[str, str | None]:
 
 def check(key: str, value: str) -> str | None:
     """What is wrong with this template, or None when it is fine."""
-    item = EDITABLE[key]
     try:
         sample(key, value)
     except KeyError as error:
         name = error.args[0]
-        allowed = ", ".join(f"{{{v}}}" for v in item.vars) or "никаких"
+        allowed = ", ".join(f"{{{v}}}" for v in vars_of(key)) or "никаких"
         return (
             f"Нет такой вставки: <code>{{{name}}}</code>.\n"
             f"В этом тексте доступны: {allowed}"

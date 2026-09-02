@@ -25,7 +25,9 @@ from config import PREMIUM_EMOJI
 logger = logging.getLogger(__name__)
 
 # Default values - can be overridden via emoji_manager
-COIN = "5471952986970267163"
+# The coin is the one emoji that shows up in nearly every message — balances,
+# prices, rewards — so it is the one most worth getting right.
+COIN = "5199552030615558774"
 FEMALE = "5834515786588229330"
 MALE = "5834583952014184479"
 ANY = "5280816565657300091"
