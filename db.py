@@ -2393,11 +2393,31 @@ async def get_profile(user_id: int) -> aiosqlite.Row | None:
         return await cur.fetchone()
 
 
-async def set_profile_admin_msg(user_id: int, msg_id: int) -> None:
+async def set_profile_admin_msg(user_id: int, msg_id: int | None) -> None:
+    """The card that is waiting for a decision. None when none is.
+
+    An edit sent before a moderator got to the last one edits this card instead
+    of adding another — see profiles._post_card — so it has to mean «undecided»
+    and nothing else.
+    """
     await conn().execute(
         "UPDATE profiles SET admin_msg_id = ? WHERE user_id = ?", (msg_id, user_id)
     )
     await conn().commit()
+
+
+async def clear_decided_profile_cards() -> int:
+    """Cheap and idempotent, on every start: a decided card is not editable.
+
+    The column used to be written and never read, so bases from before carry
+    ids of cards that already show a verdict — and editing one would wipe it.
+    """
+    cur = await conn().execute(
+        "UPDATE profiles SET admin_msg_id = NULL"
+        " WHERE status != 'pending' AND admin_msg_id IS NOT NULL"
+    )
+    await conn().commit()
+    return cur.rowcount
 
 
 async def review_profile(user_id: int, status: str) -> bool:

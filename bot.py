@@ -77,6 +77,7 @@ async def main() -> None:
     await db.backfill_identity()  # authors' usernames until they return
     await db.backfill_campaign_funnel()  # ad reports stop leaning on users rows
     await db.backfill_trials()  # the newcomer's free circles are for newcomers
+    await db.clear_decided_profile_cards()  # only an undecided card gets edited
     await emoji.resolve(bot)  # real placeholders, or plain unicode if unavailable
     await emoji_manager.resolve(bot)  # resolve custom emoji too
     access.bot_username = (await bot.me()).username  # referral links need it

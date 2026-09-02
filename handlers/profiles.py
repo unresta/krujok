@@ -15,7 +15,12 @@ from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InputMediaPhoto,
+    Message,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
@@ -494,9 +499,11 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
         + f" от <code>{author.id}</code>"
         f"{' @' + author.username if author.username else ''}\n"
         + (
-            f"♻️ Поменялось: <b>{', '.join(changes)}</b>\n"
+            # The time is what tells one edit from the next when the card is
+            # rewritten in place — and it is also the answer to «а когда?».
+            f"♻️ Поменялось: <b>{', '.join(changes)}</b> · {texts.hhmm()}\n"
             if changes
-            else "♻️ Прислана заново без правок\n"
+            else f"♻️ Прислана заново без правок · {texts.hhmm()}\n"
             if previous
             else ""
         )
@@ -506,23 +513,59 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
         f"{html.escape(data.get('about') or 'Без описания')}"
     )
 
+    await _post_card(
+        message.bot, author.id, data["photo_id"], caption, previous
+    )
+
+
+async def _post_card(bot, user_id: int, photo_id: str, caption: str, previous) -> None:
+    """Put the profile in front of a moderator — in one card, not in a pile.
+
+    An author who fixes their photo three times before anyone looks used to
+    leave three cards in the chat, all but the last one describing a profile
+    that no longer exists. Whoever reads the queue then has to work out which
+    of them is still true, and the buttons of the stale ones still work.
+
+    So while the last card is undecided (`profiles.admin_msg_id`), the next
+    edit rewrites it. A card that already carries a verdict is never touched:
+    that verdict is the record of a decision, and the moderator wrote it.
+    """
+    chat = settings.profiles_chat()
+    markup = kb.profile_review(user_id)
+    waiting = previous["admin_msg_id"] if previous else None
+
     async def deliver() -> None:
+        if waiting:
+            # editMessageMedia carries the caption with it, so the photo and
+            # the text move together — two calls could leave them mismatched.
+            edited = await outbox.call(
+                chat,
+                lambda: bot.edit_message_media(
+                    chat_id=chat,
+                    message_id=waiting,
+                    media=InputMediaPhoto(media=photo_id, caption=caption),
+                    reply_markup=markup,
+                ),
+                f"анкета {user_id}",
+            )
+            if edited is not None:
+                return
+            # Gone: deleted by hand, or the chat was changed under us. A fresh
+            # card is better than an author who waits for one that is not there.
+            logger.info("анкета %s: карточка %s не правится, шлю новую", user_id, waiting)
         # The profile is saved and shows up in the panel's queue regardless —
         # only the card is missing, and silence here is what hides that.
         card = await outbox.call(
             chat,
-            lambda: message.bot.send_photo(
-                chat,
-                data["photo_id"],
-                caption=caption,
-                reply_markup=kb.profile_review(author.id),
+            lambda: bot.send_photo(
+                chat, photo_id, caption=caption, reply_markup=markup
             ),
-            f"анкета {author.id}",
+            f"анкета {user_id}",
         )
         if card is not None:
-            await db.set_profile_admin_msg(author.id, card.message_id)
+            await db.set_profile_admin_msg(user_id, card.message_id)
 
-    outbox.post(chat, deliver, f"анкета {author.id}")
+    outbox.post(chat, deliver, f"анкета {user_id}")
 
 
 async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
@@ -534,31 +577,17 @@ async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
     # Set status back to pending
     await db.set_profile_status(user_id, "pending")
 
-    chat = settings.profiles_chat()
     caption = (
         f"#анкета_изменена от {await people.of(user_id)}\n"
-        f"♻️ Отредактирована\n"
+        f"♻️ Отредактирована · {texts.hhmm()}\n"
         f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
         f"Кружочки: {profile['price_content']} · "
         f"личка: {profile['price_contact'] or 'нет'}\n\n"
         f"{html.escape(profile['about'] or 'Без описания')}"
     )
-
-    async def deliver() -> None:
-        card = await outbox.call(
-            chat,
-            lambda: bot.send_photo(
-                chat,
-                profile["photo_id"],
-                caption=caption,
-                reply_markup=kb.profile_review(user_id),
-            ),
-            f"анкета {user_id}",
-        )
-        if card is not None:
-            await db.set_profile_admin_msg(user_id, card.message_id)
-
-    outbox.post(chat, deliver, f"анкета {user_id}")
+    # save_profile leaves admin_msg_id alone, so the row read here still points
+    # at the card that is waiting — if one is.
+    await _post_card(bot, user_id, profile["photo_id"], caption, profile)
 
 
 # --- moderation ----------------------------------------------------------
@@ -597,6 +626,11 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         )
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(reply_markup=markup)
+        if verdict == "again":
+            # Undecided again, so an edit that arrives now belongs on this card
+            # rather than on a second one. The complaint card lives in another
+            # chat and is not the queue's, so it is not claimed here.
+            await db.set_profile_admin_msg(user_id, call.message.message_id)
         await call.answer("Решай заново")
         return
 
@@ -673,6 +707,9 @@ async def _decide(bot, user_id: int, status: str, reason: str) -> str:
     Turning down an edit restores the version that was approved before it —
     a bad photo today should not cost the author a profile that was fine.
     """
+    # Decided: the card now carries a verdict, and the next edit gets a card of
+    # its own rather than overwriting what the moderator just wrote.
+    await db.set_profile_admin_msg(user_id, None)
     if status == "approved":
         await db.set_profile_status(user_id, "approved")
         await db.backup_profile(user_id)

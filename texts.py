@@ -1830,6 +1830,12 @@ def when(stamp: int) -> str:
     return time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + MSK_OFFSET)) + " МСК"
 
 
+def hhmm(stamp: int | None = None) -> str:
+    """Just the clock, for a card where the date is «сегодня» anyway."""
+    at = int(time.time()) if stamp is None else stamp
+    return time.strftime("%H:%M", time.gmtime(at + MSK_OFFSET))
+
+
 # --- paid reach for a profile --------------------------------------------
 
 BOOST_SCREEN = (
