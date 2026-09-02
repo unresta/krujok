@@ -89,6 +89,9 @@ BTN_RULES = "Правила и FAQ"
 BTN_SHOP = "Магазин"
 BTN_ANKETAS = "Смотреть анкеты"
 BTN_SUBS = "Подписка"
+# Only on screen while an auction is running, and red the whole time it is:
+# the point of it is that it ends today.
+BTN_AUCTION = "🔨 АУКЦИОН"
 
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
@@ -126,6 +129,7 @@ def _menu_button(label: str) -> KeyboardButton:
 # Menu presses must never be mistaken for an answer to a prompt.
 MENU_BUTTONS = frozenset(
     {
+        BTN_AUCTION,
         BTN_WATCH,
         BTN_ANKETAS,
         BTN_PROFILE,
@@ -138,18 +142,45 @@ MENU_BUTTONS = frozenset(
 )
 
 
-def main_menu() -> ReplyKeyboardMarkup:
+def main_menu(auction: bool = False) -> ReplyKeyboardMarkup:
+    rows = [
+        [_menu_button(BTN_WATCH)],
+        [_menu_button(BTN_ANKETAS)],
+        [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
+        [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
+        [_menu_button(BTN_SHOP), _menu_button(BTN_SUBS)],
+    ]
+    if auction:
+        # Above everything, alone in its row and red: it is the one button here
+        # that stops working in two hours.
+        rows.insert(0, [KeyboardButton(text=BTN_AUCTION, style=DANGER)])
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [_menu_button(BTN_WATCH)],
-            [_menu_button(BTN_ANKETAS)],
-            [_menu_button(BTN_PROFILE), _menu_button(BTN_FEED)],
-            [_menu_button(BTN_REF), _menu_button(BTN_RULES)],
-            [_menu_button(BTN_SHOP), _menu_button(BTN_SUBS)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
+        keyboard=rows, resize_keyboard=True, is_persistent=True
     )
+
+
+def auction_screen(live: bool = True) -> InlineKeyboardMarkup:
+    """Bids first — the whole screen exists to take one."""
+    from config import AUCTION_BIDS
+
+    b = InlineKeyboardBuilder()
+    if live:
+        bids = [
+            _coin_button(f"+{amount}", f"auc:bid:{amount}", SUCCESS)
+            for amount in AUCTION_BIDS
+        ]
+        for pair in (bids[:2], bids[2:]):
+            if pair:
+                b.row(*pair)
+        b.row(
+            InlineKeyboardButton(
+                text="✏️ Своя ставка", callback_data="auc:custom", style=PRIMARY
+            )
+        )
+        b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
+        b.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="auc:open"))
+    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    return b.as_markup()
 
 
 def circle(

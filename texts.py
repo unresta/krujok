@@ -1932,3 +1932,130 @@ PROFILE_LINK_NEEDS_APPROVED = (
 )
 PROFILE_LINK_GONE = "Анкета, на которую вела ссылка, недоступна."
 PROFILE_LINK_OWN = "Это ссылка на твою же анкету 🙂"
+
+
+# --- auction --------------------------------------------------------------
+
+AUCTION = (
+    "🔨 <b>Аукцион: {prize}</b>\n\n"
+    "Кто вложит больше всех монеток за {hours} — тот и забирает приз.\n"
+    "Монетки списываются сразу. Проигравшим они вернутся все до одной, "
+    "как только аукцион закончится.\n\n"
+    "⏳ Осталось: <b>{left}</b>\n"
+    "🏆 Лидер: <b>{top}</b> {coin}\n"
+    "💰 Твоя ставка: <b>{mine}</b> {coin} · твой баланс: {coins}\n"
+    "👥 Участников: {bidders}\n\n"
+    "Ставка складывается: нажал ещё раз — прибавилось."
+)
+
+
+def auction(
+    prize: str, hours: int, left: str, top: int, mine: int, coins: int, bidders: int
+) -> str:
+    return _fmt(
+        "AUCTION",
+        AUCTION,
+        prize=html.escape(prize),
+        hours=hours_word(hours),
+        left=left,
+        top=top,
+        mine=mine,
+        coins=coins,
+        bidders=bidders,
+        coin=coin(),
+    )
+
+
+def hours_word(count: int) -> str:
+    """2 часа, 5 часов, 21 час."""
+    tail = count % 100
+    if 11 <= tail <= 14:
+        return f"{count} часов"
+    return f"{count} " + {1: "час", 2: "часа", 3: "часа", 4: "часа"}.get(
+        tail % 10, "часов"
+    )
+
+
+def time_left(seconds: int) -> str:
+    """«1 ч 07 мин», «12 мин», «меньше минуты» — as it counts down."""
+    if seconds >= 3600:
+        return f"{seconds // 3600} ч {seconds % 3600 // 60:02d} мин"
+    if seconds >= 60:
+        return f"{seconds // 60} мин"
+    return "меньше минуты"
+
+
+AUCTION_OFF = "Аукцион уже закончился. Загляни в следующий раз 🙂"
+AUCTION_BID_SMALL = "Ставка должна быть больше нуля."
+
+AUCTION_BID_OK = "🔨 Принято. Твоя ставка: {mine} монеток"
+
+
+def auction_bid_ok(mine: int) -> str:
+    return _fmt("AUCTION_BID_OK", AUCTION_BID_OK, mine=mine)
+
+
+AUCTION_BID_ASK = (
+    "🔨 Сколько монеток поставить?\n\n"
+    "Пришли число. Оно прибавится к твоей ставке.\n"
+    "Баланс: <b>{coins}</b> {coin}"
+)
+
+
+def auction_bid_ask(coins: int) -> str:
+    return _fmt("AUCTION_BID_ASK", AUCTION_BID_ASK, coins=coins, coin=coin())
+
+
+AUCTION_WON = (
+    "🏆 <b>Ты выиграл аукцион!</b>\n\n"
+    "Твоя ставка — <b>{coins}</b> {coin}, она и была самой большой.\n\n"
+    "Напиши в поддержку{contact} за доступом — приз выдают там."
+)
+
+
+def auction_won(coins: int, contact: str) -> str:
+    return _fmt(
+        "AUCTION_WON",
+        AUCTION_WON,
+        coins=coins,
+        coin=coin(),
+        contact=f" {contact}" if contact else "",
+    )
+
+
+AUCTION_REFUND = (
+    "🔨 Аукцион закончился, приз ушёл к другому.\n"
+    "Твои <b>{coins}</b> {coin} вернулись на баланс — до одной монетки."
+)
+AUCTION_CANCELLED = (
+    "🔨 Аукцион отменён. Твои <b>{coins}</b> {coin} вернулись на баланс."
+)
+
+
+def auction_refund(coins: int, cancelled: bool = False) -> str:
+    key = "AUCTION_CANCELLED" if cancelled else "AUCTION_REFUND"
+    return _fmt(key, AUCTION_CANCELLED if cancelled else AUCTION_REFUND, coins=coins)
+
+
+AUCTION_POOR = "Не хватает монеток: нужно {amount}, на балансе {coins}."
+
+
+def auction_poor(amount: int, coins: int) -> str:
+    return _fmt("AUCTION_POOR", AUCTION_POOR, amount=amount, coins=coins)
+
+
+AUCTION_ANNOUNCE = (
+    "🔨 <b>АУКЦИОН: {prize}</b>\n\n"
+    "У тебя {hours}, чтобы вложить больше всех монеток — приз заберёт один.\n"
+    "Проигравшим монетки вернутся полностью.\n\n"
+    "Красная кнопка «🔨 АУКЦИОН» — внизу, под клавиатурой."
+)
+
+
+def auction_announce(prize: str, hours: int) -> str:
+    return _fmt(
+        "AUCTION_ANNOUNCE",
+        AUCTION_ANNOUNCE,
+        prize=html.escape(prize),
+        hours=hours_word(hours),
+    )

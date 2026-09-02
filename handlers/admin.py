@@ -35,6 +35,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import access
+import auction
 import botstat
 import config
 import crypto
@@ -94,6 +95,8 @@ class Admin(StatesGroup):
     chanpost_button = State() # подпись и ссылка кнопки
     botman_folder = State()
     dead_file = State()  # список мёртвых от BotSafe
+    auction_prize = State()   # что разыгрываем
+    auction_contact = State()  # куда победитель идёт за призом
 
 
 # --- home ----------------------------------------------------------------
@@ -105,6 +108,7 @@ def home_kb(
     reports: int,
     anketas: int,
     payouts: int,
+    auction_left: str = "",
 ) -> InlineKeyboardMarkup:
     """Queues first, everyday tools next, the rest behind three doors.
 
@@ -154,6 +158,15 @@ def home_kb(
         InlineKeyboardButton(text="📈 Трафик", callback_data="a:sec:traffic"),
         InlineKeyboardButton(text="📊 Отчёты", callback_data="a:sec:reports"),
     )
+    # A running auction is a clock the admin is on: it says so from the home
+    # screen, in red, without being opened.
+    b.row(
+        InlineKeyboardButton(
+            text="🔨 Аукцион" + (f" · идёт, {auction_left}" if auction_left else ""),
+            callback_data="a:auc",
+            style=kb.DANGER if auction_left else None,
+        )
+    )
     # Maintenance lives in the section now, but «bot is closed» is not something
     # to find out two taps deep — the door itself carries the alarm.
     b.row(
@@ -199,6 +212,12 @@ async def home_text() -> str:
     )
 
 
+async def _auction_left() -> str:
+    """«1 ч 07 мин» while one is running, empty when none is."""
+    live = await db.live_auction()
+    return texts.time_left(auction.seconds_left(live)) if live else ""
+
+
 async def show_home(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     d = await db.dashboard()
@@ -208,6 +227,7 @@ async def show_home(call: CallbackQuery, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
+            await _auction_left(),
         ))
 
 
@@ -222,6 +242,7 @@ async def open_panel(message: Message, state: FSMContext) -> None:
             await db.open_reports(),
             await db.pending_profiles(),
             (await db.payout_totals())["open"],
+            await _auction_left(),
         )
     )
 
@@ -4986,3 +5007,281 @@ async def cb_user_card(call: CallbackQuery, state: FSMContext) -> None:
     text, markup = await user_card(int(call.data.split(":")[3]))
     await _edit(call, text, markup)
     await call.answer()
+
+
+# --- auction -------------------------------------------------------------
+
+
+def _auc_kb(live, prize: str, contact: str) -> InlineKeyboardMarkup:
+    """Running or not is the whole screen: the buttons differ, the rest is settings."""
+    b = InlineKeyboardBuilder()
+    if live is None:
+        b.row(
+            InlineKeyboardButton(
+                text=f"▶️ Запустить на {settings.get('auction_hours')} ч",
+                callback_data="a:auc:start",
+                style=kb.SUCCESS,
+            )
+        )
+    else:
+        # The button is on a reply keyboard, and those only change when a
+        # message brings a new one — so «объявить» is also how it appears.
+        b.row(
+            InlineKeyboardButton(
+                text="📢 Объявить всем",
+                callback_data="a:auc:tell",
+                style=kb.SUCCESS,
+            )
+        )
+        b.row(
+            InlineKeyboardButton(
+                text="🏁 Завершить сейчас",
+                callback_data="a:auc:stop",
+                style=kb.SUCCESS,
+            )
+        )
+        b.row(
+            InlineKeyboardButton(
+                text="✖️ Отменить и вернуть монетки",
+                callback_data="a:auc:cancel",
+                style=kb.DANGER,
+            )
+        )
+    b.row(
+        InlineKeyboardButton(
+            text=f"🎁 Приз: {prize[:24] or 'не задан'}", callback_data="a:auc:prize"
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"💬 За призом: {contact or 'в поддержку'}",
+            callback_data="a:auc:contact",
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"⏱ Длительность: {settings.get('auction_hours')} ч",
+            callback_data="a:econ:k:auction_hours",
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="🔄 Обновить", callback_data="a:auc"),
+        InlineKeyboardButton(text="⬅️ В панель", callback_data="a:home"),
+    )
+    return b.as_markup()
+
+
+async def _auction_text() -> str:
+    live = await db.live_auction()
+    prize = settings.get_text("auction_prize")
+    head = f"🔨 <b>Аукцион</b>\n\nРазыгрываем: <b>{html.escape(prize)}</b>\n\n"
+
+    if live is not None:
+        totals = await db.auction_totals(live["id"])
+        board = await db.auction_board(live["id"], limit=5)
+        lines = "\n".join(
+            f"{place}. {people.label(row)} — <b>{row['coins']}</b> 🪙"
+            for place, row in enumerate(board, 1)
+        )
+        return (
+            head
+            + f"🟢 <b>Идёт</b> · осталось {texts.time_left(auction.seconds_left(live))}\n"
+            f"Закроется сам в {texts.when(live['ends_at'])}\n\n"
+            f"👥 Участников: {totals['bidders']} · ставок: {totals['raises']}\n"
+            f"💰 В банке: <b>{totals['coins']}</b> 🪙\n\n"
+            + (f"<b>Кто впереди</b>\n{lines}\n\n" if lines else "Ставок пока нет.\n\n")
+            + "Победителя бот назовёт сам и пришлёт карточку в чат жалоб/выплат. "
+            "Проигравшим монетки вернутся автоматически."
+        )
+
+    last = await db.last_auction()
+    tail = ""
+    if last is not None:
+        who = await people.of(last["winner_id"]) if last["winner_id"] else "—"
+        tail = (
+            f"\n\n<b>Прошлый</b> · {html.escape(last['prize'])}\n"
+            f"{texts.when(last['closed_at'])} — "
+            + (
+                f"победил {who} со ставкой {last['winner_bid']} 🪙"
+                if last["winner_id"]
+                else ("отменён" if last["status"] == "cancelled" else "ставок не было")
+            )
+        )
+    return (
+        head
+        + "⚪ <b>Не идёт.</b>\n\n"
+        "Пока идёт — в главном меню у всех сверху висит красная кнопка "
+        "«🔨 АУКЦИОН». Кто вложит больше монеток, тот и заберёт приз; "
+        "монетки списываются сразу и возвращаются всем, кроме победителя."
+        + tail
+    )
+
+
+@router.callback_query(F.data == "a:auc")
+async def cb_auction(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    live = await db.live_auction()
+    await _edit(
+        call,
+        await _auction_text(),
+        _auc_kb(
+            live,
+            settings.get_text("auction_prize"),
+            settings.get_text("auction_contact"),
+        ),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:auc:start")
+async def cb_auction_start(call: CallbackQuery, state: FSMContext) -> None:
+    if await auction.start() is None:
+        await call.answer("Аукцион уже идёт.", show_alert=True)
+        return
+    logger.warning("auction started by %s", call.from_user.id)
+    await call.answer("Запущен")
+    await cb_auction(call, state)
+
+
+@router.callback_query(F.data == "a:auc:tell")
+async def cb_auction_tell(call: CallbackQuery, state: FSMContext) -> None:
+    """One message to everyone — and the red button lands with it."""
+    live = await db.live_auction()
+    if live is None:
+        await call.answer("Аукцион не идёт.", show_alert=True)
+        return
+    await call.answer("Рассылаю…")
+    await _edit(call, "📢 Объявляю аукцион…", back_kb())
+    sent, failed = await auction.announce(call.bot, live)
+    logger.warning("auction %s announced by %s", live["id"], call.from_user.id)
+    await _edit(
+        call,
+        f"📢 <b>Объявлено.</b>\n\nДоставлено: {sent} · не дошло: {failed}\n"
+        "Красная кнопка «🔨 АУКЦИОН» теперь у всех, кому дошло.",
+        _auc_kb(
+            live,
+            settings.get_text("auction_prize"),
+            settings.get_text("auction_contact"),
+        ),
+    )
+
+
+@router.callback_query(F.data.in_({"a:auc:stop", "a:auc:cancel"}))
+async def cb_auction_ask_close(call: CallbackQuery, state: FSMContext) -> None:
+    """Both paths pay out or refund, and neither can be taken back."""
+    await state.clear()
+    cancel = call.data.endswith("cancel")
+    live = await db.live_auction()
+    if live is None:
+        await call.answer("Аукцион не идёт.", show_alert=True)
+        return
+    totals = await db.auction_totals(live["id"])
+    board = await db.auction_board(live["id"], limit=1)
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="✖️ Да, отменить" if cancel else "🏁 Да, завершить",
+            callback_data="a:auc:go:cancel" if cancel else "a:auc:go:stop",
+            style=kb.DANGER,
+        )
+    )
+    b.row(
+        InlineKeyboardButton(text="⬅️ Отмена", callback_data="a:auc", style=kb.PRIMARY)
+    )
+    leader = (
+        f"{people.label(board[0])} со ставкой <b>{board[0]['coins']}</b> 🪙"
+        if board
+        else "никто — ставок нет"
+    )
+    await _edit(
+        call,
+        (
+            "✖️ <b>Отменить аукцион?</b>\n\n"
+            f"Монетки вернутся всем {totals['bidders']} участникам "
+            f"({totals['coins']} 🪙), приз не уйдёт никому."
+            if cancel
+            else "🏁 <b>Завершить аукцион сейчас?</b>\n\n"
+            f"До конца ещё {texts.time_left(auction.seconds_left(live))}.\n"
+            f"Победит {leader}.\n"
+            f"Остальным вернутся их монетки."
+        )
+        + "\n\nОтменить это будет нельзя.",
+        b.as_markup(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:auc:go:"))
+async def cb_auction_close(call: CallbackQuery, state: FSMContext) -> None:
+    cancel = call.data.endswith("cancel")
+    live = await db.live_auction()
+    if live is None:
+        await call.answer("Аукцион уже закрыт.", show_alert=True)
+        await cb_auction(call, state)
+        return
+    await call.answer("Закрываю…")
+    await auction.close(call.bot, live, cancelled=cancel)
+    logger.warning(
+        "auction %s closed by %s (%s)",
+        live["id"], call.from_user.id, "отменён" if cancel else "завершён",
+    )
+    await cb_auction(call, state)
+
+
+@router.callback_query(F.data == "a:auc:prize")
+async def cb_auction_prize(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.auction_prize)
+    await _edit(
+        call,
+        "🎁 <b>Что разыгрываем</b>\n\n"
+        f"Сейчас: <b>{html.escape(settings.get_text('auction_prize'))}</b>\n\n"
+        "Пришли название одной строкой — его увидят все на экране аукциона. "
+        "Например: «Архив 100 кружочков».",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.auction_prize, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_auction_prize(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if not 3 <= len(raw) <= 80:
+        await message.answer("Название — от 3 до 80 знаков.")
+        return
+    await state.clear()
+    await settings.set_text("auction_prize", raw)
+    await message.answer(
+        f"🎁 Разыгрываем: <b>{html.escape(raw)}</b>", reply_markup=back_kb()
+    )
+
+
+@router.callback_query(F.data == "a:auc:contact")
+async def cb_auction_contact(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Admin.auction_contact)
+    await _edit(
+        call,
+        "💬 <b>Куда победитель идёт за призом</b>\n\n"
+        f"Сейчас: <b>{settings.get_text('auction_contact') or 'просто «в поддержку»'}</b>\n\n"
+        "Пришли <code>@username</code> бота поддержки или человека — он попадёт "
+        "в сообщение победителю. Точка отключает: тогда там будет просто "
+        "«напиши в поддержку».",
+        back_kb(),
+    )
+    await call.answer()
+
+
+@router.message(Admin.auction_contact, ~F.text.in_(kb.MENU_BUTTONS))
+async def got_auction_contact(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw == ".":
+        raw = ""
+    elif not re.fullmatch(r"@[A-Za-z0-9_]{4,32}", raw):
+        await message.answer("Нужен @username: латиница, цифры и _, 4–32 знака.")
+        return
+    await state.clear()
+    await settings.set_text("auction_contact", raw)
+    await message.answer(
+        f"💬 За призом: <b>{raw or 'просто «в поддержку»'}</b>",
+        reply_markup=back_kb(),
+    )

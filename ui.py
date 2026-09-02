@@ -28,11 +28,14 @@ async def render_menu(event: Message | CallbackQuery, user_id: int) -> None:
     """The main menu is a reply keyboard, so it cannot scroll out of reach."""
     user = await db.get_user(user_id)
     text = texts.menu(user["coins"], user["pref"])
+    # The auction button is on the keyboard only while there is an auction, so
+    # the keyboard has to be built against the state of the moment.
+    markup = kb.main_menu(await db.live_auction() is not None)
     message = live(event)
     if message is not None:
-        await message.answer(text, reply_markup=kb.main_menu())
+        await message.answer(text, reply_markup=markup)
     else:
-        await event.bot.send_message(user_id, text, reply_markup=kb.main_menu())
+        await event.bot.send_message(user_id, text, reply_markup=markup)
 
 
 async def edit(call: CallbackQuery, text: str, markup=None) -> None:

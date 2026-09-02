@@ -15,6 +15,7 @@ from aiogram.types import (
 )
 
 import access
+import auction
 import boosts
 import db
 import emoji
@@ -27,6 +28,7 @@ import ui
 from config import ADMIN_IDS, BOT_TOKEN
 from handlers import (
     admin,
+    auction as auction_handlers,
     cheques,
     common,
     moderation,
@@ -87,6 +89,7 @@ async def main() -> None:
         moderation.router,
         subscribe.router,
         cheques.router,
+        auction_handlers.router,
         common.router,
         payments.router,
         payouts.router,
@@ -118,6 +121,8 @@ async def main() -> None:
     watcher = asyncio.create_task(invoices.run(bot))
     # Recurring tier charges are the same story on a slower clock.
     renewals = asyncio.create_task(invoices.run_subs(bot))
+    # An auction ends on time whether or not the admin who started it is awake.
+    bidding = asyncio.create_task(auction.run(bot))
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
@@ -127,6 +132,7 @@ async def main() -> None:
         reports.cancel()
         watcher.cancel()
         renewals.cancel()
+        bidding.cancel()
         await outbox.close()  # the moderation chats' senders
         await db.close()
         await bot.session.close()

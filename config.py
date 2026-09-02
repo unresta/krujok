@@ -94,6 +94,14 @@ PUSH_BATCH = 40  # per tick, so a big base is spread over hours
 PUSH_FREE_VIEWS = 1  # circles handed out with the reminder
 PUSH_TICK = 900.0  # seconds between sweeps
 
+# --- auction ---
+# One prize, one window, the biggest pile of coins takes it. Short on purpose:
+# an auction nobody can watch to the end is a lottery.
+AUCTION_HOURS = 2
+AUCTION_PRIZE = "Архив 100 кружочков"
+AUCTION_TICK = 30.0  # seconds between checks that the window has closed
+AUCTION_BIDS = (10, 50, 100, 500)  # what the buttons offer to put in
+
 # --- welcome and promo posts ---
 PROMO_ENABLED = 1
 PROMO_EVERY_CIRCLES = 20  # circles between one ad break and the next

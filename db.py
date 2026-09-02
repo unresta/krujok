@@ -359,6 +359,33 @@ CREATE TABLE IF NOT EXISTS tier_subs (
     created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_tier_subs_live ON tier_subs(status, checked_at);
+
+-- One prize, one window, and the biggest pile of coins takes it. Bids are not
+-- promises: the coins leave the balance as they are bid, and come back to
+-- everyone but the winner when it is over. `earned` is how much of that pile
+-- was earned rather than bought — a refund has to put each half back where it
+-- came from, or a loser quietly loses what they could have withdrawn.
+CREATE TABLE IF NOT EXISTS auctions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    prize      TEXT    NOT NULL DEFAULT '',
+    started_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    ends_at    INTEGER NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'live',   -- live | done | cancelled
+    winner_id  INTEGER NOT NULL DEFAULT 0,
+    winner_bid INTEGER NOT NULL DEFAULT 0,
+    closed_at  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_auctions_live ON auctions(status, ends_at);
+
+CREATE TABLE IF NOT EXISTS auction_bids (
+    auction_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    coins      INTEGER NOT NULL DEFAULT 0,   -- everything this person put in
+    earned     INTEGER NOT NULL DEFAULT 0,   -- how much of it was earned coins
+    bids       INTEGER NOT NULL DEFAULT 0,
+    ts         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (auction_id, user_id)
+);
 """
 
 REFERRAL_WINDOW = 600  # seconds after signup during which a link still counts
@@ -3752,3 +3779,118 @@ async def mark_refunded(charge_id: str) -> None:
         "UPDATE payments SET refunded = 1 WHERE charge_id = ?", (charge_id,)
     )
     await conn().commit()
+
+
+# --- auction --------------------------------------------------------------
+
+
+async def live_auction() -> aiosqlite.Row | None:
+    """The one running right now, if there is one. At most one ever is."""
+    async with conn().execute(
+        "SELECT * FROM auctions WHERE status = 'live' ORDER BY id DESC LIMIT 1"
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def last_auction() -> aiosqlite.Row | None:
+    """The one that finished most recently — the panel shows who won it."""
+    async with conn().execute(
+        "SELECT * FROM auctions WHERE status != 'live' ORDER BY closed_at DESC LIMIT 1"
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def start_auction(prize: str, seconds: int) -> aiosqlite.Row | None:
+    """Open one. None when another is already running — two would split the bids."""
+    if await live_auction() is not None:
+        return None
+    await conn().execute(
+        "INSERT INTO auctions(prize, ends_at) VALUES (?, strftime('%s','now') + ?)",
+        (prize, seconds),
+    )
+    await conn().commit()
+    return await live_auction()
+
+
+async def place_bid(auction_id: int, user_id: int, coins: int, earned: int) -> int:
+    """Add to what this person has put in. Returns their new total.
+
+    The stamp moves with every raise: on a tie the one who reached that number
+    first wins, and «first» means the last time they touched their own total.
+    """
+    await conn().execute(
+        """
+        INSERT INTO auction_bids(auction_id, user_id, coins, earned, bids)
+        VALUES (:a, :u, :c, :e, 1)
+        ON CONFLICT(auction_id, user_id) DO UPDATE SET
+            coins = coins + :c,
+            earned = earned + :e,
+            bids = bids + 1,
+            ts = strftime('%s','now')
+        """,
+        {"a": auction_id, "u": user_id, "c": coins, "e": earned},
+    )
+    await conn().commit()
+    return await bid_of(auction_id, user_id)
+
+
+async def bid_of(auction_id: int, user_id: int) -> int:
+    async with conn().execute(
+        "SELECT coins FROM auction_bids WHERE auction_id = ? AND user_id = ?",
+        (auction_id, user_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else 0
+
+
+async def auction_board(auction_id: int, limit: int = 5) -> list[aiosqlite.Row]:
+    """Who is winning, in order. Ties go to whoever got there first."""
+    async with conn().execute(
+        """
+        SELECT b.user_id, b.coins, b.ts, u.name, u.username
+        FROM auction_bids b LEFT JOIN users u ON u.id = b.user_id
+        WHERE b.auction_id = ? AND b.coins > 0
+        ORDER BY b.coins DESC, b.ts ASC LIMIT ?
+        """,
+        (auction_id, limit),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def auction_totals(auction_id: int) -> dict:
+    async with conn().execute(
+        "SELECT COUNT(*) AS bidders, COALESCE(SUM(coins), 0) AS coins,"
+        " COALESCE(SUM(bids), 0) AS raises"
+        " FROM auction_bids WHERE auction_id = ? AND coins > 0",
+        (auction_id,),
+    ) as cur:
+        return dict(await cur.fetchone())
+
+
+async def auction_bidders(auction_id: int) -> list[aiosqlite.Row]:
+    """Everyone in it, with what they put in — the refund walks this."""
+    async with conn().execute(
+        "SELECT user_id, coins, earned FROM auction_bids"
+        " WHERE auction_id = ? AND coins > 0",
+        (auction_id,),
+    ) as cur:
+        return list(await cur.fetchall())
+
+
+async def close_auction(
+    auction_id: int, winner_id: int = 0, winner_bid: int = 0, status: str = "done"
+) -> bool:
+    """Finish it once. False when somebody (or the timer) got there first."""
+    cur = await conn().execute(
+        "UPDATE auctions SET status = :status, winner_id = :winner,"
+        " winner_bid = :bid, closed_at = strftime('%s','now')"
+        " WHERE id = :id AND status = 'live'",
+        {
+            "status": status,
+            "winner": winner_id,
+            "bid": winner_bid,
+            "id": auction_id,
+        },
+    )
+    await conn().commit()
+    return cur.rowcount > 0
