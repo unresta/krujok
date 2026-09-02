@@ -960,14 +960,17 @@ def tiers_menu(sub_order: str = "") -> InlineKeyboardMarkup:
                 style=DANGER,
             )
         )
+    # The price is what the coin belongs to, but a button icon always renders
+    # first — so the coin leads the button and the price stays bare. A label
+    # cannot hold a premium emoji at all: that field takes no entities.
     for code in tiers.ORDER:
         mark = "⭐ " if code == tiers.PRO else ""
         kb.row(
-            InlineKeyboardButton(
-                text=f"{mark}Подписка {tiers.title(code)} · "
-                f"{tiers.price_of(code, 1)} {emoji.plain(emoji.COIN)}/день",
-                callback_data=f"tier:{code}",
-                style=SUCCESS if code == tiers.PRO else PRIMARY,
+            _coin_button(
+                f"{mark}Подписка {tiers.title(code)} · "
+                f"{tiers.price_of(code, 1)}/день",
+                f"tier:{code}",
+                SUCCESS if code == tiers.PRO else PRIMARY,
             )
         )
     kb.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
@@ -981,11 +984,10 @@ def tier_buy(code: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for days in tiers.DAYS:
         kb.row(
-            InlineKeyboardButton(
-                text=f"{days} дн · {tiers.price_of(code, days)} "
-                f"{emoji.plain(emoji.COIN)}",
-                callback_data=f"tier:buy:{code}:{days}",
-                style=SUCCESS,
+            _coin_button(
+                f"{days} дн · {tiers.price_of(code, days)}",
+                f"tier:buy:{code}:{days}",
+                SUCCESS,
             )
         )
     kb.row(
@@ -1012,11 +1014,10 @@ def tier_pay(code: str, days: int) -> InlineKeyboardMarkup:
             )
         )
     kb.row(
-        InlineKeyboardButton(
-            text=f"{emoji.plain(emoji.COIN)} Монетками · "
-            f"{tiers.price_of(code, days)}",
-            callback_data=f"tier:coins:{code}:{days}",
-            style=PRIMARY,
+        _coin_button(
+            f"Монетками · {tiers.price_of(code, days)}",
+            f"tier:coins:{code}:{days}",
+            PRIMARY,
         )
     )
     kb.row(
