@@ -96,7 +96,7 @@ async def custom_amount(message: Message, state: FSMContext) -> None:
 
 async def _bid(event: Message | CallbackQuery, user_id: int, amount: int) -> None:
     """One place takes the coins, one place redraws the board."""
-    verdict, mine = await auction.bid(user_id, amount)
+    verdict, mine = await auction.bid(event.bot, user_id, amount)
     user = await db.get_user(user_id)
     note = {
         "ok": texts.auction_bid_ok(mine),

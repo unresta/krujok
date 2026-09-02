@@ -159,6 +159,17 @@ def main_menu(auction: bool = False) -> ReplyKeyboardMarkup:
     )
 
 
+def auction_open() -> InlineKeyboardMarkup:
+    """Under «тебя перебили»: one tap turns the notice into the live screen."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🔨 Вернуть первое место", callback_data="auc:open", style=DANGER
+        )
+    )
+    return b.as_markup()
+
+
 def auction_screen(live: bool = True) -> InlineKeyboardMarkup:
     """Bids first — the whole screen exists to take one."""
     from config import AUCTION_BIDS

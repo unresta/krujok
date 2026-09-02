@@ -2098,3 +2098,14 @@ def auction_announce(prize: str, hours: int, refund: bool = True) -> str:
         hours=hours_word(hours),
         rule=auction_rule(refund),
     )
+
+
+AUCTION_OUTBID = (
+    "🔨 <b>Тебя перебили!</b>\n\n"
+    "Впереди теперь <b>{top}</b> {coin}, твоя ставка — <b>{mine}</b>.\n"
+    "До конца аукциона: <b>{left}</b>."
+)
+
+
+def auction_outbid(top: int, mine: int, left: str) -> str:
+    return _fmt("AUCTION_OUTBID", AUCTION_OUTBID, top=top, mine=mine, left=left)

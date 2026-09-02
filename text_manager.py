@@ -146,6 +146,15 @@ EDITABLE: dict[str, Item] = {
             "rule": "строка про возврат монеток (ниже)",
         },
     ),
+    "AUCTION_OUTBID": Item(
+        "Ставку перебили",
+        "Меню и лента",
+        vars={
+            "top": "ставка лидера",
+            "mine": "своя ставка",
+            "left": "сколько осталось",
+        },
+    ),
     "AUCTION_OFF": Item("Аукцион закончился", "Меню и лента", plain=True),
     "AUCTION_BID_SMALL": Item("Ставка меньше монетки", "Меню и лента", plain=True),
     "AUCTION_BID_OK": Item(

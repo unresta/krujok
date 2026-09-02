@@ -62,7 +62,7 @@ async def start(prize: str = "") -> object | None:
     return row
 
 
-async def bid(user_id: int, amount: int) -> tuple[str, int]:
+async def bid(bot: Bot, user_id: int, amount: int) -> tuple[str, int]:
     """Put coins in. Returns (verdict, this person's new total).
 
     Verdicts: ok | over | poor | small. Money moves here and nowhere else, so
@@ -81,11 +81,32 @@ async def bid(user_id: int, amount: int) -> tuple[str, int]:
     if not await db.try_spend(user_id, amount):
         return "poor", 0
 
+    # Who was in front before the money moved: the one this bid pushes off the
+    # top is the only person who needs to hear about it.
+    was = await db.auction_board(auction["id"], limit=1)
     total = await db.place_bid(auction["id"], user_id, amount, from_earned)
     logger.info(
         "auction %s: %s bid %s, total %s", auction["id"], user_id, amount, total
     )
+    await _tell_outbid(bot, auction, was[0] if was else None, user_id, total)
     return "ok", total
+
+
+async def _tell_outbid(bot: Bot, auction, leader, bidder: int, top: int) -> None:
+    """Tell whoever just lost the lead, and nobody else.
+
+    Not sent when the leader raised their own bid — they know — and not on a
+    tie: an equal total leaves the one who got there first in front, so nothing
+    changed and there is nothing to say.
+    """
+    if leader is None or leader["user_id"] == bidder or leader["coins"] >= top:
+        return
+    with suppress(TelegramAPIError):  # they may have blocked the bot
+        await bot.send_message(
+            leader["user_id"],
+            texts.auction_outbid(top, leader["coins"], texts.time_left(seconds_left(auction))),
+            reply_markup=kb.auction_open(),
+        )
 
 
 async def announce(bot: Bot, auction) -> tuple[int, int]:
