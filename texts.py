@@ -279,8 +279,8 @@ PUSH_TEXTS = (_push_new, _push_missed, _push_waiting)
 # «начни», not «вернись» — and there is nothing left to confirm any more.
 PUSH_UNACCEPTED = (
     "<b>Ты так и не начал 🙈</b>\n\n"
-    "Ничего подтверждать не нужно: {free} {circles} бесплатно уже на счету, "
-    "плюс монетки в подарок на первые просмотры."
+    "Ничего подтверждать не нужно: {free} {circles} бесплатно уже на счету — "
+    "жми и смотри."
 )
 
 

@@ -68,7 +68,6 @@ MAX_PENDING = 5  # unmoderated uploads a user may hold at once
 WATCH_COOLDOWN = 1.0  # seconds between "watch" taps
 
 STAR_PACKS = (20, 50, 100, 250)
-WELCOME_BONUS = 6  # coins handed to a newcomer, enough for a few circles
 # The first circle arrives on its own, right after /start: a newcomer who has
 # to find the button first often never sees one.
 WELCOME_CIRCLE = 1
