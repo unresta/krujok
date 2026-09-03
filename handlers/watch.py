@@ -3,7 +3,7 @@ import time
 from contextlib import suppress
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
@@ -24,6 +24,26 @@ router = Router()
 LOW_ALLOWANCE = 10  # circles left before the daily count is worth showing
 
 _last_tap: dict[int, float] = {}
+
+# What Telegram answers when the file itself is the problem rather than the
+# moment: a file_id from another bot (they are not interchangeable), or one
+# that points at nothing any more. Everything else — flood limits, network,
+# a blocked bot — passes and is only logged, because it will work next time.
+DEAD_FILE = (
+    "wrong file identifier",
+    "wrong remote file",
+    "file identifier",
+    "file reference",
+    "file is too big",
+    "wrong padding",
+)
+
+
+def _dead_file(error: TelegramAPIError) -> bool:
+    if not isinstance(error, TelegramBadRequest):
+        return False
+    text = str(error).lower()
+    return any(mark in text for mark in DEAD_FILE)
 
 
 @router.message(F.text == kb.BTN_WATCH)
@@ -127,7 +147,7 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
                 archive=not author,
             ),
         )
-    except TelegramAPIError:
+    except TelegramAPIError as error:
         if on_subscription:
             await db.refund_tier_view(user_id)  # a circle nobody got costs nothing
         elif on_trial:
@@ -140,6 +160,20 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
             await db.grant_free_views(user_id, 1)
         elif not free:  # nothing delivered, nothing charged
             await db.give_back(user_id, cost, from_earned)
+        # Swallowing this used to leave «не удалось отправить» as the only trace
+        # of it: the money was handled correctly and the reason was thrown away,
+        # so nobody could tell a dead file from a flood limit.
+        logger.warning(
+            "кружок #%s не ушёл к %s: %s", circle["id"], user_id, error
+        )
+        if _dead_file(error):
+            # Telegram refuses this file outright. A failed send does not count
+            # as watched, so the same dead circle is drawn again on the next
+            # tap, and the feed loops on one id — that is what «не удалось» ten
+            # times in a row is. Counted as seen for this viewer only: it costs
+            # them a circle they could not have watched anyway, and nobody
+            # else's feed is touched.
+            await db.mark_viewed(user_id, circle["id"])
         await bot.send_message(user_id, texts.SEND_FAILED)
         return
 
