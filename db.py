@@ -441,6 +441,10 @@ MIGRATIONS = {
         "tier_until": "INTEGER NOT NULL DEFAULT 0",
         "tier_day": "INTEGER NOT NULL DEFAULT 0",  # which day the count is for
         "tier_views": "INTEGER NOT NULL DEFAULT 0",
+        # Which language this person is answered in: 'ru' or 'en', decided on
+        # first contact from Telegram's own language_code and overridable by
+        # the user. Empty means nobody has decided yet.
+        "lang": "TEXT NOT NULL DEFAULT ''",
         # The newcomer's trial: circles that come before the channel gate does.
         # `trial_at` is when the trial started and moves with every circle spent
         # out of it — it is what the five-minute nudge counts from, and a zero
@@ -3926,3 +3930,22 @@ async def close_auction(
     )
     await conn().commit()
     return cur.rowcount > 0
+
+
+# --- language -------------------------------------------------------------
+
+
+async def set_lang(user_id: int, lang: str) -> None:
+    """Which language this person is answered in. See texts.use()."""
+    await ensure_user(user_id)
+    await conn().execute("UPDATE users SET lang = ? WHERE id = ?", (lang, user_id))
+    await conn().commit()
+
+
+async def lang_of(user_id: int) -> str:
+    """For the background jobs, which write to people nobody is talking to."""
+    async with conn().execute(
+        "SELECT lang FROM users WHERE id = ?", (user_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    return (row[0] if row else "") or "ru"

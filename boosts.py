@@ -16,6 +16,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
 import db
+import lang
 import texts
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,12 @@ async def sweep(bot: Bot) -> int:
         # The stamp goes down first: a send that fails must not queue the same
         # report up again on the next tick.
         await db.mark_boost_told(row["user_id"])
-        try:
-            await bot.send_message(
-                row["user_id"],
-                texts.boost_report(max(0, row["shown"]), max(0, row["sold_during"])),
+        with lang.use(await db.lang_of(row["user_id"])):
+            report = texts.boost_report(
+                max(0, row["shown"]), max(0, row["sold_during"])
             )
+        try:
+            await bot.send_message(row["user_id"], report)
             sent += 1
         except TelegramAPIError as error:  # blocked the bot, most likely
             logger.warning("boost report to %s failed: %s", row["user_id"], error)

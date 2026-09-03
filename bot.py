@@ -54,7 +54,7 @@ async def anything_else(message: Message) -> None:
 @fallback.callback_query()
 async def stale_button(call: CallbackQuery) -> None:
     """Button from a message whose state is gone — never leave a spinner hanging."""
-    await call.answer(texts.STALE_BUTTON)
+    await call.answer(texts.t("STALE_BUTTON"))
     with suppress(TelegramAPIError):
         await call.message.delete()
 

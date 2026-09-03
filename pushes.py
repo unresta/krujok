@@ -24,6 +24,7 @@ from aiogram.exceptions import (
 
 import db
 import keyboards as kb
+import lang
 import settings
 import texts
 
@@ -94,12 +95,14 @@ async def _sweep(bot: Bot) -> tuple[int, int]:
         # The stamp goes down before the send: a failure must not queue the
         # same person up again on the next tick.
         await db.mark_pushed(user_id, free)
-        text = (
-            random.choice(texts.PUSH_TEXTS)(free)
-            if accepted
-            else texts.push_unaccepted(free)
-        )
-        markup = kb.push(free)
+        # Nobody is talking to us here, so the language comes off the row.
+        with lang.use(await db.lang_of(user_id)):
+            text = (
+                random.choice(texts.PUSH_TEXTS)(free)
+                if accepted
+                else texts.push_unaccepted(free)
+            )
+            markup = kb.push(free)
         if await _deliver(bot, user_id, text, markup):
             sent += 1
         else:
@@ -167,7 +170,9 @@ async def sweep_trial(bot: Bot) -> tuple[int, int]:
         # failure must not turn it into a second attempt on the next tick.
         await db.mark_trial_push(row["id"])
         left = row["trial_left"]
-        if await _deliver(bot, row["id"], texts.trial_push(left), kb.push(left)):
+        with lang.use(await db.lang_of(row["id"])):
+            note, markup = texts.trial_push(left), kb.push(left)
+        if await _deliver(bot, row["id"], note, markup):
             sent += 1
         else:
             failed += 1

@@ -126,13 +126,13 @@ async def redeem(bot: Bot, user_id: int, code: str) -> bool:
     """
     cheque = await db.get_cheque(code)
     if cheque is None:
-        await bot.send_message(user_id, texts.CHEQUE_GONE)
+        await bot.send_message(user_id, texts.t("CHEQUE_GONE"))
         return False
     if await db.has_claimed(code, user_id):
-        await bot.send_message(user_id, texts.CHEQUE_TAKEN)
+        await bot.send_message(user_id, texts.t("CHEQUE_TAKEN"))
         return False
     if not cheque["active"] or cheque["used"] >= cheque["total"]:
-        await bot.send_message(user_id, texts.CHEQUE_EMPTY)
+        await bot.send_message(user_id, texts.t("CHEQUE_EMPTY"))
         return False
 
     if cheque["kind"] == REFS:
@@ -146,7 +146,7 @@ async def redeem(bot: Bot, user_id: int, code: str) -> bool:
             return False
 
     if not await db.claim_cheque(code, user_id):  # someone took the last one
-        await bot.send_message(user_id, texts.CHEQUE_EMPTY)
+        await bot.send_message(user_id, texts.t("CHEQUE_EMPTY"))
         return False
 
     await db.add_coins(user_id, cheque["coins"])

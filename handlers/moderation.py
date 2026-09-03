@@ -11,11 +11,26 @@ from aiogram.types import CallbackQuery, Message
 
 import db
 import keyboards as kb
+import lang
 import texts
 import settings
 from config import ADMIN_CHAT_ID, ADMIN_IDS
 
 router = Router()
+
+
+async def _in_russian(handler, event, data):
+    """The panel and the moderation chats are read by us, not by the users.
+
+    A moderator with an English client would otherwise get half a card in
+    English — the half the user's own language decided.
+    """
+    lang.set("ru")
+    return await handler(event, data)
+
+
+router.message.middleware(_in_russian)
+router.callback_query.middleware(_in_russian)
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +99,10 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer()
         return
 
+    # The key travels, not the label: the author may read English, and the same
+    # key is what «Мои кружки» shows them later.
     key = parts[2] if verdict == "r" else ""
-    reason = texts.CIRCLE_REJECT_REASONS.get(key, "")
+    reason = key if key in texts.CIRCLE_REJECT_REASONS else ""
     status = "approved" if verdict == "ok" else "rejected"
     purge = key in texts.CIRCLE_REJECT_DELETES
 
@@ -161,10 +178,10 @@ async def _decide(
             circle["id"], admin_id, reason,
         )
         if circle["uploader_id"]:
+            with lang.use(await db.lang_of(circle["uploader_id"])):
+                note = texts.circle_deleted(reason)
             with suppress(TelegramAPIError):
-                await bot.send_message(
-                    circle["uploader_id"], texts.circle_deleted(reason)
-                )
+                await bot.send_message(circle["uploader_id"], note)
         return "🔴 удалён"
 
     changed, pay = await db.decide_circle(circle["id"], status, admin_id, reason)
@@ -172,6 +189,9 @@ async def _decide(
         return None
 
     uploader = circle["uploader_id"]
+    # Everything below is written by a moderator and read by the author: the
+    # verdict line is ours, the note is theirs.
+    author_lang = await db.lang_of(uploader) if uploader else "ru"
     if status == "approved":
         reward = settings.reward(circle["gender"]) if pay else 0
         if reward:
@@ -179,14 +199,18 @@ async def _decide(
         balance = (await db.get_user(uploader))["coins"]
         # Approved a second time the circle simply comes back; the reward for it
         # was already paid, and saying «+0» would read as a mistake.
-        note = texts.approved(reward, balance) if pay else texts.CIRCLE_RESTORED
+        with lang.use(author_lang):
+            note = (
+                texts.approved(reward, balance) if pay else texts.t("CIRCLE_RESTORED")
+            )
         mark = "🟢 одобрено"
         # A circle only becomes sellable once it is approved, so this is the
         # moment the author's old buyers have something new to open.
         if uploader:
             asyncio.create_task(_tell_buyers(bot, uploader))
     else:
-        note = texts.rejected(reason)
+        with lang.use(author_lang):
+            note = texts.rejected(reason)
         mark = "🔴 отклонено"
 
     if uploader:
@@ -206,6 +230,7 @@ async def _tell_buyers(bot, author_id: int) -> None:
 
 
 def _verdict_line(mark: str, reason: str, moderator) -> str:
+    reason = texts.circle_reject_reason(reason) if reason else reason
     """The line under the card. The toast gets the mark alone — it holds 200 chars."""
     who = moderator.username and f"@{moderator.username}" or moderator.id
     parts = [f"<b>{mark}</b>"]

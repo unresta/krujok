@@ -18,6 +18,7 @@ from aiogram.types import CallbackQuery, Message
 
 import db
 import keyboards as kb
+import lang
 import outbox
 import people
 import settings
@@ -74,14 +75,14 @@ async def got_amount(message: Message, state: FSMContext) -> None:
 
     await state.update_data(coins=int(raw))
     await state.set_state(Payout.details)
-    await message.answer(texts.PAYOUT_ASK_DETAILS, reply_markup=kb.back())
+    await message.answer(texts.t("PAYOUT_ASK_DETAILS"), reply_markup=kb.back())
 
 
 @router.message(Payout.details, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_details(message: Message, state: FSMContext) -> None:
     details = (message.text or "").strip()
     if not 3 <= len(details) <= 200:
-        await message.answer(texts.PAYOUT_ASK_DETAILS, reply_markup=kb.back())
+        await message.answer(texts.t("PAYOUT_ASK_DETAILS"), reply_markup=kb.back())
         return
 
     coins = (await state.get_data())["coins"]
@@ -103,25 +104,28 @@ async def got_details(message: Message, state: FSMContext) -> None:
     await message.answer(texts.payout_created(payout_id, coins, stars))
 
     chat = settings.reports_chat()  # payouts share the moderation-side chat
-    card_text = (
-        f"#выплата <b>#{payout_id}</b>\n"
-        f"{coins} монеток → <b>{stars} ⭐</b>\n"
-        f"Кому: {await people.of(message.from_user.id)}\n"
-        f"Реквизиты: <code>{html.escape(details)}</code>"
-    )
-
-    async def deliver() -> None:
-        card = await outbox.call(
-            chat,
-            lambda: message.bot.send_message(
-                chat, card_text, reply_markup=kb.payout_review(payout_id)
-            ),
-            f"выплата #{payout_id}",
+    # The card is read by moderators, not by the person who sent it:
+    # composed in Russian whatever language they are answered in.
+    with lang.use("ru"):
+        card_text = (
+            f"#выплата <b>#{payout_id}</b>\n"
+            f"{coins} монеток → <b>{stars} ⭐</b>\n"
+            f"Кому: {await people.of(message.from_user.id)}\n"
+            f"Реквизиты: <code>{html.escape(details)}</code>"
         )
-        if card is not None:
-            await db.set_payout_admin_msg(payout_id, card.message_id)
 
-    outbox.post(chat, deliver, f"выплата #{payout_id}")
+        async def deliver() -> None:
+            card = await outbox.call(
+                chat,
+                lambda: message.bot.send_message(
+                    chat, card_text, reply_markup=kb.payout_review(payout_id)
+                ),
+                f"выплата #{payout_id}",
+            )
+            if card is not None:
+                await db.set_payout_admin_msg(payout_id, card.message_id)
+
+        outbox.post(chat, deliver, f"выплата #{payout_id}")
 
 
 @router.callback_query(F.data.startswith("pw:"))
@@ -136,11 +140,13 @@ async def close(call: CallbackQuery) -> None:
         await call.answer("Заявка уже закрыта.", show_alert=True)
         return
 
-    note = (
-        texts.payout_paid(payout["id"], payout["stars"])
-        if verdict == "paid"
-        else texts.payout_rejected(payout["id"], payout["coins"])
-    )
+    # The verdict is a moderator's; the message is the payee's, in their language.
+    with lang.use(await db.lang_of(payout["user_id"])):
+        note = (
+            texts.payout_paid(payout["id"], payout["stars"])
+            if verdict == "paid"
+            else texts.payout_rejected(payout["id"], payout["coins"])
+        )
     with suppress(TelegramAPIError):
         await call.bot.send_message(payout["user_id"], note)
 

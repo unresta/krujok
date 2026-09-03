@@ -26,6 +26,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import access
 import db
 import keyboards as kb
+import lang
 import outbox
 import people
 import settings
@@ -107,7 +108,7 @@ async def edit_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     profile = await db.get_profile(call.from_user.id)
     if profile is None:
-        await call.message.answer(texts.PROFILE_INTRO, reply_markup=kb.profile_intro())
+        await call.message.answer(texts.t("PROFILE_INTRO"), reply_markup=kb.profile_intro())
         await call.answer()
         return
 
@@ -124,10 +125,10 @@ async def hide_profile(call: CallbackQuery) -> None:
     """User hides their own profile."""
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
-        await call.answer(texts.PROFILE_NOTHING_TO_HIDE, show_alert=True)
+        await call.answer(texts.t("PROFILE_NOTHING_TO_HIDE"), show_alert=True)
         return
     await db.set_profile_status(call.from_user.id, "rejected")
-    await call.answer(texts.PROFILE_HIDDEN_TOAST)
+    await call.answer(texts.t("PROFILE_HIDDEN_TOAST"))
     profile = await db.get_profile(call.from_user.id)
     await call.message.edit_caption(
         caption=texts.profile_status(profile),
@@ -141,12 +142,12 @@ async def buy_boost(call: CallbackQuery, state: FSMContext) -> None:
     days = int(call.data.split(":")[2])
     pack = next((p for p in BOOST_PACKS if p[0] == days), None)
     if pack is None:
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
 
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
-        await call.answer(texts.BOOST_NEEDS_APPROVED, show_alert=True)
+        await call.answer(texts.t("BOOST_NEEDS_APPROVED"), show_alert=True)
         return
 
     price = settings.boost_price(*pack)
@@ -156,7 +157,7 @@ async def buy_boost(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer(texts.boost_poor(price, user["coins"]), show_alert=True)
         return
 
-    await call.answer(texts.BOUGHT_TOAST)
+    await call.answer(texts.t("BOUGHT_TOAST"))
     await call.message.answer(texts.boost_bought(days, price, until))
 
 
@@ -166,7 +167,7 @@ async def boost_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
-        await call.answer(texts.BOOST_NEEDS_APPROVED, show_alert=True)
+        await call.answer(texts.t("BOOST_NEEDS_APPROVED"), show_alert=True)
         return
 
     user = await db.get_user(call.from_user.id)
@@ -183,26 +184,26 @@ async def edit_field(call: CallbackQuery, state: FSMContext) -> None:
     field = call.data.split(":")[2]
     profile = await db.get_profile(call.from_user.id)
     if profile is None:
-        await call.answer(texts.NEED_PROFILE_FIRST, show_alert=True)
+        await call.answer(texts.t("NEED_PROFILE_FIRST"), show_alert=True)
         return
 
     # Selling the contact needs a @username; without one there is nothing to
     # price, so the question is not asked at all.
     if field == "price_contact" and not call.from_user.username:
-        await call.answer(texts.PROFILE_NO_USERNAME, show_alert=True)
+        await call.answer(texts.t("PROFILE_NO_USERNAME"), show_alert=True)
         return
 
     await state.update_data(editing_field=field)
 
     if field == "photo":
         await state.set_state(Anketa.photo)
-        await call.message.answer(texts.PROFILE_PHOTO, reply_markup=kb.back())
+        await call.message.answer(texts.t("PROFILE_PHOTO"), reply_markup=kb.back())
     elif field == "about":
         await state.set_state(Anketa.about)
         await call.message.answer(texts.profile_about(), reply_markup=kb.back())
     elif field == "gender":
         await state.set_state(Anketa.gender)
-        await call.message.answer(texts.PROFILE_GENDER, reply_markup=kb.profile_gender())
+        await call.message.answer(texts.t("PROFILE_GENDER"), reply_markup=kb.profile_gender())
     elif field == "price_content":
         await state.set_state(Anketa.price_content)
         await call.message.answer(texts.profile_price_content(), reply_markup=kb.back())
@@ -228,7 +229,7 @@ async def start_profile(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Anketa.photo)
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.answer(texts.PROFILE_PHOTO, reply_markup=kb.back())
+    await call.message.answer(texts.t("PROFILE_PHOTO"), reply_markup=kb.back())
     await call.answer()
 
 
@@ -254,7 +255,7 @@ async def got_photo(message: Message, state: FSMContext) -> None:
             )
             await state.clear()
             await message.answer(
-                texts.profile_field_saved("Фото"), reply_markup=kb.back()
+                texts.profile_field_saved(texts.field_name("Фото")), reply_markup=kb.back()
             )
             await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
@@ -268,13 +269,13 @@ async def got_photo(message: Message, state: FSMContext) -> None:
 
 @router.message(Anketa.photo, ~F.text.in_(kb.MENU_BUTTONS))
 async def not_a_photo(message: Message) -> None:
-    await message.answer(texts.PROFILE_NOT_PHOTO, reply_markup=kb.back())
+    await message.answer(texts.t("PROFILE_NOT_PHOTO"), reply_markup=kb.back())
 
 
 @router.message(Anketa.about, ~F.text.in_(kb.MENU_BUTTONS))
 async def got_about(message: Message, state: FSMContext) -> None:
     if message.text is None:  # a photo here used to pass as an empty description
-        await message.answer(texts.PROFILE_ABOUT_TEXT_ONLY, reply_markup=kb.back())
+        await message.answer(texts.t("PROFILE_ABOUT_TEXT_ONLY"), reply_markup=kb.back())
         return
 
     about = message.text.strip()
@@ -301,14 +302,14 @@ async def got_about(message: Message, state: FSMContext) -> None:
             )
             await state.clear()
             await message.answer(
-                texts.profile_field_saved("Описание"), reply_markup=kb.back()
+                texts.profile_field_saved(texts.field_name("Описание")), reply_markup=kb.back()
             )
             await _resubmit_for_review(message, message.from_user.id, message.bot)
             return
 
     await state.update_data(about=about)
     await state.set_state(Anketa.gender)
-    await message.answer(texts.PROFILE_GENDER, reply_markup=kb.profile_gender())
+    await message.answer(texts.t("PROFILE_GENDER"), reply_markup=kb.profile_gender())
 
 
 @router.callback_query(Anketa.gender, F.data.startswith("pg:"))
@@ -331,9 +332,9 @@ async def got_gender(call: CallbackQuery, state: FSMContext) -> None:
                 username=call.from_user.username,
             )
             await state.clear()
-            await call.answer(texts.PROFILE_SAVED_TOAST)
+            await call.answer(texts.t("PROFILE_SAVED_TOAST"))
             await call.message.answer(
-                texts.profile_field_saved("Пол"), reply_markup=kb.back()
+                texts.profile_field_saved(texts.field_name("Пол")), reply_markup=kb.back()
             )
             await _resubmit_for_review(call.message, call.from_user.id, call.bot)
             return
@@ -366,7 +367,7 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
             )
             await state.clear()
             await message.answer(
-                texts.profile_price_saved("Цена кружков", price),
+                texts.profile_price_saved(texts.field_name("Цена кружков"), price),
                 reply_markup=kb.back(),
             )
             return
@@ -376,7 +377,7 @@ async def got_price_content(message: Message, state: FSMContext) -> None:
 
     has_username = bool(message.from_user.username)
     await message.answer(
-        texts.PROFILE_CONTACT_ASK if has_username else texts.PROFILE_NO_USERNAME,
+        texts.t("PROFILE_CONTACT_ASK") if has_username else texts.t("PROFILE_NO_USERNAME"),
         reply_markup=kb.profile_contact_ask(has_username),
     )
 
@@ -395,7 +396,7 @@ async def got_contact_choice(call: CallbackQuery, state: FSMContext) -> None:
             return
         profile = await db.get_profile(call.from_user.id)
         if profile is None:
-            await call.answer(texts.NEED_PROFILE_FIRST, show_alert=True)
+            await call.answer(texts.t("NEED_PROFILE_FIRST"), show_alert=True)
             return
         # Taking the contact off sale is the same kind of change as its price.
         await db.set_profile_prices(
@@ -405,20 +406,20 @@ async def got_contact_choice(call: CallbackQuery, state: FSMContext) -> None:
             contact_ok=False,
         )
         await state.clear()
-        await call.answer(texts.CONTACT_OFF_TOAST)
-        await call.message.answer(texts.PROFILE_CONTACT_OFF, reply_markup=kb.back())
+        await call.answer(texts.t("CONTACT_OFF_TOAST"))
+        await call.message.answer(texts.t("PROFILE_CONTACT_OFF"), reply_markup=kb.back())
         return
 
     if choice == "recheck":
         # Telegram sends a fresh from_user with every update, so a username set
         # a second ago is already visible here.
         if not call.from_user.username:
-            await call.answer(texts.PROFILE_STILL_NO_USERNAME, show_alert=True)
+            await call.answer(texts.t("PROFILE_STILL_NO_USERNAME"), show_alert=True)
             return
-        await call.answer(texts.USERNAME_SEEN)
+        await call.answer(texts.t("USERNAME_SEEN"))
         with suppress(TelegramAPIError):
             await call.message.edit_text(
-                texts.PROFILE_CONTACT_ASK, reply_markup=kb.profile_contact_ask(True)
+                texts.t("PROFILE_CONTACT_ASK"), reply_markup=kb.profile_contact_ask(True)
             )
         return
 
@@ -454,7 +455,7 @@ async def got_price_contact(message: Message, state: FSMContext) -> None:
             )
             await state.clear()
             await message.answer(
-                texts.profile_price_saved("Цена лички", price),
+                texts.profile_price_saved(texts.field_name("Цена лички"), price),
                 reply_markup=kb.back(),
             )
             return
@@ -491,27 +492,29 @@ async def _submit(message: Message, author, state: FSMContext) -> None:
         contact_ok=data.get("contact_ok", False),
         username=author.username,
     )
-    await message.answer(texts.PROFILE_SENT, reply_markup=kb.back())
+    await message.answer(texts.t("PROFILE_SENT"), reply_markup=kb.back())
 
     chat = settings.profiles_chat()
-    caption = (
-        ("#анкета_изменена" if previous else "#анкета")
-        + f" от <code>{author.id}</code>"
-        f"{' @' + author.username if author.username else ''}\n"
-        + (
-            # The time is what tells one edit from the next when the card is
-            # rewritten in place — and it is also the answer to «а когда?».
-            f"♻️ Поменялось: <b>{', '.join(changes)}</b> · {texts.hhmm()}\n"
-            if changes
-            else f"♻️ Прислана заново без правок · {texts.hhmm()}\n"
-            if previous
-            else ""
+    # The card is read by moderators: Russian whatever the author is answered in.
+    with lang.use("ru"):
+        caption = (
+            ("#анкета_изменена" if previous else "#анкета")
+            + f" от <code>{author.id}</code>"
+            f"{' @' + author.username if author.username else ''}\n"
+            + (
+                # The time tells one edit from the next when the card is
+                # rewritten in place — and answers «а когда?» besides.
+                f"♻️ Поменялось: <b>{', '.join(changes)}</b> · {texts.hhmm()}\n"
+                if changes
+                else f"♻️ Прислана заново без правок · {texts.hhmm()}\n"
+                if previous
+                else ""
+            )
+            + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
+            f"Кружочки: {data['price_content']} · "
+            f"личка: {data.get('price_contact') or 'нет'}\n\n"
+            f"{html.escape(data.get('about') or 'Без описания')}"
         )
-        + f"Кто: {kb.PERSON_TITLE(data['gender'])}\n"
-        f"Кружочки: {data['price_content']} · "
-        f"личка: {data.get('price_contact') or 'нет'}\n\n"
-        f"{html.escape(data.get('about') or 'Без описания')}"
-    )
 
     await _post_card(
         message.bot, author.id, data["photo_id"], caption, previous
@@ -577,14 +580,15 @@ async def _resubmit_for_review(message: Message, user_id: int, bot) -> None:
     # Set status back to pending
     await db.set_profile_status(user_id, "pending")
 
-    caption = (
-        f"#анкета_изменена от {await people.of(user_id)}\n"
-        f"♻️ Отредактирована · {texts.hhmm()}\n"
-        f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
-        f"Кружочки: {profile['price_content']} · "
-        f"личка: {profile['price_contact'] or 'нет'}\n\n"
-        f"{html.escape(profile['about'] or 'Без описания')}"
-    )
+    with lang.use("ru"):  # moderators read it, not the author
+        caption = (
+            f"#анкета_изменена от {await people.of(user_id)}\n"
+            f"♻️ Отредактирована · {texts.hhmm()}\n"
+            f"Кто: {kb.PERSON_TITLE(profile['gender'])}\n"
+            f"Кружочки: {profile['price_content']} · "
+            f"личка: {profile['price_contact'] or 'нет'}\n\n"
+            f"{html.escape(profile['about'] or 'Без описания')}"
+        )
     # save_profile leaves admin_msg_id alone, so the row read here still points
     # at the card that is waiting — if one is.
     await _post_card(bot, user_id, profile["photo_id"], caption, profile)
@@ -652,7 +656,8 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer()
         return
 
-    reason = texts.REJECT_REASONS[parts[2]] if verdict == "r" else ""
+    # The key travels rather than the label — the author may read English.
+    reason = parts[2] if verdict == "r" and parts[2] in texts.REJECT_REASONS else ""
     status = "approved" if verdict == "ok" else "rejected"
 
     if verdict in ("hide", "keep"):  # verdict on a complaint, not on a new profile
@@ -661,7 +666,7 @@ async def review(call: CallbackQuery, state: FSMContext) -> None:
         # Read before clearing: what people complained about is the one thing
         # the author needs to know, and the complaints are about to be closed.
         complaints = [
-            texts.PROFILE_REPORT_REASONS.get(row["reason"], texts.NO_REASON)
+            texts.PROFILE_REPORT_REASONS.get(row["reason"], texts.t("NO_REASON"))
             for row in await db.profile_report_reasons(user_id)
         ]
         await db.set_profile_status(user_id, status)
@@ -729,14 +734,23 @@ async def _decide(bot, user_id: int, status: str, reason: str) -> str:
         await db.drop_profile_backup(user_id)
         await _tell_author(bot, user_id, "rejected", reason)
         mark = "🔴 отклонена"
-    return f"{mark} · {reason}" if reason else mark
+    return f"{mark} · {texts.profile_reject_reason(reason)}" if reason else mark
 
 
 async def _tell_author(
     bot, user_id: int, status: str, reason: str = "", complaints: list | None = None
 ) -> None:
+    # Written from inside a moderator's update, and read by the author: the
+    # language has to be theirs, not whoever happened to press the button.
+    with lang.use(await db.lang_of(user_id)):
+        return await _tell_author_now(bot, user_id, status, reason, complaints)
+
+
+async def _tell_author_now(
+    bot, user_id: int, status: str, reason: str = "", complaints: list | None = None
+) -> None:
     if status == "approved":
-        text, markup = texts.PROFILE_APPROVED, None
+        text, markup = texts.t("PROFILE_APPROVED"), None
     elif status == "reverted":
         text, markup = texts.profile_reverted(reason), kb.refill_profile()
     elif status == "frozen":
@@ -773,7 +787,7 @@ async def got_reason(message: Message, state: FSMContext) -> None:
 # --- browsing and buying -------------------------------------------------
 
 
-@router.message(F.text == kb.BTN_ANKETAS)
+@router.message(F.text.in_(kb.labels(kb.BTN_ANKETAS)))
 async def browse(message: Message, state: FSMContext) -> None:
     await state.clear()
     await _show_next(message.bot, message.from_user.id, message)
@@ -821,7 +835,7 @@ async def _show_next(bot, viewer_id: int, origin: Message) -> None:
                 texts.profile_empty_pitch(), reply_markup=kb.profile_intro()
             )
         else:
-            await origin.answer(texts.PROFILE_EMPTY_WAIT, reply_markup=kb.back())
+            await origin.answer(texts.t("PROFILE_EMPTY_WAIT"), reply_markup=kb.back())
         return
 
     caption, markup = await author_card(viewer_id, profile)
@@ -838,7 +852,7 @@ async def mp_upload(call: CallbackQuery, state: FSMContext) -> None:
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
         if profile is None:
-            await call.message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.profile_intro())
+            await call.message.answer(texts.t("UPLOAD_NEEDS_PROFILE"), reply_markup=kb.profile_intro())
         else:
             await call.message.answer(texts.upload_profile_pending(profile["status"]))
         await call.answer()
@@ -857,7 +871,7 @@ async def mp_circles(call: CallbackQuery) -> None:
     stats = await db.user_stats(call.from_user.id)
     total = stats["approved"] + stats["pending"] + stats["rejected"]
     if not total:
-        await call.message.answer(texts.MY_CIRCLES_EMPTY)
+        await call.message.answer(texts.t("MY_CIRCLES_EMPTY"))
         return
     await call.message.answer(
         texts.my_circles(stats), reply_markup=kb.my_circles(stats)
@@ -871,7 +885,7 @@ async def own_circle_info(call: CallbackQuery) -> None:
     circle = await db.get_circle(int(raw_id)) if raw_id.isdigit() else None
     # Only the author's own: the numbers under a circle are nobody else's.
     if circle is None or circle["uploader_id"] != call.from_user.id:
-        await call.answer(texts.MY_CIRCLE_GONE, show_alert=True)
+        await call.answer(texts.t("MY_CIRCLE_GONE"), show_alert=True)
         return
     await call.answer(texts.my_circle_info(circle), show_alert=True)
 
@@ -883,7 +897,7 @@ async def own_circle_delete(call: CallbackQuery) -> None:
     circle = await db.get_circle(int(raw_id)) if raw_id.isdigit() else None
     # Their own only: the callback is guessable, the video is not.
     if circle is None or circle["uploader_id"] != call.from_user.id:
-        await call.answer(texts.MY_CIRCLE_GONE, show_alert=True)
+        await call.answer(texts.t("MY_CIRCLE_GONE"), show_alert=True)
         return
 
     if action == "keep":
@@ -899,12 +913,12 @@ async def own_circle_delete(call: CallbackQuery) -> None:
             await call.message.edit_reply_markup(
                 reply_markup=kb.my_circle_confirm(circle["id"])
             )
-        await call.answer(texts.MY_CIRCLE_ASK, show_alert=True)
+        await call.answer(texts.t("MY_CIRCLE_ASK"), show_alert=True)
         return
 
     await db.delete_circle(circle["id"])
     logger.info("кружок #%s удалён автором %s", circle["id"], call.from_user.id)
-    await call.answer(texts.MY_CIRCLE_DELETED, show_alert=True)
+    await call.answer(texts.t("MY_CIRCLE_DELETED"), show_alert=True)
     # The video goes with the row; a message left behind would still play it.
     try:
         await call.message.delete()
@@ -922,13 +936,13 @@ async def own_circles(call: CallbackQuery) -> None:
         or parts[1] not in texts.MY_CIRCLES_STATUS
         or not parts[2].isdigit()
     ):
-        await call.answer(texts.STALE_BUTTON)
+        await call.answer(texts.t("STALE_BUTTON"))
         return
 
     status, offset = parts[1], int(parts[2])
     circles = (await db.own_circles(call.from_user.id, status))[offset:]
     if not circles:
-        await call.answer(texts.MY_CIRCLES_STATUS_EMPTY, show_alert=True)
+        await call.answer(texts.t("MY_CIRCLES_STATUS_EMPTY"), show_alert=True)
         return
 
     batch = circles[:CIRCLES_PER_BATCH]
@@ -948,7 +962,7 @@ async def own_circles(call: CallbackQuery) -> None:
     rest = circles[CIRCLES_PER_BATCH:]
     await call.bot.send_message(
         call.from_user.id,
-        texts.my_circles_more(len(rest)) if rest else texts.MY_CIRCLES_DONE,
+        texts.my_circles_more(len(rest)) if rest else texts.t("MY_CIRCLES_DONE"),
         reply_markup=kb.my_circles_nav(
             status, offset + CIRCLES_PER_BATCH if rest else None
         ),
@@ -965,10 +979,10 @@ async def mp_bought(call: CallbackQuery) -> None:
             await call.message.delete()
     purchases = await db.get_user_purchases(call.from_user.id, "content")
     if not purchases:
-        await call.message.answer(texts.BOUGHT_EMPTY)
+        await call.message.answer(texts.t("BOUGHT_EMPTY"))
         return
 
-    text_lines = [texts.BOUGHT_HEADER]
+    text_lines = [texts.t("BOUGHT_HEADER")]
     buttons = []
 
     for index, p in enumerate(purchases, 1):
@@ -978,11 +992,11 @@ async def mp_bought(call: CallbackQuery) -> None:
         # The buyer bought circles, not the person: an author is «♀️ Девушка»
         # here, and their id stays where it belongs — in the callback.
         profile = await db.get_profile(author_id)
-        who = kb.PERSON_TITLE(profile["gender"]) if profile else texts.AUTHOR_NO_PROFILE
+        who = kb.PERSON_TITLE(profile["gender"]) if profile else texts.t("AUTHOR_NO_PROFILE")
         # The line goes into message text and the button label into a button:
         # the same name, but only one of the two renders HTML.
         on_button = (
-            kb.PERSON_BUTTON(profile["gender"]) if profile else texts.AUTHOR_NO_PROFILE
+            kb.PERSON_BUTTON(profile["gender"]) if profile else texts.t("AUTHOR_NO_PROFILE")
         )
         text_lines.append(texts.bought_row(index, who, count))
         buttons.append(
@@ -998,7 +1012,7 @@ async def mp_bought(call: CallbackQuery) -> None:
     b = InlineKeyboardBuilder()
     for btn in buttons:
         b.row(btn)
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=kb.L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
 
     await call.message.answer(text, reply_markup=b.as_markup())
 
@@ -1013,11 +1027,11 @@ async def bought_author(call: CallbackQuery) -> None:
     """
     author_id = int(call.data.split(":")[2])
     if await db.get_purchase(call.from_user.id, author_id, "content") is None:
-        await call.answer(texts.BUY_FIRST, show_alert=True)
+        await call.answer(texts.t("BUY_FIRST"), show_alert=True)
         return
     profile = await db.get_profile(author_id)
     if profile is None:
-        await call.answer(texts.AUTHOR_NO_PROFILE, show_alert=True)
+        await call.answer(texts.t("AUTHOR_NO_PROFILE"), show_alert=True)
         return
 
     await call.answer()
@@ -1040,10 +1054,10 @@ async def open_card(call: CallbackQuery) -> None:
     author_id = int(call.data.split(":")[2])
     profile = await db.get_profile(author_id)
     if profile is None or profile["status"] != "approved":
-        await call.answer(texts.PROFILE_NONE_YET, show_alert=True)
+        await call.answer(texts.t("PROFILE_NONE_YET"), show_alert=True)
         return
     if author_id == call.from_user.id:
-        await call.answer(texts.PROFILE_OWN)
+        await call.answer(texts.t("PROFILE_OWN"))
         return
 
     await call.answer()
@@ -1065,14 +1079,14 @@ async def open_by_link(bot, viewer_id: int, author_id: int) -> bool:
     """
     profile = await db.get_profile(author_id)
     if profile is None or profile["status"] != "approved":
-        await bot.send_message(viewer_id, texts.PROFILE_LINK_GONE)
+        await bot.send_message(viewer_id, texts.t("PROFILE_LINK_GONE"))
         return False
     if author_id == viewer_id:
-        await bot.send_message(viewer_id, texts.PROFILE_LINK_OWN)
+        await bot.send_message(viewer_id, texts.t("PROFILE_LINK_OWN"))
         return False
 
     await db.count_link_hit(author_id)
-    caption, markup = await author_card(viewer_id, profile, texts.PROFILE_LINK_INTRO)
+    caption, markup = await author_card(viewer_id, profile, texts.t("PROFILE_LINK_INTRO"))
     await bot.send_photo(
         chat_id=viewer_id,
         photo=profile["photo_id"],
@@ -1087,7 +1101,7 @@ async def share_link(call: CallbackQuery) -> None:
     """The author's own link, with the button that copies it."""
     profile = await db.get_profile(call.from_user.id)
     if profile is None or profile["status"] != "approved":
-        await call.answer(texts.PROFILE_LINK_NEEDS_APPROVED, show_alert=True)
+        await call.answer(texts.t("PROFILE_LINK_NEEDS_APPROVED"), show_alert=True)
         return
 
     link = access.profile_link(call.from_user.id)
@@ -1103,12 +1117,12 @@ async def buy_content(call: CallbackQuery) -> None:
     author_id = int(call.data.split(":")[2])
     profile = await db.get_profile(author_id)
     if profile is None:
-        await call.answer(texts.PROFILE_GONE, show_alert=True)
+        await call.answer(texts.t("PROFILE_GONE"), show_alert=True)
         return
 
     # Selling access to an empty catalogue is just taking coins.
     if not await db.author_circles(author_id, await db.total_circles_max_id()):
-        await call.answer(texts.NOTHING_TO_SELL, show_alert=True)
+        await call.answer(texts.t("NOTHING_TO_SELL"), show_alert=True)
         return
 
     price = profile["price_content"]
@@ -1116,14 +1130,14 @@ async def buy_content(call: CallbackQuery) -> None:
         call.from_user.id, author_id, "content", price, settings.author_share(price)
     )
     if result == "poor":
-        await call.answer(texts.NOT_ENOUGH_COINS_TOAST, show_alert=True)
+        await call.answer(texts.t("NOT_ENOUGH_COINS_TOAST"), show_alert=True)
         return
     if result == "already":
-        await call.answer(texts.ALREADY_BOUGHT)
+        await call.answer(texts.t("ALREADY_BOUGHT"))
     else:
         await _notify_author(call.bot, author_id, "content", purchase["author_share"])
         circles = await db.author_circles(author_id, purchase["max_circle_id"])
-        await call.answer(texts.BOUGHT_TOAST)
+        await call.answer(texts.t("BOUGHT_TOAST"))
         await call.message.answer(
             texts.bought_content(len(circles), purchase["author_share"])
         )
@@ -1146,15 +1160,15 @@ async def topup_content(call: CallbackQuery) -> None:
     profile = await db.get_profile(author_id)
     purchase = await db.get_purchase(call.from_user.id, author_id, "content")
     if profile is None or purchase is None:
-        await call.answer(texts.BUY_FIRST, show_alert=True)
+        await call.answer(texts.t("BUY_FIRST"), show_alert=True)
         return
 
     have, total, cost = await topup_state(call.from_user.id, profile)
     if not total - have:
-        await call.answer(texts.TOPUP_GONE, show_alert=True)
+        await call.answer(texts.t("TOPUP_GONE"), show_alert=True)
         return
     if not cost:  # too few new ones to price — see settings.topup_worth_it
-        await call.answer(texts.TOPUP_SMALL, show_alert=True)
+        await call.answer(texts.t("TOPUP_SMALL"), show_alert=True)
         return
 
     new_max = await db.total_circles_max_id()
@@ -1167,7 +1181,7 @@ async def topup_content(call: CallbackQuery) -> None:
         return
 
     await _notify_author(call.bot, author_id, "content", settings.author_share(cost))
-    await call.answer(texts.BOUGHT_TOAST)
+    await call.answer(texts.t("BOUGHT_TOAST"))
     await call.message.answer(texts.topup_done(total - have, total))
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
@@ -1194,12 +1208,11 @@ async def tell_buyers(bot, author_id: int) -> int:
         if not settings.topup_worth_it(cost):
             continue
         await db.mark_topup_told(purchase["buyer_id"], author_id)
+        with lang.use(await db.lang_of(purchase["buyer_id"])):
+            offer = texts.topup_news(total - have, cost)
+            markup = kb.topup_offer(author_id)
         with suppress(TelegramAPIError):  # blocked the bot, nothing to do
-            await bot.send_message(
-                purchase["buyer_id"],
-                texts.topup_news(total - have, cost),
-                reply_markup=kb.topup_offer(author_id),
-            )
+            await bot.send_message(purchase["buyer_id"], offer, reply_markup=markup)
             sent += 1
         await asyncio.sleep(SEND_PAUSE)
     if sent:
@@ -1212,7 +1225,7 @@ async def buy_contact(call: CallbackQuery) -> None:
     author_id = int(call.data.split(":")[2])
     profile = await db.get_profile(author_id)
     if profile is None or not profile["contact_ok"] or not profile["price_contact"]:
-        await call.answer(texts.CONTACT_NOT_FOR_SALE, show_alert=True)
+        await call.answer(texts.t("CONTACT_NOT_FOR_SALE"), show_alert=True)
         return
 
     price = profile["price_contact"]
@@ -1220,7 +1233,7 @@ async def buy_contact(call: CallbackQuery) -> None:
         call.from_user.id, author_id, "contact", price, settings.author_share(price)
     )
     if result == "poor":
-        await call.answer(texts.NOT_ENOUGH_COINS_TOAST, show_alert=True)
+        await call.answer(texts.t("NOT_ENOUGH_COINS_TOAST"), show_alert=True)
         return
     if result == "ok":
         await _notify_author(call.bot, author_id, "contact", purchase["author_share"])
@@ -1247,12 +1260,12 @@ async def show_circles(call: CallbackQuery) -> None:
     offset = int(parts[3]) if len(parts) > 3 else 0
     purchase = await db.get_purchase(call.from_user.id, author_id, "content")
     if purchase is None:
-        await call.answer(texts.BUY_FIRST, show_alert=True)
+        await call.answer(texts.t("BUY_FIRST"), show_alert=True)
         return
 
     circles = (await db.author_circles(author_id, purchase["max_circle_id"]))[offset:]
     if not circles:
-        await call.answer(texts.AUTHOR_EMPTY, show_alert=True)
+        await call.answer(texts.t("AUTHOR_EMPTY"), show_alert=True)
         return
 
     batch = circles[:CIRCLES_PER_BATCH]
@@ -1312,7 +1325,7 @@ async def report_profile(call: CallbackQuery) -> None:
 
     profile = await db.get_profile(author_id)
     if profile is None:
-        await call.answer(texts.PROFILE_GONE, show_alert=True)
+        await call.answer(texts.t("PROFILE_GONE"), show_alert=True)
         return
 
     if action == "rback":
@@ -1325,7 +1338,7 @@ async def report_profile(call: CallbackQuery) -> None:
 
     # Better to say so now than after they picked a reason for nothing.
     if await db.has_reported_profile(call.from_user.id, author_id):
-        await call.answer(texts.REPORT_DOUBLE_PROFILE, show_alert=True)
+        await call.answer(texts.t("REPORT_DOUBLE_PROFILE"), show_alert=True)
         return
 
     if action == "rep":
@@ -1333,15 +1346,15 @@ async def report_profile(call: CallbackQuery) -> None:
             await call.message.edit_reply_markup(
                 reply_markup=kb.profile_report_reasons(author_id)
             )
-        await call.answer(texts.REPORT_ASK)
+        await call.answer(texts.t("REPORT_ASK"))
         return
 
     reason = parts[2] if parts[2] in texts.PROFILE_REPORT_REASONS else "other"
     count = await db.report_profile(call.from_user.id, author_id, reason)
     if count is None:  # two taps racing each other
-        await call.answer(texts.REPORT_DOUBLE_PROFILE, show_alert=True)
+        await call.answer(texts.t("REPORT_DOUBLE_PROFILE"), show_alert=True)
         return
-    await call.answer(texts.REPORT_SENT, show_alert=True)
+    await call.answer(texts.t("REPORT_SENT"), show_alert=True)
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
             reply_markup=await _card_markup(call.from_user.id, profile)
@@ -1355,13 +1368,14 @@ async def report_profile(call: CallbackQuery) -> None:
         await db.profile_report_reasons(author_id), texts.PROFILE_REPORT_REASONS
     )
     chat = settings.reports_chat()
-    caption = (
-        f"#жалоба на анкету {await people.of(author_id)} — {count} шт\n"
-        f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
-        f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
-        f"{html.escape(profile['about'] or 'Без описания')}\n\n"
-        f"{breakdown}"
-    )
+    with lang.use("ru"):  # a moderator's card
+        caption = (
+            f"#жалоба на анкету {await people.of(author_id)} — {count} шт\n"
+            f"Причина: {texts.PROFILE_REPORT_REASONS[reason]}\n"
+            f"Статус: {'скрыта автоматически' if hidden else profile['status']}\n"
+            f"{html.escape(profile['about'] or 'Без описания')}\n\n"
+            f"{breakdown}"
+        )
     outbox.post(
         chat,
         lambda: outbox.call(
@@ -1388,5 +1402,8 @@ async def _fresh_username(bot, author_id: int, profile) -> str:
 
 
 async def _notify_author(bot, author_id: int, kind: str, share: int) -> None:
+    # Written while the buyer is being served, read by the seller.
+    with lang.use(await db.lang_of(author_id)):
+        note = texts.sale_note(kind, share)
     with suppress(TelegramAPIError):
-        await bot.send_message(author_id, texts.sale_note(kind, share))
+        await bot.send_message(author_id, note)

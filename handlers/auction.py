@@ -27,7 +27,7 @@ async def screen(user_id: int) -> tuple[str, object]:
     """What the auction looks like right now for this person."""
     live = await db.live_auction()
     if live is None:
-        return texts.AUCTION_OFF, kb.auction_screen(live=False)
+        return texts.t("AUCTION_OFF"), kb.auction_screen(live=False)
 
     board = await db.auction_board(live["id"], limit=1)
     totals = await db.auction_totals(live["id"])
@@ -46,13 +46,13 @@ async def screen(user_id: int) -> tuple[str, object]:
     return text, kb.auction_screen()
 
 
-@router.message(F.text == kb.BTN_AUCTION)
+@router.message(F.text.in_(kb.labels(kb.BTN_AUCTION)))
 async def open_button(message: Message, state: FSMContext) -> None:
     await state.clear()
     if await db.live_auction() is None:
         # Their keyboard still has yesterday's button on it; this is the one
         # moment we know they are looking at it, so it goes away here.
-        await message.answer(texts.AUCTION_OFF, reply_markup=kb.main_menu(False))
+        await message.answer(texts.t("AUCTION_OFF"), reply_markup=kb.main_menu(False))
         return
     text, markup = await screen(message.from_user.id)
     await message.answer(text, reply_markup=markup)
@@ -75,7 +75,7 @@ async def place(call: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "auc:custom")
 async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
     if await db.live_auction() is None:
-        await call.answer(texts.AUCTION_OFF, show_alert=True)
+        await call.answer(texts.t("AUCTION_OFF"), show_alert=True)
         return
     await state.set_state(Bid.waiting_amount)
     user = await db.get_user(call.from_user.id)
@@ -88,7 +88,7 @@ async def ask_amount(call: CallbackQuery, state: FSMContext) -> None:
 async def custom_amount(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if not raw.isdigit() or not int(raw):
-        await message.answer(texts.AUCTION_BID_SMALL)
+        await message.answer(texts.t("AUCTION_BID_SMALL"))
         return
     await state.clear()
     await _bid(message, message.from_user.id, int(raw))
@@ -100,8 +100,8 @@ async def _bid(event: Message | CallbackQuery, user_id: int, amount: int) -> Non
     user = await db.get_user(user_id)
     note = {
         "ok": texts.auction_bid_ok(mine),
-        "over": texts.AUCTION_OFF,
-        "small": texts.AUCTION_BID_SMALL,
+        "over": texts.t("AUCTION_OFF"),
+        "small": texts.t("AUCTION_BID_SMALL"),
         "poor": texts.auction_poor(amount, user["coins"]),
     }[verdict]
 

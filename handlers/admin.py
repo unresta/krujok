@@ -49,6 +49,7 @@ import pushes
 import sponsors
 from handlers import cheques
 import keyboards as kb
+import lang
 import settings
 import text_manager
 import texts
@@ -58,6 +59,20 @@ from config import ADMIN_IDS, DB_PATH
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+async def _in_russian(handler, event, data):
+    """The panel and the moderation chats are read by us, not by the users.
+
+    A moderator with an English client would otherwise get half a card in
+    English — the half the user's own language decided.
+    """
+    lang.set("ru")
+    return await handler(event, data)
+
+
+router.message.middleware(_in_russian)
+router.callback_query.middleware(_in_russian)
 # The whole panel is admins-only; nothing here is reachable without the filter.
 router.message.filter(F.from_user.id.in_(ADMIN_IDS))
 router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
@@ -2555,10 +2570,10 @@ async def cb_circle_hide(call: CallbackQuery) -> None:
         await call.answer("Кружок уже удалён.", show_alert=True)
         return
 
-    await db.set_status(circle_id, "rejected", texts.REASON_HIDDEN)
+    await db.set_status(circle_id, "rejected", texts.t("REASON_HIDDEN"))
     if circle["uploader_id"]:
         with suppress(TelegramAPIError):
-            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_HIDDEN)
+            await call.bot.send_message(circle["uploader_id"], texts.t("CIRCLE_HIDDEN"))
     await call.answer("Скрыт")
     circle = await db.get_circle(circle_id)
     await _edit(call, await _circle_card(circle), _circle_card_kb(circle))
@@ -2576,7 +2591,7 @@ async def cb_circle_show(call: CallbackQuery) -> None:
     await db.clear_reports(circle_id)  # a circle back in rotation has no open ones
     if circle["uploader_id"]:
         with suppress(TelegramAPIError):
-            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_RESTORED)
+            await call.bot.send_message(circle["uploader_id"], texts.t("CIRCLE_RESTORED"))
     await call.answer("Вернул в показ")
     circle = await db.get_circle(circle_id)
     await _edit(call, await _circle_card(circle), _circle_card_kb(circle))
@@ -2627,7 +2642,7 @@ async def cb_circle_delete_go(call: CallbackQuery) -> None:
     deleted = await db.delete_circle(circle_id)
     if deleted and circle and circle["uploader_id"]:
         with suppress(TelegramAPIError):
-            await call.bot.send_message(circle["uploader_id"], texts.CIRCLE_REMOVED)
+            await call.bot.send_message(circle["uploader_id"], texts.t("CIRCLE_REMOVED"))
     await call.answer("Удалён" if deleted else "Уже нет", show_alert=True)
     await _edit(call, f"🗑 Кружок #{circle_id} удалён.", back_kb())
 

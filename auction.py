@@ -26,6 +26,7 @@ from aiogram.exceptions import (
 
 import db
 import keyboards as kb
+import lang
 import outbox
 import people
 import settings
@@ -101,12 +102,13 @@ async def _tell_outbid(bot: Bot, auction, leader, bidder: int, top: int) -> None
     """
     if leader is None or leader["user_id"] == bidder or leader["coins"] >= top:
         return
-    with suppress(TelegramAPIError):  # they may have blocked the bot
-        await bot.send_message(
-            leader["user_id"],
-            texts.auction_outbid(top, leader["coins"], texts.time_left(seconds_left(auction))),
-            reply_markup=kb.auction_open(),
+    with lang.use(await db.lang_of(leader["user_id"])):
+        note = texts.auction_outbid(
+            top, leader["coins"], texts.time_left(seconds_left(auction))
         )
+        markup = kb.auction_open()
+    with suppress(TelegramAPIError):  # they may have blocked the bot
+        await bot.send_message(leader["user_id"], note, reply_markup=markup)
 
 
 async def announce(bot: Bot, auction) -> tuple[int, int]:
@@ -116,14 +118,19 @@ async def announce(bot: Bot, auction) -> tuple[int, int]:
     next — which is nobody in particular, and an auction nobody knows about
     collects no bids. Returns (доставлено, не дошло).
     """
-    text = texts.auction_announce(
-        auction["prize"],
-        max(1, seconds_left(auction) // 3600),
-        refund=bool(auction["refund"]),
-    )
-    menu = kb.main_menu(True)
+    hours = max(1, seconds_left(auction) // 3600)
+    refund = bool(auction["refund"])
+    # Two languages, two announcements — built once, not per recipient.
+    versions = {}
+    for code in ("ru", "en"):
+        with lang.use(code):
+            versions[code] = (
+                texts.auction_announce(auction["prize"], hours, refund=refund),
+                kb.main_menu(True),
+            )
     sent = failed = 0
     for user_id in await db.all_user_ids():
+        text, menu = versions[await db.lang_of(user_id)]
         try:
             await bot.send_message(user_id, text, reply_markup=menu)
             sent += 1
@@ -167,25 +174,21 @@ async def close(bot: Bot, auction, cancelled: bool = False) -> bool:
     # The red button is on the reply keyboard, and a reply keyboard only changes
     # when a message brings a new one. These are the messages: everyone who bid
     # gets the keyboard back without it, in the same breath as their coins.
-    menu = kb.main_menu(False)
     for row in await db.auction_bidders(auction["id"]):
+        # Everyone here is somebody else: each is written to in their own.
+        with lang.use(await db.lang_of(row["user_id"])):
+            won = texts.auction_won(row["coins"], contact)
+            lost = texts.auction_refund(row["coins"], cancelled, refund)
+            menu = kb.main_menu(False)
         if winner is not None and row["user_id"] == winner["user_id"]:
             with suppress(TelegramAPIError):
-                await bot.send_message(
-                    row["user_id"],
-                    texts.auction_won(row["coins"], contact),
-                    reply_markup=menu,
-                )
+                await bot.send_message(row["user_id"], won, reply_markup=menu)
             continue
         # Each half goes back where it came from, or nowhere at all.
         if refund:
             await db.give_back(row["user_id"], row["coins"], row["earned"])
         with suppress(TelegramAPIError):
-            await bot.send_message(
-                row["user_id"],
-                texts.auction_refund(row["coins"], cancelled, refund),
-                reply_markup=menu,
-            )
+            await bot.send_message(row["user_id"], lost, reply_markup=menu)
         await asyncio.sleep(SEND_PAUSE)
 
     await _tell_admins(bot, auction, winner, cancelled)

@@ -24,8 +24,18 @@ from urllib.parse import quote
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import emoji
+import lang
 import settings
 from config import STAR_PACKS
+
+
+def L(ru: str, en_text: str) -> str:
+    """A button label in the language of this update.
+
+    Moderator buttons are left in Russian on purpose: they live in the
+    moderation chats, where the people reading them are ours.
+    """
+    return en_text if lang.get() == "en" else ru
 
 PRIMARY = "primary"
 SUCCESS = "success"
@@ -33,13 +43,23 @@ DANGER = "danger"
 
 GENDER_EMOJI = {"f": emoji.FEMALE, "m": emoji.MALE, "any": emoji.ANY}
 PREF_LABEL = {"f": "женские", "m": "мужские", "any": "любые"}
+PREF_LABEL_EN = {"f": "female", "m": "male", "any": "any"}
 # A profile is a person, so it says «Девушка», not «женские».
 PERSON_LABEL = {"f": "Девушка", "m": "Парень"}
+PERSON_LABEL_EN = {"f": "Girl", "m": "Guy"}
+
+
+def pref_word(pref: str) -> str:
+    return (PREF_LABEL_EN if lang.get() == "en" else PREF_LABEL)[pref]
+
+
+def person_word(gender: str) -> str:
+    return (PERSON_LABEL_EN if lang.get() == "en" else PERSON_LABEL)[gender]
 
 
 def PERSON_TITLE(gender: str) -> str:
     """For message text, where HTML is parsed and a custom emoji renders."""
-    return f"{emoji.text(GENDER_EMOJI[gender])} {PERSON_LABEL[gender]}"
+    return f"{emoji.text(GENDER_EMOJI[gender])} {person_word(gender)}"
 
 
 def PERSON_BUTTON(gender: str) -> str:
@@ -48,17 +68,17 @@ def PERSON_BUTTON(gender: str) -> str:
     A button carries plain text: put the HTML form on one and the reader gets
     the tag itself, angle brackets and all.
     """
-    return f"{emoji.plain(GENDER_EMOJI[gender])} {PERSON_LABEL[gender]}"
+    return f"{emoji.plain(GENDER_EMOJI[gender])} {person_word(gender)}"
 
 
 def PREF_TITLE(pref: str) -> str:
     """Human name of a preference for message text and toasts."""
-    return f"{emoji.text(GENDER_EMOJI[pref])} {PREF_LABEL[pref]}"
+    return f"{emoji.text(GENDER_EMOJI[pref])} {pref_word(pref)}"
 
 
 def _pref_button(pref: str, styled: bool) -> InlineKeyboardButton:
     return InlineKeyboardButton(
-        text=emoji.label(GENDER_EMOJI[pref]) + PREF_LABEL[pref],
+        text=emoji.label(GENDER_EMOJI[pref]) + pref_word(pref),
         callback_data=f"pref:{pref}",
         icon_custom_emoji_id=emoji.icon(GENDER_EMOJI[pref]),
         style=PRIMARY if styled else None,
@@ -93,6 +113,33 @@ BTN_SUBS = "Подписка"
 # the point of it is that it ends today.
 BTN_AUCTION = "🔨 АУКЦИОН"
 
+# The Russian label is the id of a button — it keys the icon, the style and the
+# handler that answers it. English is a second label for the same button, and
+# `labels()` is what a filter matches on, because a person with an English
+# keyboard presses «Watch circles» and means BTN_WATCH.
+MENU_EN = {
+    BTN_WATCH: "Watch circles",
+    BTN_UPLOAD: "Upload a circle",
+    BTN_PROFILE: "Profile",
+    BTN_FEED: "Feed",
+    BTN_REF: "Referrals",
+    BTN_RULES: "Rules and FAQ",
+    BTN_SHOP: "Shop",
+    BTN_ANKETAS: "Browse profiles",
+    BTN_SUBS: "Subscription",
+    BTN_AUCTION: "🔨 AUCTION",
+}
+
+
+def menu_label(button: str) -> str:
+    return MENU_EN.get(button, button) if lang.get() == "en" else button
+
+
+def labels(button: str) -> frozenset:
+    """Every language's label for one button — what a handler filters on."""
+    return frozenset({button, MENU_EN.get(button, button)})
+
+
 MENU_ICONS = {
     BTN_WATCH: emoji.WATCH,
     BTN_ANKETAS: emoji.PROFILE,
@@ -120,26 +167,28 @@ MENU_STYLES = {
 
 def _menu_button(label: str) -> KeyboardButton:
     return KeyboardButton(
-        text=label,
+        text=menu_label(label),
         icon_custom_emoji_id=emoji.icon(MENU_ICONS[label]),
         style=MENU_STYLES[label],
     )
 
 
-# Menu presses must never be mistaken for an answer to a prompt.
-MENU_BUTTONS = frozenset(
-    {
-        BTN_AUCTION,
-        BTN_WATCH,
-        BTN_ANKETAS,
-        BTN_PROFILE,
-        BTN_FEED,
-        BTN_REF,
-        BTN_RULES,
-        BTN_SHOP,
-        BTN_SUBS,
-    }
+# Menu presses must never be mistaken for an answer to a prompt — in either
+# language, since the keyboard a person has may not be the one we would give
+# them today.
+_MENU = (
+    BTN_AUCTION,
+    BTN_WATCH,
+    BTN_ANKETAS,
+    BTN_PROFILE,
+    BTN_FEED,
+    BTN_REF,
+    BTN_RULES,
+    BTN_SHOP,
+    BTN_SUBS,
+    BTN_UPLOAD,
 )
+MENU_BUTTONS = frozenset(set(_MENU) | {MENU_EN[b] for b in _MENU})
 
 
 def main_menu(auction: bool = False) -> ReplyKeyboardMarkup:
@@ -153,10 +202,28 @@ def main_menu(auction: bool = False) -> ReplyKeyboardMarkup:
     if auction:
         # Above everything, alone in its row and red: it is the one button here
         # that stops working in two hours.
-        rows.insert(0, [KeyboardButton(text=BTN_AUCTION, style=DANGER)])
+        rows.insert(0, [KeyboardButton(text=menu_label(BTN_AUCTION), style=DANGER)])
     return ReplyKeyboardMarkup(
         keyboard=rows, resize_keyboard=True, is_persistent=True
     )
+
+
+def language(current: str = "") -> InlineKeyboardMarkup:
+    """Two flags. The one in force is the coloured one, so it is obvious."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text="🇷🇺 Русский",
+            callback_data="lang:ru",
+            style=PRIMARY if current == "ru" else None,
+        ),
+        InlineKeyboardButton(
+            text="🇬🇧 English",
+            callback_data="lang:en",
+            style=PRIMARY if current == "en" else None,
+        ),
+    )
+    return b.as_markup()
 
 
 def auction_open() -> InlineKeyboardMarkup:
@@ -164,7 +231,7 @@ def auction_open() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🔨 Вернуть первое место", callback_data="auc:open", style=DANGER
+            text=L("🔨 Вернуть первое место", "🔨 Take the lead back"), callback_data="auc:open", style=DANGER
         )
     )
     return b.as_markup()
@@ -185,12 +252,12 @@ def auction_screen(live: bool = True) -> InlineKeyboardMarkup:
                 b.row(*pair)
         b.row(
             InlineKeyboardButton(
-                text="✏️ Своя ставка", callback_data="auc:custom", style=PRIMARY
+                text=L("✏️ Своя ставка", "✏️ Custom bid"), callback_data="auc:custom", style=PRIMARY
             )
         )
-        b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
-        b.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="auc:open"))
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+        b.row(_coin_button(L("Пополнить баланс", "Top up the balance"), "buy", SUCCESS))
+        b.row(InlineKeyboardButton(text=L("🔄 Обновить", "🔄 Refresh"), callback_data="auc:open"))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -221,7 +288,7 @@ def circle(
     if author_id:  # only when that author has a profile to open
         b.row(
             InlineKeyboardButton(
-                text="Профиль автора",
+                text=L("Профиль автора", "Author profile"),
                 callback_data=f"pf:card:{author_id}",
                 icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
                 style=PRIMARY
@@ -229,11 +296,11 @@ def circle(
         )
     elif archive:  # the bot's own seed content: no author to show
         b.row(
-            InlineKeyboardButton(text="📦 Архив · без автора", callback_data="arch")
+            InlineKeyboardButton(text=L("📦 Архив · без автора", "📦 Archive · no author"), callback_data="arch")
         )
     b.row(
         InlineKeyboardButton(
-            text="Пожаловаться",
+            text=L("Пожаловаться", "Report"),
             callback_data=f"rep:{circle_id}",
             icon_custom_emoji_id=emoji.icon(emoji.REPORT),
             style=DANGER
@@ -247,7 +314,8 @@ def push(free: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text=("👀 Смотреть бесплатно" if free else "👀 Смотреть кружки"),
+            text=(L("👀 Смотреть бесплатно", "👀 Watch for free") if free
+             else L("👀 Смотреть кружки", "👀 Watch circles")),
             callback_data="watch",
             style=SUCCESS,
         )
@@ -263,18 +331,19 @@ def feed(pref: str) -> InlineKeyboardMarkup:
 
 def profile(link: str, has_card: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_coin_button("Пополнить баланс", "buy", SUCCESS))
+    b.row(_coin_button(L("Пополнить баланс", "Top up the balance"), "buy", SUCCESS))
     b.row(
-        InlineKeyboardButton(text="💸 Вывести заработок", callback_data="po:open", style=PRIMARY)
+        InlineKeyboardButton(text=L("💸 Вывести заработок", "💸 Withdraw earnings"), callback_data="po:open", style=PRIMARY)
     )
+    b.row(InlineKeyboardButton(text="🌐 Язык / Language", callback_data="lang:ask"))
     b.row(
         InlineKeyboardButton(
-            text="Загрузить кружок",
+            text=L("Загрузить кружок", "Upload a circle"),
             callback_data="mp:upload",
             icon_custom_emoji_id=emoji.icon(emoji.UPLOAD),
         ),
         InlineKeyboardButton(
-            text="Мои кружки",
+            text=L("Мои кружки", "My circles"),
             callback_data="mp:circles",
             icon_custom_emoji_id=emoji.icon(emoji.MY_CIRCLES),
         ),
@@ -283,12 +352,12 @@ def profile(link: str, has_card: bool = False) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             # «Профиль автора» under a circle opens someone else's card; this one
             # is the user's own shop window, and the two must not share a name.
-            text="Моя анкета",
+            text=L("Моя анкета", "My profile"),
             callback_data="pf:edit_menu",
             icon_custom_emoji_id=emoji.icon(emoji.AUTHOR_PROFILE),
         ),
         InlineKeyboardButton(
-            text="Купленные кружочки",
+            text=L("Купленные кружочки", "Circles I bought"),
             callback_data="mp:bought",
             icon_custom_emoji_id=emoji.icon(emoji.SHOP),
         ),
@@ -298,14 +367,14 @@ def profile(link: str, has_card: bool = False) -> InlineKeyboardMarkup:
     if has_card:
         b.row(
             InlineKeyboardButton(
-                text="🔗 Ссылка на мою анкету",
+                text=L("🔗 Ссылка на мою анкету", "🔗 Link to my profile"),
                 callback_data="pf:link",
                 style=PRIMARY,
             )
         )
     b.row(
         InlineKeyboardButton(
-            text="👥 Позвать друга",
+            text=L("👥 Позвать друга", "👥 Invite a friend"),
             url=f"https://t.me/share/url?url={link}&text="
             "Кружочки без лишних слов",
             style=PRIMARY,
@@ -318,7 +387,7 @@ def referrals(link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="👥 Позвать друга",
+            text=L("👥 Позвать друга", "👥 Invite a friend"),
             url=f"https://t.me/share/url?url={link}&text="
             "Кружочки без лишних слов",
             style=PRIMARY,
@@ -326,7 +395,7 @@ def referrals(link: str) -> InlineKeyboardMarkup:
     )
     b.row(
         InlineKeyboardButton(
-            text="📋 Скопировать ссылку", copy_text=CopyTextButton(text=link)
+            text=L("📋 Скопировать ссылку", "📋 Copy the link"), copy_text=CopyTextButton(text=link)
         )
     )
     return b.as_markup()
@@ -335,7 +404,7 @@ def referrals(link: str) -> InlineKeyboardMarkup:
 def rules() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="❓ Прочитать FAQ", callback_data="faq", style=PRIMARY)
+        InlineKeyboardButton(text=L("❓ Прочитать FAQ", "❓ Read the FAQ"), callback_data="faq", style=PRIMARY)
     )
     return b.as_markup()
 
@@ -344,7 +413,7 @@ def faq() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="ℹ️ Прочитать Правила", callback_data="rules", style=PRIMARY
+            text=L("ℹ️ Прочитать Правила", "ℹ️ Read the rules"), callback_data="rules", style=PRIMARY
         )
     )
     return b.as_markup()
@@ -373,7 +442,7 @@ def profile_card(
     if bought_content:
         b.row(
             InlineKeyboardButton(
-                text="🎬 Кружочки автора", callback_data=f"pf:show:{author}", style=SUCCESS
+                text=L("🎬 Кружочки автора", "🎬 Author's circles"), callback_data=f"pf:show:{author}", style=SUCCESS
             )
         )
         if topup:
@@ -402,18 +471,18 @@ def profile_card(
     if from_bought:
         b.row(
             InlineKeyboardButton(
-                text="⬅️ К купленным", callback_data="mp:bought", style=PRIMARY
+                text=L("⬅️ К купленным", "⬅️ Back to purchases"), callback_data="mp:bought", style=PRIMARY
             )
         )
     else:
         b.row(
             InlineKeyboardButton(
-                text="➡️ Следующая анкета", callback_data="pf:next", style=PRIMARY
+                text=L("➡️ Следующая анкета", "➡️ Next profile"), callback_data="pf:next", style=PRIMARY
             )
         )
     b.row(
         InlineKeyboardButton(
-            text="⚠️ Пожаловаться", callback_data=f"pf:rep:{author}", style=DANGER
+            text=L("⚠️ Пожаловаться", "⚠️ Report"), callback_data=f"pf:rep:{author}", style=DANGER
         )
     )
     return b.as_markup()
@@ -424,7 +493,7 @@ def topup_offer(author_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🎬 Открыть анкету", callback_data=f"pf:card:{author_id}", style=SUCCESS
+            text=L("🎬 Открыть анкету", "🎬 Open the profile"), callback_data=f"pf:card:{author_id}", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -434,7 +503,7 @@ def more_circles(author_id: int, offset: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="▶️ Показать ещё",
+            text=L("▶️ Показать ещё", "▶️ Show more"),
             callback_data=f"pf:show:{author_id}:{offset}",
             style=SUCCESS,
         )
@@ -463,7 +532,7 @@ def my_circles(stats: dict) -> InlineKeyboardMarkup:
                     style=PRIMARY,
                 )
             )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -476,10 +545,10 @@ def my_circle(circle_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="ℹ️ Об этом кружке", callback_data=f"mc:i:{circle_id}"
+            text=L("ℹ️ Об этом кружке", "ℹ️ About this circle"), callback_data=f"mc:i:{circle_id}"
         ),
         InlineKeyboardButton(
-            text="🗑 Удалить", callback_data=f"mc:del:{circle_id}", style=DANGER
+            text=L("🗑 Удалить", "🗑 Delete"), callback_data=f"mc:del:{circle_id}", style=DANGER
         ),
     )
     return b.as_markup()
@@ -490,12 +559,12 @@ def my_circle_confirm(circle_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🗑 Да, удалить", callback_data=f"mc:delgo:{circle_id}", style=DANGER
+            text=L("🗑 Да, удалить", "🗑 Yes, delete"), callback_data=f"mc:delgo:{circle_id}", style=DANGER
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="⬅️ Оставить", callback_data=f"mc:keep:{circle_id}", style=SUCCESS
+            text=L("⬅️ Оставить", "⬅️ Keep it"), callback_data=f"mc:keep:{circle_id}", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -507,17 +576,17 @@ def my_circles_nav(status: str, offset: int | None = None) -> InlineKeyboardMark
     if offset is not None:
         b.row(
             InlineKeyboardButton(
-                text="▶️ Показать ещё",
+                text=L("▶️ Показать ещё", "▶️ Show more"),
                 callback_data=f"mc:{status}:{offset}",
                 style=SUCCESS,
             )
         )
     b.row(
         InlineKeyboardButton(
-            text="⬅️ К моим кружкам", callback_data="mp:circles", style=PRIMARY
+            text=L("⬅️ К моим кружкам", "⬅️ Back to my circles"), callback_data="mp:circles", style=PRIMARY
         )
     )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -541,18 +610,18 @@ def profile_contact_ask(has_username: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if has_username:
         b.row(
-            InlineKeyboardButton(text="✅ Продавать", callback_data="pc:yes", style=SUCCESS),
-            InlineKeyboardButton(text="❌ Не продавать", callback_data="pc:no", style=DANGER),
+            InlineKeyboardButton(text=L("✅ Продавать", "✅ Sell it"), callback_data="pc:yes", style=SUCCESS),
+            InlineKeyboardButton(text=L("❌ Не продавать", "❌ Do not sell"), callback_data="pc:no", style=DANGER),
         )
     else:
         b.row(
             InlineKeyboardButton(
-                text="✅ Добавил(а) юзернейм", callback_data="pc:recheck", style=SUCCESS
+                text=L("✅ Добавил(а) юзернейм", "✅ I added a username"), callback_data="pc:recheck", style=SUCCESS
             )
         )
         b.row(
             InlineKeyboardButton(
-                text="❌ Не продавать личку", callback_data="pc:no", style=DANGER
+                text=L("❌ Не продавать личку", "❌ Do not sell my contact"), callback_data="pc:no", style=DANGER
             )
         )
     return b.as_markup()
@@ -565,28 +634,28 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="📷 Изменить фото", callback_data="pf:edit:photo"
+            text=L("📷 Изменить фото", "📷 Change the photo"), callback_data="pf:edit:photo"
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="✏️ Изменить описание", callback_data="pf:edit:about"
+            text=L("✏️ Изменить описание", "✏️ Change the description"), callback_data="pf:edit:about"
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="👤 Изменить пол", callback_data="pf:edit:gender"
+            text=L("👤 Изменить пол", "👤 Change who you are"), callback_data="pf:edit:gender"
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="💰 Изменить цену кружков",
+            text=L("💰 Изменить цену кружков", "💰 Change the circles price"),
             callback_data="pf:edit:price_content",
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="💬 Изменить цену контакта",
+            text=L("💬 Изменить цену контакта", "💬 Change the contact price"),
             callback_data="pf:edit:price_contact",
         )
     )
@@ -595,22 +664,23 @@ def profile_edit_menu(profile) -> InlineKeyboardMarkup:
 
         b.row(
             InlineKeyboardButton(
-                text="🚀 Продвижение" + (" · идёт" if db.boost_on(profile) else ""),
+                text=L("🚀 Продвижение", "🚀 Promotion")
+            + (L(" · идёт", " · running") if db.boost_on(profile) else ""),
                 callback_data="pf:boost",
                 style=SUCCESS,
             )
         )
         b.row(
             InlineKeyboardButton(
-                text="🚫 Скрыть анкету", callback_data="pf:hide"
+                text=L("🚫 Скрыть анкету", "🚫 Hide my profile"), callback_data="pf:hide"
             )
         )
     b.row(
         InlineKeyboardButton(
-            text="📝 Заполнить заново", callback_data="pf:start"
+            text=L("📝 Заполнить заново", "📝 Fill it in again"), callback_data="pf:start"
         )
     )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -618,16 +688,16 @@ def profile_link(link: str) -> InlineKeyboardMarkup:
     """Copy it, or hand it straight to a chat — both in one tap."""
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="📋 Скопировать", copy_text=CopyTextButton(text=link))
+        InlineKeyboardButton(text=L("📋 Скопировать", "📋 Copy"), copy_text=CopyTextButton(text=link))
     )
     b.row(
         InlineKeyboardButton(
-            text="📤 Поделиться",
+            text=L("📤 Поделиться", "📤 Share"),
             url=f"https://t.me/share/url?url={quote(link)}",
             style=PRIMARY,
         )
     )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -639,14 +709,14 @@ def boost_packs() -> InlineKeyboardMarkup:
     for days, discount in BOOST_PACKS:
         b.row(
             InlineKeyboardButton(
-                text=f"{days} дн · {settings.boost_price(days, discount)} "
+                text=f"{days} {L('дн', 'd')} · {settings.boost_price(days, discount)} "
                 f"{emoji.plain(emoji.COIN)}"
                 + (f" · −{discount}%" if discount else ""),
                 callback_data=f"pf:boost:{days}",
                 style=SUCCESS,
             )
         )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -655,10 +725,10 @@ def contact_price_edit() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🚫 Не продавать личку", callback_data="pc:no", style=DANGER
+            text=L("🚫 Не продавать личку", "🚫 Stop selling my contact"), callback_data="pc:no", style=DANGER
         )
     )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -689,12 +759,12 @@ def profile_intro() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="✅ Соглашаюсь, настроить профиль",
+            text=L("✅ Соглашаюсь, настроить профиль", "✅ I agree, set up my profile"),
             callback_data="pf:start",
             style=SUCCESS,
         )
     )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -703,7 +773,7 @@ def refill_profile() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="📝 Заполнить заново", callback_data="pf:start", style=SUCCESS
+            text=L("📝 Заполнить заново", "📝 Fill it in again"), callback_data="pf:start", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -714,7 +784,7 @@ def fix_profile() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🧾 Моя анкета", callback_data="pf:edit_menu", style=SUCCESS
+            text=L("🧾 Моя анкета", "🧾 My profile"), callback_data="pf:edit_menu", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -767,10 +837,10 @@ def payout(can_request: bool) -> InlineKeyboardMarkup:
     if can_request:
         b.row(
             InlineKeyboardButton(
-                text="💸 Оформить вывод", callback_data="po:new", style=SUCCESS
+                text=L("💸 Оформить вывод", "💸 Request a payout"), callback_data="po:new", style=SUCCESS
             )
         )
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
@@ -789,10 +859,10 @@ def payout_review(payout_id: int) -> InlineKeyboardMarkup:
 
 def report_reasons(circle_id: int) -> InlineKeyboardMarkup:
     """Replaces the circle's buttons while the complaint is being named."""
-    from texts import REPORT_REASONS
+    import texts
 
     b = InlineKeyboardBuilder()
-    for key, label in REPORT_REASONS.items():
+    for key, label in texts.report_reasons().items():
         b.row(
             InlineKeyboardButton(
                 text=label, callback_data=f"rep:r:{key}:{circle_id}", style=DANGER
@@ -800,17 +870,17 @@ def report_reasons(circle_id: int) -> InlineKeyboardMarkup:
         )
     b.row(
         InlineKeyboardButton(
-            text="⬅️ Отмена", callback_data=f"rep:back:{circle_id}", style=SUCCESS
+            text=L("⬅️ Отмена", "⬅️ Cancel"), callback_data=f"rep:back:{circle_id}", style=SUCCESS
         )
     )
     return b.as_markup()
 
 
 def profile_report_reasons(author_id: int) -> InlineKeyboardMarkup:
-    from texts import PROFILE_REPORT_REASONS
+    import texts
 
     b = InlineKeyboardBuilder()
-    for key, label in PROFILE_REPORT_REASONS.items():
+    for key, label in texts.profile_report_reasons().items():
         b.row(
             InlineKeyboardButton(
                 text=label, callback_data=f"pf:rr:{key}:{author_id}", style=DANGER
@@ -818,7 +888,7 @@ def profile_report_reasons(author_id: int) -> InlineKeyboardMarkup:
         )
     b.row(
         InlineKeyboardButton(
-            text="⬅️ Отмена", callback_data=f"pf:rback:{author_id}", style=SUCCESS
+            text=L("⬅️ Отмена", "⬅️ Cancel"), callback_data=f"pf:rback:{author_id}", style=SUCCESS
         )
     )
     return b.as_markup()
@@ -866,7 +936,7 @@ def no_coins() -> InlineKeyboardMarkup:
         else _coin_button("Зарабатывать", "pf:edit_menu", SUCCESS)
     )
     kb.row(earn, _coin_button("Купить", "buy", SUCCESS))
-    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("⬅️ Назад", "⬅️ Back"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -874,13 +944,13 @@ def empty_feed(pref: str) -> InlineKeyboardMarkup:
     """Nothing left of this type — the fix is the type switch, not the wallet."""
     b = InlineKeyboardBuilder()
     b.row(*[_pref_button(p, p == pref) for p in ("f", "m", "any")])
-    b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    b.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return b.as_markup()
 
 
 def back() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -900,10 +970,10 @@ def buy() -> InlineKeyboardMarkup:
     kb.row(*packs[2:])
     kb.row(
         InlineKeyboardButton(
-            text="✏️ Своя сумма", callback_data="pay:custom", style=PRIMARY
+            text=L("✏️ Своя сумма", "✏️ Custom amount"), callback_data="pay:custom", style=PRIMARY
         )
     )
-    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("⬅️ Назад", "⬅️ Back"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -926,7 +996,7 @@ def buy_payment_method() -> InlineKeyboardMarkup:
         )
     kb.row(
         InlineKeyboardButton(
-            text="⭐ Telegram Stars",
+            text=L("⭐ Telegram Stars", "⭐ Telegram Stars"),
             callback_data="pay_method:stars",
             style=SUCCESS,
         )
@@ -935,12 +1005,12 @@ def buy_payment_method() -> InlineKeyboardMarkup:
         kb.row(
             InlineKeyboardButton(
                 text=f"{crypto.ICONS[provider]} {crypto.TITLES[provider]} · "
-                f"крипта",
+                f"{L('крипта', 'crypto')}",
                 callback_data=f"pay_method:{provider}",
                 style=PRIMARY,
             )
         )
-    kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("❌ Отмена", "❌ Cancel"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -951,7 +1021,7 @@ def cheque(code: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🎟 Забрать монетки",
+            text=L("🎟 Забрать монетки", "🎟 Claim the coins"),
             url=f"https://t.me/{access.bot_username}?start=chq_{code}",
             style=SUCCESS,
         )
@@ -961,17 +1031,17 @@ def cheque(code: str) -> InlineKeyboardMarkup:
 
 def crypto_invoice(provider: str, invoice_id: str, link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="💳 Оплатить", url=link, style=SUCCESS))
+    b.row(InlineKeyboardButton(text=L("💳 Оплатить", "💳 Pay"), url=link, style=SUCCESS))
     b.row(
         InlineKeyboardButton(
-            text="🔄 Проверить оплату",
+            text=L("🔄 Проверить оплату", "🔄 Check the payment"),
             callback_data=f"inv:check:{provider}:{invoice_id}",
             style=PRIMARY,
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="❌ Отменить счёт",
+            text=L("❌ Отменить счёт", "❌ Cancel the invoice"),
             callback_data=f"inv:drop:{provider}:{invoice_id}",
             style=DANGER,
         )
@@ -981,7 +1051,7 @@ def crypto_invoice(provider: str, invoice_id: str, link: str) -> InlineKeyboardM
 
 def buy_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("❌ Отмена", "❌ Cancel"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -997,7 +1067,7 @@ def tiers_menu(sub_order: str = "") -> InlineKeyboardMarkup:
     if sub_order:
         kb.row(
             InlineKeyboardButton(
-                text="🚫 Отключить автопродление",
+                text=L("🚫 Отключить автопродление", "🚫 Stop auto-renewal"),
                 callback_data=f"tsub:drop:{sub_order}",
                 style=DANGER,
             )
@@ -1015,7 +1085,7 @@ def tiers_menu(sub_order: str = "") -> InlineKeyboardMarkup:
                 SUCCESS if code == tiers.PRO else PRIMARY,
             )
         )
-    kb.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER))
+    kb.row(InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER))
     return kb.as_markup()
 
 
@@ -1033,8 +1103,8 @@ def tier_buy(code: str) -> InlineKeyboardMarkup:
             )
         )
     kb.row(
-        InlineKeyboardButton(text="⬅️ К подпискам", callback_data="tier:list"),
-        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
+        InlineKeyboardButton(text=L("⬅️ К подпискам", "⬅️ Back to subscriptions"), callback_data="tier:list"),
+        InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER),
     )
     return kb.as_markup()
 
@@ -1049,39 +1119,39 @@ def tier_pay(code: str, days: int) -> InlineKeyboardMarkup:
     if paritypay.recurring_on() and paritypay.interval_of(days):
         kb.row(
             InlineKeyboardButton(
-                text=f"🔁 С автопродлением · "
-                f"{settings.card_rubles(tiers.price_of(code, days))} ₽",
+                text=L("🔁 С автопродлением · ", "🔁 Auto-renewing · ")
+                + f"{settings.card_rubles(tiers.price_of(code, days))} ₽",
                 callback_data=f"tier:sub:{code}:{days}",
                 style=SUCCESS,
             )
         )
     kb.row(
         _coin_button(
-            f"Монетками · {tiers.price_of(code, days)}",
+            f"{L('Монетками', 'In coins')} · {tiers.price_of(code, days)}",
             f"tier:coins:{code}:{days}",
             PRIMARY,
         )
     )
     kb.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"tier:{code}"),
-        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu", style=DANGER),
+        InlineKeyboardButton(text=L("⬅️ Назад", "⬅️ Back"), callback_data=f"tier:{code}"),
+        InlineKeyboardButton(text=L("❌ Закрыть", "❌ Close"), callback_data="menu", style=DANGER),
     )
     return kb.as_markup()
 
 
 def tier_sub_invoice(order_id: str, link: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="💳 Оплатить", url=link, style=SUCCESS))
+    b.row(InlineKeyboardButton(text=L("💳 Оплатить", "💳 Pay"), url=link, style=SUCCESS))
     b.row(
         InlineKeyboardButton(
-            text="🔄 Проверить оплату",
+            text=L("🔄 Проверить оплату", "🔄 Check the payment"),
             callback_data=f"tsub:check:{order_id}",
             style=PRIMARY,
         )
     )
     b.row(
         InlineKeyboardButton(
-            text="❌ Отменить", callback_data=f"tsub:drop:{order_id}", style=DANGER
+            text=L("❌ Отменить", "❌ Cancel"), callback_data=f"tsub:drop:{order_id}", style=DANGER
         )
     )
     return b.as_markup()
@@ -1092,12 +1162,12 @@ def tier_sub_manage(order_id: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(
-            text="🚫 Отключить автопродление",
+            text=L("🚫 Отключить автопродление", "🚫 Stop auto-renewal"),
             callback_data=f"tsub:drop:{order_id}",
             style=DANGER,
         )
     )
-    b.row(InlineKeyboardButton(text="⬅️ К подпискам", callback_data="tier:list"))
+    b.row(InlineKeyboardButton(text=L("⬅️ К подпискам", "⬅️ Back to subscriptions"), callback_data="tier:list"))
     return b.as_markup()
 
 

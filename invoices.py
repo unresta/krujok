@@ -18,6 +18,7 @@ from aiogram.exceptions import TelegramAPIError
 import crypto
 import db
 import keyboards as kb
+import lang
 import paritypay
 import settings
 import texts
@@ -63,9 +64,10 @@ async def credit(bot: Bot, invoice) -> bool:
 
     await db.add_coins(invoice["user_id"], invoice["coins"])
     balance = (await db.get_user(invoice["user_id"]))["coins"]
-    note = texts.crypto_paid(
-        invoice["amount"], invoice["asset"], invoice["coins"], balance
-    )
+    with lang.use(await db.lang_of(invoice["user_id"])):
+        note = texts.crypto_paid(
+            invoice["amount"], invoice["asset"], invoice["coins"], balance
+        )
     with suppress(TelegramAPIError):
         await bot.send_message(invoice["user_id"], note)
     # The card that carried the pay button is stale the moment it is paid.
@@ -162,11 +164,10 @@ async def check_subscription(bot: Bot, row) -> str:
             "подписка %s: %s период для %s, до %s",
             row["order_id"], "первый" if first else "продлён", row["user_id"], until,
         )
+        with lang.use(await db.lang_of(row["user_id"])):
+            charged = texts.tier_sub_charged(row["tier"], row["amount"], until, first)
         with suppress(TelegramAPIError):
-            await bot.send_message(
-                row["user_id"],
-                texts.tier_sub_charged(row["tier"], row["amount"], until, first),
-            )
+            await bot.send_message(row["user_id"], charged)
         if first and row["msg_id"]:  # the pay button is spent
             with suppress(TelegramAPIError):
                 await bot.edit_message_reply_markup(
@@ -175,8 +176,10 @@ async def check_subscription(bot: Bot, row) -> str:
         last_subs["charged"] += 1
 
     if status not in paritypay.SUB_LIVE and status != row["status"]:
+        with lang.use(await db.lang_of(row["user_id"])):
+            over = texts.tier_sub_over(status)
         with suppress(TelegramAPIError):
-            await bot.send_message(row["user_id"], texts.tier_sub_over(status))
+            await bot.send_message(row["user_id"], over)
     return status
 
 
@@ -226,7 +229,7 @@ async def start(bot: Bot, user_id: int, provider: str, coins: int, message) -> N
                 provider,
                 crypto.KEY_HINTS.get(provider, "проверь ключи в .env"),
             )
-        await message.answer(texts.CRYPTO_FAILED)
+        await message.answer(texts.t("CRYPTO_FAILED"))
         return
 
     await db.add_invoice(

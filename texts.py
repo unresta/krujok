@@ -10,6 +10,13 @@ has run against Telegram, so they are passed in rather than baked in.
 
 A template that an edit broke (unknown {vstavka}, stray brace) falls back to the
 shipped one instead of taking the message down — see _fmt.
+
+Two languages. The Russian text is here and is what the panel edits; the English
+one lives in en.py under the same names. Which one a message comes out in is not
+passed down through a hundred call sites — it is set once per update by the
+middleware and read from a context variable, so `texts.menu(...)` stays exactly
+as it was written. Background jobs write to people nobody is talking to, so they
+set it themselves around each recipient: `with texts.use(lang): ...`.
 """
 
 import html
@@ -17,11 +24,33 @@ import logging
 import time
 
 import emoji
+import en
+import lang
 import settings
 from config import ABOUT_MAX, MSK_OFFSET
 from keyboards import PERSON_TITLE, PREF_TITLE
 
 logger = logging.getLogger(__name__)
+
+
+def t(key: str) -> str:
+    """A text with no inserts, in the language of this update.
+
+    The Russian one is a module attribute, because that is what the panel
+    rewrites; the English one is a plain entry in en.TEXTS.
+    """
+    if lang.get() == "en":
+        text = en.TEXTS.get(key)
+        if text is not None:
+            return text
+    return globals().get(key, "")
+
+
+def _template(key: str, template: str) -> str:
+    """The shipped template for this language — the admin's edit wins in Russian."""
+    if lang.get() == "en":
+        return en.TEXTS.get(key, template)
+    return template
 
 
 def _fmt(key: str, template: str, **values) -> str:
@@ -34,8 +63,9 @@ def _fmt(key: str, template: str, **values) -> str:
     {coin} itself is untouched.
     """
     values.setdefault("coin", coin())
+    chosen = _template(key, template)
     try:
-        return template.format(**values)
+        return chosen.format(**values)
     except (KeyError, IndexError, ValueError):
         import text_manager  # late: text_manager imports this module
 
@@ -50,16 +80,25 @@ def coin() -> str:
     return emoji.text(emoji.COIN)
 
 
+def _L(ru: str, en_text: str) -> str:
+    """A phrase too small to be a template of its own — a word, a label."""
+    return en_text if lang.get() == "en" else ru
+
+
 def reward_line() -> str:
     """One rate reads as one number; two rates have to be spelled out."""
     female, male = settings.reward("f"), settings.reward("m")
     if female == male:
         return f"+{female}"
+    if lang.get() == "en":
+        return f"+{female} for female, +{male} for male"
     return f"+{female} за женский, +{male} за мужской"
 
 
 def circles_word(count: int) -> str:
-    """1 кружок, 2 кружка, 5 кружков."""
+    """1 кружок, 2 кружка, 5 кружков — and just circle/circles in English."""
+    if lang.get() == "en":
+        return "circle" if count == 1 else "circles"
     tail = count % 100
     if 11 <= tail <= 14:
         return "кружочков"
@@ -385,7 +424,7 @@ def upload_ask(gender: str) -> str:
     return _fmt(
         "UPLOAD_ASK",
         UPLOAD_ASK,
-        kind="женский" if gender == "f" else "мужской",
+        kind=_L("женский", "female") if gender == "f" else _L("мужской", "male"),
         min_duration=settings.get("min_duration"),
         payoff=payoff,
     )
@@ -474,10 +513,18 @@ REASON_HIDDEN = "снят с показа модератором"
 
 
 def circle_reason_tail(reason: str) -> str:
-    """A moderator types this one by hand, so it is escaped where it is shown."""
+    """A moderator types this one by hand, so it is escaped where it is shown.
+
+    A preset arrives as its key and is looked up in the reader's language;
+    anything else is what a moderator wrote, and it is shown as written.
+    """
     if not reason:
         return ""
-    return _fmt("CIRCLE_REASON_TAIL", CIRCLE_REASON_TAIL, reason=html.escape(reason))
+    return _fmt(
+        "CIRCLE_REASON_TAIL",
+        CIRCLE_REASON_TAIL,
+        reason=html.escape(circle_reject_reason(reason)),
+    )
 
 
 def rejected(reason: str = "") -> str:
@@ -510,6 +557,34 @@ PROFILE_REPORT_REASONS = {
 }
 
 NO_REASON = "причина не указана"
+
+
+def report_reasons() -> dict[str, str]:
+    """Buttons a viewer picks from, in their language. Keys never change."""
+    return en.REPORT_REASONS if lang.get() == "en" else REPORT_REASONS
+
+
+def profile_report_reasons() -> dict[str, str]:
+    return en.PROFILE_REPORT_REASONS if lang.get() == "en" else PROFILE_REPORT_REASONS
+
+
+def circle_reject_reason(key: str) -> str:
+    """A preset reason as the author reads it; anything typed by hand is passed
+    through, because a moderator wrote it and only they know the language."""
+    if lang.get() == "en":
+        return en.CIRCLE_REJECT_REASONS.get(key, key)
+    return CIRCLE_REJECT_REASONS.get(key, key)
+
+
+def profile_reject_reason(key: str) -> str:
+    if lang.get() == "en":
+        return en.REJECT_REASONS.get(key, key)
+    return REJECT_REASONS.get(key, key)
+
+
+def my_circles_status(status: str) -> str:
+    table = en.MY_CIRCLES_STATUS if lang.get() == "en" else MY_CIRCLES_STATUS
+    return table.get(status, "")
 
 
 def reasons_summary(rows, labels: dict[str, str]) -> str:
@@ -807,7 +882,11 @@ def my_circle_info(circle) -> str:
     )
     reason = circle["reject_reason"]
     if circle["status"] == "rejected" and reason:
-        text += _fmt("MY_CIRCLE_INFO_REASON", MY_CIRCLE_INFO_REASON, reason=reason)
+        text += _fmt(
+            "MY_CIRCLE_INFO_REASON",
+            MY_CIRCLE_INFO_REASON,
+            reason=circle_reject_reason(reason),
+        )
     # A reason is typed by hand and can run to 200 characters on its own, which
     # is the whole alert — cut it here rather than lose the alert to an error.
     if len(text) > ALERT_MAX:
@@ -983,9 +1062,12 @@ PROFILE_REASON_TAIL = "\n\nПричина: <b>{reason}</b>"
 
 
 def _reason_tail(reason: str) -> str:
+    """Same as a circle's: a preset key becomes a label, free text stays."""
     if not reason:
         return ""
-    return _fmt("PROFILE_REASON_TAIL", PROFILE_REASON_TAIL, reason=reason)
+    return _fmt(
+        "PROFILE_REASON_TAIL", PROFILE_REASON_TAIL, reason=profile_reject_reason(reason)
+    )
 
 
 def profile_reverted(reason: str = "") -> str:
@@ -1077,7 +1159,7 @@ def profile_status(profile) -> str:  # noqa: D401 — the author's own view
         "PROFILE_STATUS",
         PROFILE_STATUS,
         status=_status_label(profile["status"]),
-        about=html.escape(profile["about"] or "Без описания"),
+        about=html.escape(profile["about"] or _L("Без описания", "No description")),
         price_content=profile["price_content"],
         coin=coin(),
         contact=_contact_line(profile),
@@ -1109,7 +1191,7 @@ def profile_card(profile, circles: int) -> str:
         PROFILE_CARD,
         who=PERSON_TITLE(profile["gender"]),
         icon_about=emoji.text(emoji.ABOUT),
-        about=html.escape(profile["about"] or "Без описания"),
+        about=html.escape(profile["about"] or _L("Без описания", "No description")),
         icon_count=emoji.text(emoji.CIRCLE_COUNT),
         circles=circles,
         icon_price=emoji.text(emoji.PRICE),
@@ -1809,6 +1891,8 @@ def tier_views_left(left: int) -> str:
 
 
 def day_word(days: int) -> str:
+    if lang.get() == "en":
+        return f"{days} day" if days == 1 else f"{days} days"
     tail = days % 100
     if 11 <= tail <= 14:
         return f"{days} дней"
@@ -1818,6 +1902,12 @@ def day_word(days: int) -> str:
 
 def days_left(until: int) -> str:
     left = max(0, until - int(time.time()))
+    if lang.get() == "en":
+        if left >= 86400:
+            return f"{day_word(left // 86400)} left"
+        if left >= 3600:
+            return f"{left // 3600} h left"
+        return "less than an hour"
     if left >= 86400:
         return f"осталось {day_word(left // 86400)}"
     if left >= 3600:
@@ -1827,7 +1917,8 @@ def days_left(until: int) -> str:
 
 def when(stamp: int) -> str:
     """Moscow time, and said so — the server's own clock is nobody's business."""
-    return time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + MSK_OFFSET)) + " МСК"
+    shown = time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + MSK_OFFSET))
+    return shown + (" MSK" if lang.get() == "en" else " МСК")
 
 
 def hhmm(stamp: int | None = None) -> str:
@@ -1899,6 +1990,8 @@ BOOST_REPORT = (
 
 def times_word(count: int) -> str:
     """1 раз, 2 раза, 5 раз."""
+    if lang.get() == "en":
+        return "time" if count == 1 else "times"
     tail = count % 100
     if 11 <= tail <= 14:
         return "раз"
@@ -1998,6 +2091,8 @@ def auction(
 
 def hours_word(count: int) -> str:
     """2 часа, 5 часов, 21 час."""
+    if lang.get() == "en":
+        return f"{count} hour" if count == 1 else f"{count} hours"
     tail = count % 100
     if 11 <= tail <= 14:
         return f"{count} часов"
@@ -2008,6 +2103,10 @@ def hours_word(count: int) -> str:
 
 def time_left(seconds: int) -> str:
     """«1 ч 07 мин», «12 мин», «меньше минуты» — as it counts down."""
+    if lang.get() == "en":
+        if seconds >= 3600:
+            return f"{seconds // 3600} h {seconds % 3600 // 60:02d} min"
+        return f"{seconds // 60} min" if seconds >= 60 else "less than a minute"
     if seconds >= 3600:
         return f"{seconds // 3600} ч {seconds % 3600 // 60:02d} мин"
     if seconds >= 60:
@@ -2109,3 +2208,45 @@ AUCTION_OUTBID = (
 
 def auction_outbid(top: int, mine: int, left: str) -> str:
     return _fmt("AUCTION_OUTBID", AUCTION_OUTBID, top=top, mine=mine, left=left)
+
+
+# --- language -------------------------------------------------------------
+
+LANG_ASK = (
+    "🌐 <b>Язык</b>\n\n"
+    "Бот говорит по-русски и по-английски. Выбери, на каком тебе удобнее — "
+    "поменять можно в любой момент в «Профиле»."
+)
+LANG_SET = "🌐 Готово. Дальше говорим по-русски."
+
+
+def lang_ask() -> str:
+    return _fmt("LANG_ASK", LANG_ASK)
+
+
+# --- names of things, for messages that are built out of parts -------------
+
+FIELD_NAMES = {
+    "Фото": "Photo",
+    "Описание": "Description",
+    "Пол": "Who you are",
+    "Цена кружков": "Circles price",
+    "Цена лички": "Contact price",
+}
+
+
+def field_name(ru: str) -> str:
+    """The Russian name is the id of a profile field; English is a label."""
+    return FIELD_NAMES.get(ru, ru) if lang.get() == "en" else ru
+
+
+INVOICE_TITLE = "{coins} монеток"
+INVOICE_NOTE = "{stars} ⭐ → {coins} 🪙 на баланс в боте."
+
+
+def invoice_title(coins: int) -> str:
+    return _fmt("INVOICE_TITLE", INVOICE_TITLE, coins=coins)
+
+
+def invoice_note(stars: int, coins: int) -> str:
+    return _fmt("INVOICE_NOTE", INVOICE_NOTE, stars=stars, coins=coins)

@@ -19,12 +19,12 @@ router = Router()
 async def check(call: CallbackQuery, state: FSMContext) -> None:
     access.forget(call.from_user.id)  # the cache must not answer for Telegram
     if not await access.is_subscribed(call.bot, call.from_user.id):
-        await call.answer(texts.SUBSCRIBE_MISSING, show_alert=True)
+        await call.answer(texts.t("SUBSCRIBE_MISSING"), show_alert=True)
         return
 
     await state.clear()
     await access.credit_referral(call.bot, call.from_user.id)
-    await call.answer(texts.SUBSCRIBE_OK)
+    await call.answer(texts.t("SUBSCRIBE_OK"))
     # A gate message people come back to days later is out of reach by then —
     # and going through it anyway left them past the gate with an empty screen.
     message = ui.live(call)

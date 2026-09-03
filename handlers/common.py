@@ -11,6 +11,7 @@ import db
 import posts
 from handlers import cheques, watch
 import keyboards as kb
+import lang
 import settings
 import texts
 import ui
@@ -47,6 +48,13 @@ async def start(message: Message, state: FSMContext) -> None:
     # find the button first often never sees one at all.
     if first_time and settings.get("welcome_circle"):
         await watch.serve(message.bot, message.from_user.id)
+    # …and only then the language, once, to whoever was guessed into English by
+    # their Telegram setting. Asking before the circle would be asking a
+    # question of somebody who has not seen what they are answering about.
+    if first_time:
+        await message.answer(
+            texts.lang_ask(), reply_markup=kb.language(lang.get())
+        )
     # Somebody who came for one author's card gets it last, so it stays on
     # screen with its buy buttons instead of the menu.
     await open_pending_profile(message.bot, message.from_user.id)
@@ -71,7 +79,7 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
     """
     await state.clear()
     first_time = await db.accept_rules(call.from_user.id)
-    await call.answer(texts.ACCEPTED)
+    await call.answer(texts.t("ACCEPTED"))
     # The rules can sit unanswered for days, and by then Telegram no longer
     # lets us touch that message — see ui.live.
     message = ui.live(call)
@@ -86,6 +94,35 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
         await watch.serve(call.bot, call.from_user.id)
 
     await open_pending_profile(call.bot, call.from_user.id)
+
+
+@router.callback_query(F.data == "lang:ask")
+async def ask_language(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = await db.get_user(call.from_user.id)
+    await call.message.answer(
+        texts.lang_ask(), reply_markup=kb.language(user["lang"])
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def set_language(call: CallbackQuery, state: FSMContext) -> None:
+    """The choice wins over whatever Telegram's language_code guessed."""
+    await state.clear()
+    choice = call.data.split(":", 1)[1]
+    if choice not in lang.LANGS:
+        await call.answer()
+        return
+    await db.set_lang(call.from_user.id, choice)
+    lang.set(choice)  # the rest of this update is already in the new language
+    await call.answer(texts.t("LANG_SET"))
+    with suppress(TelegramAPIError):
+        await call.message.edit_text(
+            texts.lang_ask(), reply_markup=kb.language(choice)
+        )
+    # The reply keyboard only changes with a message that carries a new one.
+    await ui.render_menu(call, call.from_user.id)
 
 
 @router.message(Command("menu", "cancel"))
@@ -119,7 +156,7 @@ async def traffer_stats(message: Message) -> None:
     token = message.text.removeprefix("/stat_").strip().lower()
     code = await db.campaign_by_token(token)
     if code is None:
-        await message.answer(texts.TRAFFER_UNKNOWN)
+        await message.answer(texts.t("TRAFFER_UNKNOWN"))
         return
 
     stats = await db.campaign_stats(code)
@@ -133,7 +170,7 @@ async def traffer_stats(message: Message) -> None:
 # --- feed ----------------------------------------------------------------
 
 
-@router.message(F.text == kb.BTN_FEED)
+@router.message(F.text.in_(kb.labels(kb.BTN_FEED)))
 async def feed(message: Message, state: FSMContext) -> None:
     await state.clear()
     user = await db.get_user(message.from_user.id)
@@ -146,13 +183,13 @@ async def pref(call: CallbackQuery, state: FSMContext) -> None:
     choice = call.data.split(":", 1)[1]
     await db.set_pref(call.from_user.id, choice)
     await ui.edit(call, texts.feed(choice), kb.feed(choice))
-    await call.answer(kb.PREF_LABEL[choice])  # toast is plain text, no HTML
+    await call.answer(kb.pref_word(choice))  # toast is plain text, no HTML
 
 
 # --- profile, referrals, rules -------------------------------------------
 
 
-@router.message(F.text == kb.BTN_PROFILE)
+@router.message(F.text.in_(kb.labels(kb.BTN_PROFILE)))
 async def profile(message: Message, state: FSMContext) -> None:
     await state.clear()
     user_id = message.from_user.id
@@ -184,7 +221,7 @@ async def profile(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text == kb.BTN_REF)
+@router.message(F.text.in_(kb.labels(kb.BTN_REF)))
 async def referrals(message: Message, state: FSMContext) -> None:
     await state.clear()
     done, waiting = await db.referral_counts(message.from_user.id)
@@ -194,7 +231,7 @@ async def referrals(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text == kb.BTN_RULES)
+@router.message(F.text.in_(kb.labels(kb.BTN_RULES)))
 async def rules(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(texts.rules(), reply_markup=kb.rules())

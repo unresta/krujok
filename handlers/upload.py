@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message, User
 
 import db
 import keyboards as kb
+import lang
 import outbox
 import people
 import texts
@@ -28,7 +29,7 @@ async def _may_upload(message: Message, user_id: int | None = None) -> bool:
     if profile is not None and profile["status"] == "approved":
         return True
     if profile is None:
-        await message.answer(texts.UPLOAD_NEEDS_PROFILE, reply_markup=kb.profile_intro())
+        await message.answer(texts.t("UPLOAD_NEEDS_PROFILE"), reply_markup=kb.profile_intro())
     else:
         await message.answer(texts.upload_profile_pending(profile["status"]))
     return False
@@ -57,7 +58,7 @@ async def got_video(message: Message, state: FSMContext) -> None:
     # number for everybody.
     limit = tiers.max_pending(db.active_tier(await db.get_user(message.from_user.id)))
     if await db.pending_count(message.from_user.id) >= limit:
-        await message.answer(texts.TOO_MANY_PENDING, reply_markup=kb.back())
+        await message.answer(texts.t("TOO_MANY_PENDING"), reply_markup=kb.back())
         return
     if note.duration < settings.get("min_duration"):
         await message.answer(texts.too_short(note.duration), reply_markup=kb.back())
@@ -81,7 +82,7 @@ async def got_video(message: Message, state: FSMContext) -> None:
 
 @router.message(Upload.waiting_video, ~F.text.in_(kb.MENU_BUTTONS))
 async def wrong_content(message: Message) -> None:
-    await message.answer(texts.NOT_A_CIRCLE, reply_markup=kb.back())
+    await message.answer(texts.t("NOT_A_CIRCLE"), reply_markup=kb.back())
 
 
 async def _submit(bot, author: User, data: dict, gender: str) -> str:
@@ -99,34 +100,37 @@ async def _submit(bot, author: User, data: dict, gender: str) -> str:
         duration=data["duration"],
     )
     if circle_id is None:
-        return texts.DUPLICATE
+        return texts.t("DUPLICATE")
 
     reward = settings.reward(gender)
     chat = settings.circles_chat()
-    card_text = (
-        f"#на_проверку <b>#{circle_id}</b>\n"
-        f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
-        f"Длина: {data['duration']} сек\n"
-        f"Автор: {await people.of(author.id)}"
-    )
-
-    async def deliver() -> None:
-        # The circle is saved and waits in the panel's queue either way; silence
-        # here is exactly what made a broken chat look like a broken upload.
-        await outbox.call(
-            chat,
-            lambda: bot.send_video_note(chat, data["file_id"], protect_content=True),
-            f"кружок #{circle_id}",
+    # The card is read by moderators, not by the person who sent it:
+    # composed in Russian whatever language they are answered in.
+    with lang.use("ru"):
+        card_text = (
+            f"#на_проверку <b>#{circle_id}</b>\n"
+            f"Тип: {kb.PREF_TITLE(gender)} (+{reward} {texts.coin()})\n"
+            f"Длина: {data['duration']} сек\n"
+            f"Автор: {await people.of(author.id)}"
         )
-        card = await outbox.call(
-            chat,
-            lambda: bot.send_message(
-                chat, card_text, reply_markup=kb.moderation(circle_id)
-            ),
-            f"карточка кружка #{circle_id}",
-        )
-        if card is not None:
-            await db.set_admin_msg(circle_id, card.message_id)
 
-    outbox.post(chat, deliver, f"кружок #{circle_id}")
+        async def deliver() -> None:
+            # The circle is saved and waits in the panel's queue either way; silence
+            # here is exactly what made a broken chat look like a broken upload.
+            await outbox.call(
+                chat,
+                lambda: bot.send_video_note(chat, data["file_id"], protect_content=True),
+                f"кружок #{circle_id}",
+            )
+            card = await outbox.call(
+                chat,
+                lambda: bot.send_message(
+                    chat, card_text, reply_markup=kb.moderation(circle_id)
+                ),
+                f"карточка кружка #{circle_id}",
+            )
+            if card is not None:
+                await db.set_admin_msg(circle_id, card.message_id)
+
+        outbox.post(chat, deliver, f"кружок #{circle_id}")
     return texts.upload_sent(circle_id, reward)

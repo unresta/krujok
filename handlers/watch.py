@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
+import lang
 import outbox
 import people
 import posts
@@ -46,7 +47,7 @@ def _dead_file(error: TelegramAPIError) -> bool:
     return any(mark in text for mark in DEAD_FILE)
 
 
-@router.message(F.text == kb.BTN_WATCH)
+@router.message(F.text.in_(kb.labels(kb.BTN_WATCH)))
 async def watch_button(message: Message, state: FSMContext) -> None:
     await state.clear()
     await serve(message.bot, message.from_user.id)
@@ -57,7 +58,7 @@ async def watch_callback(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     now = time.monotonic()
     if now - _last_tap.get(call.from_user.id, 0.0) < WATCH_COOLDOWN:
-        await call.answer(texts.NOT_SO_FAST)
+        await call.answer(texts.t("NOT_SO_FAST"))
         return
     _last_tap[call.from_user.id] = now
 
@@ -92,7 +93,7 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         # Nothing left of this type is not a money problem: offer the switch the
         # text itself points at.
         await bot.send_message(
-            user_id, texts.EMPTY, reply_markup=kb.empty_feed(user["pref"])
+            user_id, texts.t("EMPTY"), reply_markup=kb.empty_feed(user["pref"])
         )
         return
 
@@ -174,7 +175,7 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
             # them a circle they could not have watched anyway, and nobody
             # else's feed is touched.
             await db.mark_viewed(user_id, circle["id"])
-        await bot.send_message(user_id, texts.SEND_FAILED)
+        await bot.send_message(user_id, texts.t("SEND_FAILED"))
         return
 
     await db.mark_viewed(user_id, circle["id"])
@@ -205,13 +206,17 @@ async def _pay_author(bot, circle, amount: int, note) -> None:
     if not author or not amount:
         return
     await db.pay_author(circle["id"], author, amount)
+    # The viewer is the one being served; the author is somebody else entirely,
+    # and this line is for them — in their language.
+    with lang.use(await db.lang_of(author)):
+        text = note(amount)
     with suppress(TelegramAPIError):  # author may have blocked the bot
-        await bot.send_message(author, note(amount))
+        await bot.send_message(author, text)
 
 
 @router.callback_query(F.data == "arch")
 async def archive_note(call: CallbackQuery) -> None:
-    await call.answer(texts.ARCHIVE_NOTE, show_alert=True)
+    await call.answer(texts.t("ARCHIVE_NOTE"), show_alert=True)
 
 
 @router.callback_query(F.data.startswith("lk:"))
@@ -221,15 +226,15 @@ async def react(call: CallbackQuery) -> None:
 
     circle = await db.get_circle(circle_id)
     if circle is None:
-        await call.answer(texts.CIRCLE_GONE, show_alert=True)
+        await call.answer(texts.t("CIRCLE_GONE"), show_alert=True)
         return
     if circle["uploader_id"] == call.from_user.id:
-        await call.answer(texts.CIRCLE_OWN_VOTE)
+        await call.answer(texts.t("CIRCLE_OWN_VOTE"))
         return
     # A like pays the author, so it has to come from someone who was shown the
     # circle — not from a guessed callback.
     if not await db.has_viewed(call.from_user.id, circle_id):
-        await call.answer(texts.CIRCLE_NOT_SHOWN, show_alert=True)
+        await call.answer(texts.t("CIRCLE_NOT_SHOWN"), show_alert=True)
         return
 
     vote, likes, dislikes, fresh_like = await db.set_reaction(
@@ -244,7 +249,7 @@ async def react(call: CallbackQuery) -> None:
             )
         )
     await call.answer(
-        texts.VOTE_LIKE if vote == 1 else texts.VOTE_DISLIKE if vote == -1 else texts.VOTE_CANCEL
+        texts.t("VOTE_LIKE") if vote == 1 else texts.t("VOTE_DISLIKE") if vote == -1 else texts.t("VOTE_CANCEL")
     )
 
     if fresh_like:
@@ -279,7 +284,7 @@ async def report(call: CallbackQuery) -> None:
 
     circle = await db.get_circle(circle_id)
     if circle is None:
-        await call.answer(texts.CIRCLE_GONE, show_alert=True)
+        await call.answer(texts.t("CIRCLE_GONE"), show_alert=True)
         return
 
     if action == "back":
@@ -291,11 +296,11 @@ async def report(call: CallbackQuery) -> None:
         return
 
     if not await db.has_viewed(call.from_user.id, circle_id):
-        await call.answer(texts.CIRCLE_NOT_SHOWN, show_alert=True)
+        await call.answer(texts.t("CIRCLE_NOT_SHOWN"), show_alert=True)
         return
     # Better to say so now than after they picked a reason for nothing.
     if await db.has_reported(call.from_user.id, circle_id):
-        await call.answer(texts.REPORT_DOUBLE, show_alert=True)
+        await call.answer(texts.t("REPORT_DOUBLE"), show_alert=True)
         return
 
     if action != "r":
@@ -303,15 +308,15 @@ async def report(call: CallbackQuery) -> None:
             await call.message.edit_reply_markup(
                 reply_markup=kb.report_reasons(circle_id)
             )
-        await call.answer(texts.REPORT_ASK)
+        await call.answer(texts.t("REPORT_ASK"))
         return
 
     reason = parts[2] if parts[2] in texts.REPORT_REASONS else "other"
     count = await db.add_report(call.from_user.id, circle_id, reason)
     if count is None:  # two taps racing each other
-        await call.answer(texts.REPORT_DOUBLE, show_alert=True)
+        await call.answer(texts.t("REPORT_DOUBLE"), show_alert=True)
         return
-    await call.answer(texts.REPORT_SENT, show_alert=True)
+    await call.answer(texts.t("REPORT_SENT"), show_alert=True)
     with suppress(TelegramAPIError):
         await call.message.edit_reply_markup(
             reply_markup=await _circle_markup(call.from_user.id, circle)
@@ -320,39 +325,42 @@ async def report(call: CallbackQuery) -> None:
     # Enough complaints and the circle leaves rotation before a human looks.
     hidden = count >= settings.get("reports_to_hide")
     if hidden and circle["status"] == "approved":
-        await db.set_status(circle_id, "rejected", texts.REASON_REPORTS)
+        await db.set_status(circle_id, "rejected", texts.t("REASON_REPORTS"))
 
     breakdown = texts.reasons_summary(
         await db.report_reasons(circle_id), texts.REPORT_REASONS
     )
     chat = settings.reports_chat()
-    card_text = (
-        f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
-        f"Причина: {texts.REPORT_REASONS[reason]}\n"
-        f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
-        f"Автор: {await people.of(circle['uploader_id'])}\n"
-        f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
-        f"{breakdown}"
-    )
-
-    async def deliver() -> None:
-        # The complaint is already in the base; only the card failed to land.
-        await outbox.call(
-            chat,
-            lambda: call.bot.send_video_note(
-                chat, circle["file_id"], protect_content=True
-            ),
-            f"кружок по жалобе #{circle_id}",
-        )
-        await outbox.call(
-            chat,
-            lambda: call.bot.send_message(
-                chat, card_text, reply_markup=kb.report_review(circle_id)
-            ),
-            f"жалоба на #{circle_id}",
+    # The card is read by moderators, not by the person who sent it:
+    # composed in Russian whatever language they are answered in.
+    with lang.use("ru"):
+        card_text = (
+            f"#жалоба на <b>#{circle_id}</b> — {count} шт\n"
+            f"Причина: {texts.REPORT_REASONS[reason]}\n"
+            f"Тип: {kb.PREF_TITLE(circle['gender'])} · {circle['duration']} сек\n"
+            f"Автор: {await people.of(circle['uploader_id'])}\n"
+            f"Статус: {'скрыт автоматически' if hidden else circle['status']}\n\n"
+            f"{breakdown}"
         )
 
-    outbox.post(chat, deliver, f"жалоба на #{circle_id}")
+        async def deliver() -> None:
+            # The complaint is already in the base; only the card failed to land.
+            await outbox.call(
+                chat,
+                lambda: call.bot.send_video_note(
+                    chat, circle["file_id"], protect_content=True
+                ),
+                f"кружок по жалобе #{circle_id}",
+            )
+            await outbox.call(
+                chat,
+                lambda: call.bot.send_message(
+                    chat, card_text, reply_markup=kb.report_review(circle_id)
+                ),
+                f"жалоба на #{circle_id}",
+            )
+
+        outbox.post(chat, deliver, f"жалоба на #{circle_id}")
 
 
 @router.callback_query(F.data.startswith("rp:"))
@@ -373,7 +381,7 @@ async def review_report(call: CallbackQuery) -> None:
 
     if action == "again":  # hiding and keeping are both reversible
         if circle is None:
-            await call.answer(texts.CIRCLE_GONE, show_alert=True)
+            await call.answer(texts.t("CIRCLE_GONE"), show_alert=True)
             return
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(
@@ -387,19 +395,19 @@ async def review_report(call: CallbackQuery) -> None:
     note = ""
 
     if action == "del":
-        note = texts.CIRCLE_REMOVED
+        note = texts.t("CIRCLE_REMOVED")
         await db.delete_circle(circle_id)
         verdict = "🔴 удалён"
     elif action == "hide":
         if circle:
-            await db.set_status(circle_id, "rejected", texts.REASON_REPORTS)
-            note = texts.CIRCLE_HIDDEN
+            await db.set_status(circle_id, "rejected", texts.t("REASON_REPORTS"))
+            note = texts.t("CIRCLE_HIDDEN")
         verdict = "🚫 скрыт"
     else:
         if circle:
             # Only worth telling the author when the circle was actually off.
             if circle["status"] != "approved":
-                note = texts.CIRCLE_RESTORED
+                note = texts.t("CIRCLE_RESTORED")
             await db.set_status(circle_id, "approved")
         verdict = "🟢 оставлен"
 

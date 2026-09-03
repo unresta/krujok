@@ -202,6 +202,8 @@ EDITABLE: dict[str, Item] = {
         },
     ),
     "ACCEPTED": Item("Согласие принято", "Правила и FAQ", plain=True),
+    "LANG_ASK": Item("Выбор языка", "Правила и FAQ"),
+    "LANG_SET": Item("Язык переключён", "Правила и FAQ", plain=True),
     # --- Система ---
     "BANNED": Item("Сообщение забаненному", "Система", plain=True),
     "MAINTENANCE": Item("Режим техработ", "Система", plain=True),

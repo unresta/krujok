@@ -28,7 +28,7 @@ class Buy(StatesGroup):
     choose_method = State()
 
 
-@router.message(F.text == kb.BTN_SHOP)
+@router.message(F.text.in_(kb.labels(kb.BTN_SHOP)))
 async def shop(message: Message, state: FSMContext) -> None:
     await state.clear()
     user = await db.get_user(message.from_user.id)
@@ -78,7 +78,7 @@ async def custom_amount(message: Message, state: FSMContext) -> None:
 @router.message(Buy.choose_method, ~F.video_note, ~F.text.in_(kb.MENU_BUTTONS))
 async def method_hint(message: Message) -> None:
     """Typing at the payment-method step used to get no answer at all."""
-    await message.answer(texts.BUY_PICK_METHOD, reply_markup=kb.buy_payment_method())
+    await message.answer(texts.t("BUY_PICK_METHOD"), reply_markup=kb.buy_payment_method())
 
 
 @router.callback_query(F.data.startswith("pay:"))
@@ -103,7 +103,7 @@ async def pay_with_stars(call: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     stars = data.get("stars")
     if not stars:
-        await call.answer(texts.BUY_NO_AMOUNT, show_alert=True)
+        await call.answer(texts.t("BUY_NO_AMOUNT"), show_alert=True)
         return
     await state.clear()
     await call.answer()
@@ -115,12 +115,12 @@ async def pay_outside(call: CallbackQuery, state: FSMContext) -> None:
     """Everything that is not Stars is an invoice at an outside processor."""
     provider = call.data.split(":", 1)[1]
     if provider not in invoices.available():
-        await call.answer(texts.BUY_CARD_SOON, show_alert=True)
+        await call.answer(texts.t("BUY_CARD_SOON"), show_alert=True)
         return
 
     stars = (await state.get_data()).get("stars")
     if not stars:
-        await call.answer(texts.BUY_NO_AMOUNT, show_alert=True)
+        await call.answer(texts.t("BUY_NO_AMOUNT"), show_alert=True)
         return
     await state.clear()
     await call.answer()
@@ -133,18 +133,18 @@ async def invoice_action(call: CallbackQuery) -> None:
     _, action, provider, invoice_id = call.data.split(":", 3)
     invoice = await db.get_invoice(provider, invoice_id)
     if invoice is None or invoice["user_id"] != call.from_user.id:
-        await call.answer(texts.CRYPTO_GONE, show_alert=True)
+        await call.answer(texts.t("CRYPTO_GONE"), show_alert=True)
         return
 
     if action == "drop":
         await db.close_invoice(provider, invoice_id, "cancelled")
-        await call.answer(texts.CRYPTO_CANCELLED)
+        await call.answer(texts.t("CRYPTO_CANCELLED"))
         with suppress(TelegramAPIError):
             await call.message.delete()
         return
 
     if invoice["status"] == "paid":  # the poller got there first
-        await call.answer(texts.ALREADY_BOUGHT, show_alert=True)
+        await call.answer(texts.t("ALREADY_BOUGHT"), show_alert=True)
         return
 
     state = await invoices.check_one(call.bot, invoice)
@@ -152,18 +152,20 @@ async def invoice_action(call: CallbackQuery) -> None:
         await call.answer("🟢")
         return
     if state == crypto.EXPIRED:
-        await call.answer(texts.CRYPTO_EXPIRED, show_alert=True)
+        await call.answer(texts.t("CRYPTO_EXPIRED"), show_alert=True)
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(reply_markup=None)
         return
-    await call.answer(texts.CRYPTO_PENDING, show_alert=True)
+    await call.answer(texts.t("CRYPTO_PENDING"), show_alert=True)
 
 
 async def send_invoice(message: Message, stars: int) -> None:
     coins = settings.coins_for(stars)
+    # The payment sheet is Telegram's own screen, so its wording is plain text
+    # with no HTML — and it is the user's, so it follows their language.
     await message.answer_invoice(
-        title=f"{coins} монеток",
-        description=f"{stars} ⭐ → {coins} 🪙 на баланс в боте.",
+        title=texts.invoice_title(coins),
+        description=texts.invoice_note(stars, coins),
         payload=f"coins:{stars}",
         currency="XTR",  # Telegram Stars
         prices=[LabeledPrice(label=f"{coins} 🪙", amount=stars)],

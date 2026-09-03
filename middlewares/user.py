@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import access
 import db
+import lang
 import settings
 import texts
 from config import ADMIN_IDS
@@ -29,6 +30,15 @@ class UserMiddleware(BaseMiddleware):
         user = await db.get_user(tg_user.id)
         is_admin = tg_user.id in ADMIN_IDS
 
+        # Everything this update answers with is in one language, and it is
+        # decided here — texts and keyboards read it from a context variable
+        # rather than take it as an argument. Telegram's own language_code is
+        # only the first guess; once the person picks, their row wins.
+        if not user["lang"]:
+            await db.set_lang(tg_user.id, lang.detect(tg_user.language_code))
+            user = await db.get_user(tg_user.id)
+        lang.set(user["lang"])
+
         # Who they are, kept current for the panel — written only when it moved.
         name = " ".join(filter(None, (tg_user.first_name, tg_user.last_name)))
         if (user["name"], user["username"]) != (name, tg_user.username or ""):
@@ -45,10 +55,10 @@ class UserMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if user["banned"]:
-            await self._refuse(event, texts.BANNED)
+            await self._refuse(event, texts.t("BANNED"))
             return None
         if settings.maintenance() and not is_admin:
-            await self._refuse(event, texts.MAINTENANCE)
+            await self._refuse(event, texts.t("MAINTENANCE"))
             return None
 
         # They wrote to us, so they have not blocked the bot after all — and a

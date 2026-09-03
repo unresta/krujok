@@ -45,7 +45,7 @@ async def _screen(user_id: int) -> tuple[str, object]:
     return body, kb.tiers_menu(row["order_id"] if row is not None else "")
 
 
-@router.message(F.text == kb.BTN_SUBS)
+@router.message(F.text.in_(kb.labels(kb.BTN_SUBS)))
 async def open_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
     text, markup = await _screen(message.from_user.id)
@@ -77,7 +77,7 @@ async def choose_payment(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     picked = _parse(call.data)
     if picked is None:
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
     code, days = picked
     await ui.edit(call, texts.tier_pay(code, days), kb.tier_pay(code, days))
@@ -90,13 +90,13 @@ async def buy_recurring(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     picked = _parse(call.data)
     if picked is None or not paritypay.recurring_on():
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
     code, days = picked
 
     # Two live subscriptions would charge the same person twice for one thing.
     if await db.live_tier_sub(call.from_user.id) is not None:
-        await call.answer(texts.TIER_SUB_ALREADY, show_alert=True)
+        await call.answer(texts.t("TIER_SUB_ALREADY"), show_alert=True)
         return
 
     order_id = uuid.uuid4().hex
@@ -111,7 +111,7 @@ async def buy_recurring(call: CallbackQuery, state: FSMContext) -> None:
         )
     except paritypay.ParityError as error:
         logger.error("подписка для %s не создалась: %s", call.from_user.id, error)
-        await call.answer(texts.CRYPTO_FAILED, show_alert=True)
+        await call.answer(texts.t("CRYPTO_FAILED"), show_alert=True)
         return
 
     await db.add_tier_sub(order_id, call.from_user.id, code, days, amount, link)
@@ -128,7 +128,7 @@ async def manage_sub(call: CallbackQuery) -> None:
     _, action, order_id = call.data.split(":", 2)
     row = await db.get_tier_sub(order_id)
     if row is None or row["user_id"] != call.from_user.id:
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
 
     if action == "drop":
@@ -137,7 +137,7 @@ async def manage_sub(call: CallbackQuery) -> None:
         with suppress(paritypay.ParityError):
             await paritypay.cancel_subscription(order_id)
         await db.touch_tier_sub(order_id, "cancelled")
-        await call.answer(texts.TIER_SUB_DROPPED, show_alert=True)
+        await call.answer(texts.t("TIER_SUB_DROPPED"), show_alert=True)
         with suppress(TelegramAPIError):
             await call.message.edit_reply_markup(reply_markup=None)
         return
@@ -146,7 +146,7 @@ async def manage_sub(call: CallbackQuery) -> None:
     if charged == "active":
         await call.answer("🟢")
         return
-    await call.answer(texts.TIER_SUB_WAITING, show_alert=True)
+    await call.answer(texts.t("TIER_SUB_WAITING"), show_alert=True)
 
 
 @router.callback_query(F.data.startswith("tier:coins:"))
@@ -154,7 +154,7 @@ async def buy(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     picked = _parse(call.data)
     if picked is None:
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
 
     code, days = picked
@@ -165,7 +165,7 @@ async def buy(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer(texts.tier_poor(price, user["coins"]), show_alert=True)
         return
 
-    await call.answer(texts.BOUGHT_TOAST)
+    await call.answer(texts.t("BOUGHT_TOAST"))
     await call.bot.send_message(
         call.from_user.id, texts.tier_bought(code, days, price, until)
     )
@@ -177,7 +177,7 @@ async def show_tier(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     code = call.data.split(":", 1)[1]
     if tiers.get(code) is None:
-        await call.answer(texts.STALE_BUTTON, show_alert=True)
+        await call.answer(texts.t("STALE_BUTTON"), show_alert=True)
         return
 
     user = await db.get_user(call.from_user.id)
