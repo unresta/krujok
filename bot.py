@@ -101,11 +101,23 @@ async def main() -> None:
         fallback,
     )
 
+    # «Язык / Language» reads the same either way: whoever needs the command is
+    # by definition looking at a description they cannot read.
     public = [
         BotCommand(command="start", description="Кружочки"),
         BotCommand(command="menu", description="Меню"),
+        BotCommand(command="lang", description="Язык / Language"),
     ]
     await bot.set_my_commands(public)
+    with suppress(TelegramAPIError):
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Circles"),
+                BotCommand(command="menu", description="Menu"),
+                BotCommand(command="lang", description="Язык / Language"),
+            ],
+            language_code="en",
+        )
     for admin_id in ADMIN_IDS:  # /admin shows up only in the admins' own chats
         with suppress(TelegramAPIError):
             await bot.set_my_commands(

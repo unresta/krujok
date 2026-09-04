@@ -96,6 +96,14 @@ async def accept(call: CallbackQuery, state: FSMContext) -> None:
     await open_pending_profile(call.bot, call.from_user.id)
 
 
+@router.message(Command("lang"))
+async def lang_cmd(message: Message, state: FSMContext) -> None:
+    """Same picker as the button, for whoever cannot read the button."""
+    await state.clear()
+    user = await db.get_user(message.from_user.id)
+    await message.answer(texts.lang_ask(), reply_markup=kb.language(user["lang"]))
+
+
 @router.callback_query(F.data == "lang:ask")
 async def ask_language(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
