@@ -210,6 +210,7 @@ EDITABLE: dict[str, Item] = {
     "STALE_BUTTON": Item("Кнопка устарела", "Система", plain=True),
     "NOT_SO_FAST": Item("Слишком частые нажатия", "Система", plain=True),
     "SEND_FAILED": Item("Кружок не отправился", "Система"),
+    "CIRCLE_BLOCKED": Item("У зрителя закрыты голосовые", "Система"),
     # --- Профиль пользователя ---
     "PROFILE": Item(
         "Экран «Профиль»",

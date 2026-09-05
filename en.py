@@ -829,3 +829,15 @@ TEXTS["LANG_SET"] = "🌐 Done. English it is."
 
 TEXTS["INVOICE_TITLE"] = "{coins} coins"
 TEXTS["INVOICE_NOTE"] = "{stars} ⭐ → {coins} 🪙 on your balance in the bot."
+
+TEXTS["CIRCLE_BLOCKED"] = (
+    "🔇 <b>Telegram will not let circles through to you</b>\n\n"
+    "Voice messages are switched off in your privacy settings, and a circle is "
+    "a voice message as far as Telegram is concerned. Your coins are back.\n\n"
+    "How to open it:\n"
+    "1. Settings → <b>Privacy and Security</b>\n"
+    "2. <b>Voice Messages</b>\n"
+    "3. Set it to <b>Everybody</b> — or leave it and add this bot to the "
+    "<b>Always Allow</b> exceptions\n\n"
+    "Then press «Watch circles» again."
+)

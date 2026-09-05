@@ -1645,6 +1645,19 @@ PROFILE_NONE_YET = "У автора нет анкеты."
 NEED_PROFILE_FIRST = "Сначала заполни анкету."
 NOT_SO_FAST = "Не так быстро 🙂"
 SEND_FAILED = "Не удалось отправить кружок, монетки вернул."
+# Telegram counts a video note as a voice message, so the privacy setting for
+# voice messages blocks circles too. Only the person themselves can lift it.
+CIRCLE_BLOCKED = (
+    "🔇 <b>Telegram не пропускает кружочки к тебе</b>\n\n"
+    "В твоих настройках закрыты голосовые сообщения, а кружок для Telegram — "
+    "это они и есть. Монетки я вернул.\n\n"
+    "Как открыть:\n"
+    "1. Настройки → <b>Конфиденциальность</b>\n"
+    "2. <b>Голосовые сообщения</b>\n"
+    "3. Поставь <b>«Все»</b> — или оставь как есть и добавь этого бота "
+    "в исключения «Всегда разрешать»\n\n"
+    "Потом жми «Смотреть кружки» ещё раз."
+)
 BUY_FIRST = "Сначала купи доступ."
 AUTHOR_EMPTY = "У автора пока нечего смотреть."
 NOT_ENOUGH_COINS_TOAST = "Не хватает монеток."

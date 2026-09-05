@@ -33,6 +33,7 @@ import settings
 import texts
 from config import ABOUT_MAX, ADMIN_CHAT_ID, ADMIN_IDS, BOOST_PACKS
 from keyboards import PRIMARY, DANGER
+from handlers import watch
 from handlers.upload import Upload
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,9 @@ router = Router()
 
 CIRCLES_PER_BATCH = 10  # sent per tap, so a big catalogue does not hit the limit
 SEND_PAUSE = 0.3
+# Not a count: the batch stopped because the viewer blocks circles wholesale,
+# and they have already been told why.
+BLOCKED = -1
 
 
 async def _send_circles(bot, user_id: int, circles, markup=None) -> int:
@@ -82,6 +86,12 @@ async def _send_circles(bot, user_id: int, circles, markup=None) -> int:
             logger.warning(
                 "кружок #%s не дошёл до %s: %s", circle["id"], user_id, error
             )
+            # Their privacy setting blocks every circle, not this one — the rest
+            # of the batch would fail the same way, so it is stopped and they
+            # are told how to lift it instead of counting losses.
+            if watch.voice_blocked(error):
+                await bot.send_message(user_id, texts.t("CIRCLE_BLOCKED"))
+                return BLOCKED
         await asyncio.sleep(SEND_PAUSE)  # Telegram throttles bulk sends hard
     return landed
 
@@ -954,6 +964,8 @@ async def own_circles(call: CallbackQuery) -> None:
     sent = await _send_circles(
         call.bot, call.from_user.id, batch, lambda c: kb.my_circle(c["id"])
     )
+    if sent == BLOCKED:
+        return
     if sent < len(batch):
         await call.bot.send_message(
             call.from_user.id, texts.circles_lost(sent, len(batch))
@@ -1271,6 +1283,8 @@ async def show_circles(call: CallbackQuery) -> None:
     batch = circles[:CIRCLES_PER_BATCH]
     await call.answer(texts.sending_circles(len(batch)))
     sent = await _send_circles(call.bot, call.from_user.id, batch)
+    if sent == BLOCKED:
+        return
     if sent < len(batch):
         await call.bot.send_message(
             call.from_user.id, texts.circles_lost(sent, len(batch))

@@ -47,6 +47,18 @@ def _dead_file(error: TelegramAPIError) -> bool:
     return any(mark in text for mark in DEAD_FILE)
 
 
+# A circle is a video note, and Telegram files those under «voice messages» in
+# the privacy settings. Somebody with Premium who set that to «my contacts»
+# blocks the bot from sending any circle at all — not this one, every one. The
+# file is fine, the base is fine, and there is nothing to retry: only they can
+# lift it, so they are told how instead of being handed «не удалось» forever.
+VOICE_FORBIDDEN = "voice_messages_forbidden"
+
+
+def voice_blocked(error: TelegramAPIError) -> bool:
+    return VOICE_FORBIDDEN in str(error).lower()
+
+
 @router.message(F.text.in_(kb.labels(kb.BTN_WATCH)))
 async def watch_button(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -167,6 +179,11 @@ async def serve(bot, user_id: int, notice: bool = True) -> None:
         logger.warning(
             "кружок #%s не ушёл к %s: %s", circle["id"], user_id, error
         )
+        if voice_blocked(error):
+            # Their setting, their fix: every circle will fail until they change
+            # it, so marking this one seen would burn the base one circle a tap.
+            await bot.send_message(user_id, texts.t("CIRCLE_BLOCKED"))
+            return
         if _dead_file(error):
             # Telegram refuses this file outright. A failed send does not count
             # as watched, so the same dead circle is drawn again on the next
