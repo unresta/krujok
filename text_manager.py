@@ -868,7 +868,8 @@ async def load_from_db() -> None:
     _custom.clear()
     for key, row in (await db.load_custom_texts()).items():
         if key in _defaults:
-            _custom[key] = row["text"]
+            # Bases from before the check above still hold broken edits.
+            _custom[key] = texts.whole(row["text"])
     apply()
     logger.info("custom texts loaded: %s", len(_custom))
 
@@ -1142,8 +1143,11 @@ def incoming(key: str, text: str, html_text: str) -> tuple[str, str | None]:
     them. Hence: take the formatted version, then un-escape the tags in it.
     """
     if EDITABLE[key].plain:
-        return (text or "").strip(), None
-    escaped = html_text.strip()
+        return texts.whole((text or "").strip()), None
+    # A bold that starts inside an emoji leaves half a character behind — see
+    # texts.whole. Cut here as well as on the way out: what is stored is what
+    # the admin will read back in the card, and half a character reads as junk.
+    escaped = texts.whole(html_text.strip())
     return _unescape_tags(escaped), escaped
 
 

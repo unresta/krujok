@@ -25,17 +25,17 @@ TEXTS["FEED"] = (
     "Pick which circles you want to watch."
 )
 TEXTS["RULES"] = (
-    "\u2139\ufe0f <b>Service rules</b>\n\n"
-    "\u2022 Not allowed: LGBT material, nude videos of anyone under 18, "
+    "ℹ️ <b>Service rules</b>\n\n"
+    "• Not allowed: LGBT material, nude videos of anyone under 18, "
     "advertising, spam, abuse and anything illegal\n"
-    "\u2022 A circle must be at least {min_duration} seconds long\n"
-    "\u2022 Respect other people and do not abuse the report button\n\n"
+    "• A circle must be at least {min_duration} seconds long\n"
+    "• Respect other people and do not abuse the report button\n\n"
     "Breaking the rules can cost you access to the bot without warning."
 )
 TEXTS["FAQ"] = (
-    "\u2753 <b>FAQ</b>\n\n"
+    "❓ <b>FAQ</b>\n\n"
     "<b>Where do coins come from?</b>\n"
-    "Buy them for \u2b50 in the Shop, or sell your own content: people buy "
+    "Buy them for ⭐ in the Shop, or sell your own content: people buy "
     "access to your circles and {author_share}% of the price is yours. "
     "A friend who joins through your link is worth {ref_reward} more.\n\n"
     "<b>What does watching cost?</b>\n"
@@ -51,34 +51,34 @@ TEXTS["FAQ"] = (
     "the more people are shown it.\n\n"
     "<b>What is a profile?</b>\n"
     "Your shop window: photo, description and your prices. Fill it in under "
-    "Profile \u2192 My profile, it goes through review, and then it is shown "
+    "Profile → My profile, it goes through review, and then it is shown "
     "in Browse profiles.\n\n"
     "<b>How do I cash out?</b>\n"
-    "Profile \u2192 Withdraw: from {payout_min} coins, at {payout_rate} coins "
-    "per \u2b50. Only earned coins can be withdrawn \u2014 the ones you bought "
-    "for \u2b50 cannot. An admin closes the request by hand.\n\n"
+    "Profile → Withdraw: from {payout_min} coins, at {payout_rate} coins "
+    "per ⭐. Only earned coins can be withdrawn — the ones you bought "
+    "for ⭐ cannot. An admin closes the request by hand.\n\n"
     "<b>Why was my circle turned down?</b>\n"
     "Either it is shorter than the minimum, or the same one is already in the "
     "base, or a moderator found it against the rules.\n\n"
     "<b>How long is the review?</b>\n"
-    "Usually not long. While one circle waits you can upload the next \u2014 "
+    "Usually not long. While one circle waits you can upload the next — "
     "up to {max_pending} at a time.\n\n"
     "<b>Can circles be saved or forwarded?</b>\n"
     "Not by default: they are sent with forwarding and saving switched off. "
-    "The A++ and Premium subscriptions turn that off \u2014 see Subscription.\n\n"
+    "The A++ and Premium subscriptions turn that off — see Subscription.\n\n"
     "<b>Can I bring people to my profile myself?</b>\n"
-    "Yes. Profile \u2192 \ud83d\udd17 Link to my profile: put it in your "
+    "Yes. Profile → 🔗 Link to my profile: put it in your "
     "channel or anywhere else. Whoever follows it lands straight on your "
     "profile and can buy access. The same screen counts how many came.\n\n"
     "<b>How do I get more views on my profile?</b>\n"
-    "The \ud83d\ude80 Promotion button in My profile: while it is paid for, "
+    "The 🚀 Promotion button in My profile: while it is paid for, "
     "your profile goes first in the queue and far more people see it. When the "
     "run ends the bot tells you how many did.\n\n"
     "<b>What do subscriptions give me?</b>\n"
     "Watching stops costing coins: A+ gives a free daily allowance, A++ and "
     "Premium have no limit at all and add forwarding and saving. Premium also "
     "raises how many circles you may have in review. They are paid for in coins "
-    "per day \u2014 the Subscription button in the menu.\n\n"
+    "per day — the Subscription button in the menu.\n\n"
     "<b>Why do I need a profile to upload?</b>\n"
     "Because a circle and its author belong together: every circle carries an "
     "Author profile button, and that is how a viewer buys access to all of "
@@ -93,35 +93,35 @@ TEXTS["FAQ"] = (
 
 # --- referrals ------------------------------------------------------------
 TEXTS["REFERRALS"] = (
-    "\ud83d\udc65 <b>Referrals</b>\n\n"
+    "👥 <b>Referrals</b>\n\n"
     "Invited: <b>{done}</b>{waiting}\n"
     "Every friend who joins the channel is worth "
     "<b>+{ref_reward}</b> {coin}\n\n"
     "Your link:\n<code>{link}</code>"
 )
-TEXTS["REFERRALS_WAITING"] = " \u00b7 waiting to subscribe: {waiting}"
+TEXTS["REFERRALS_WAITING"] = " · waiting to subscribe: {waiting}"
 
 # --- watching -------------------------------------------------------------
 TEXTS["NOT_ENOUGH"] = (
-    "{coin} Balance: <b>{coins}</b> \u2014 a circle costs {watch_cost}.\n\n{earn}"
+    "{coin} Balance: <b>{coins}</b> — a circle costs {watch_cost}.\n\n{earn}"
 )
-TEXTS["NOT_ENOUGH_UPLOAD"] = "Upload a circle ({reward}) or buy coins for \u2b50."
+TEXTS["NOT_ENOUGH_UPLOAD"] = "Upload a circle ({reward}) or buy coins for ⭐."
 TEXTS["NOT_ENOUGH_SELL"] = (
-    "There are two ways to get coins: buy them for \u2b50 in the Shop, or sell "
-    "your own content \u2014 set up a profile, and everyone who buys access "
+    "There are two ways to get coins: buy them for ⭐ in the Shop, or sell "
+    "your own content — set up a profile, and everyone who buys access "
     "brings you {author_share}% of what they paid."
 )
 TEXTS["PUSH_NEW"] = (
     "<b>New circles have landed. Time to watch!</b>\n\n"
-    "Press the button \u2014 {free} {circles} on the house \ud83d\udc40"
+    "Press the button — {free} {circles} on the house 👀"
 )
 TEXTS["PUSH_MISSED"] = (
-    "<b>You have not been around for a while \u2014 there are new faces here.</b>\n\n"
-    "Here are {free} {circles} on the house \ud83d\udc40"
+    "<b>You have not been around for a while — there are new faces here.</b>\n\n"
+    "Here are {free} {circles} on the house 👀"
 )
 TEXTS["PUSH_WAITING"] = (
     "<b>Somebody recorded a circle while you were away.</b>\n\n"
-    "The first {free} {circles} are free, then as usual \ud83d\udc40"
+    "The first {free} {circles} are free, then as usual 👀"
 )
 
 TEXTS["PUSH_UNACCEPTED"] = (

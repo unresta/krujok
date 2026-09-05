@@ -33,6 +33,20 @@ from keyboards import PERSON_TITLE, PREF_TITLE
 logger = logging.getLogger(__name__)
 
 
+def whole(text: str) -> str:
+    """Drop half-characters, so a broken template cannot take a message down.
+
+    Telegram counts offsets in UTF-16, and aiogram slices `html_text` by them.
+    A bold that starts in the middle of an emoji — the second half of a
+    surrogate pair — leaves that half alone in the string, and a lone surrogate
+    cannot be encoded as UTF-8 at all: the send raises UnicodeEncodeError and
+    the whole screen dies. Nothing renders such a half anyway, so it goes.
+    """
+    if not text:
+        return text
+    return text.encode("utf-8", "ignore").decode("utf-8")
+
+
 def t(key: str) -> str:
     """A text with no inserts, in the language of this update.
 
@@ -43,7 +57,7 @@ def t(key: str) -> str:
         text = en.TEXTS.get(key)
         if text is not None:
             return text
-    return globals().get(key, "")
+    return whole(globals().get(key, ""))
 
 
 def _template(key: str, template: str) -> str:
@@ -65,15 +79,15 @@ def _fmt(key: str, template: str, **values) -> str:
     values.setdefault("coin", coin())
     chosen = _template(key, template)
     try:
-        return chosen.format(**values)
+        return whole(chosen.format(**values))
     except (KeyError, IndexError, ValueError):
         import text_manager  # late: text_manager imports this module
 
         logger.warning("текст %s не собрался, показываю стандартный", key)
         try:
-            return text_manager.default(key).format(**values)
+            return whole(text_manager.default(key).format(**values))
         except (KeyError, IndexError, ValueError):
-            return template
+            return whole(template)
 
 
 def coin() -> str:
